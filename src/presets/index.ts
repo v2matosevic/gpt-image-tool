@@ -1,7 +1,7 @@
 // Public surface for the preset engine: resolve ids → objects, compile a prompt, and produce the
 // catalog the MCP `list_image_presets` tool returns.
 
-import type { ImageFormat, ImageQuality, ImageSize } from "../providers/types.js";
+import type { ImageBackground, ImageFormat, ImageQuality, ImageSize } from "../providers/types.js";
 import { compose, type Composed, type PromptOverrides } from "./compile.js";
 import { ALL_MODIFIERS, ALL_PRESETS, CATEGORIES, getModifier, getPreset, listPresets, MODIFIER_IDS, PRESET_IDS } from "./registry.js";
 import type { Modifier, Preset, PresetCategory } from "./types.js";
@@ -18,6 +18,7 @@ export interface BuildRequest {
   size?: ImageSize;
   quality?: ImageQuality;
   format?: ImageFormat;
+  background?: ImageBackground;
 }
 
 function suggest(id: string, pool: string[]): string {
@@ -47,6 +48,7 @@ export function build(req: BuildRequest): Composed {
     size: req.size,
     quality: req.quality,
     format: req.format,
+    background: req.background,
   });
 }
 

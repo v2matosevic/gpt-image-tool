@@ -5,9 +5,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { getProvider } from "./providers/index.js";
-import type { GenerateInput, ImageFormat, ImageQuality, ImageSize, InputImage } from "./providers/types.js";
+import type { GenerateInput, ImageBackground, ImageFormat, ImageProvider, ImageQuality, ImageSize, InputImage } from "./providers/types.js";
 import { build, type PromptOverrides } from "./presets/index.js";
 import { imageSize, sizeForAspect } from "./imageinfo.js";
+import { removeBackground } from "./bgremove.js";
 
 export interface StyleInput {
   subject?: string;
@@ -18,6 +19,13 @@ export interface StyleInput {
   size?: ImageSize;
   quality?: ImageQuality;
   format?: ImageFormat;
+  background?: ImageBackground;
+  /** Convenience for background:"transparent" (forces a png/webp output). */
+  transparent?: boolean;
+  /** Reference image path(s) used ONLY for style/aesthetic, not content (brand matching). */
+  styleReference?: string[];
+  /** Produce N variations of the same brief (1–6). Returned in `variants`. */
+  count?: number;
   outputPath?: string;
   backend?: string;
 }
@@ -26,12 +34,15 @@ export interface GenerateOutput {
   path: string;
   bytes: number;
   format: ImageFormat;
+  background: ImageBackground;
   backend: string;
   prompt: string;
   preset?: string;
   modifiers: string[];
   revisedPrompt?: string;
   base64: string;
+  /** Extra output paths when count > 1 (the primary is `path`). */
+  variants?: string[];
 }
 
 function defaultOutputDir(): string {
@@ -75,30 +86,84 @@ async function readInputImage(path: string): Promise<{ image: InputImage; dim: R
   return { image: { bytes, mime: mimeForPath(path) }, dim: imageSize(bytes) };
 }
 
+/** Call the provider, retrying once if the model replied with text instead of an image. */
+async function generateWithRetry(provider: ImageProvider, input: GenerateInput) {
+  try {
+    return await provider.generate(input);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/no image|returned no image/i.test(msg)) {
+      const forced: GenerateInput = {
+        ...input,
+        prompt:
+          input.prompt +
+          " IMPORTANT: respond ONLY by calling the image_generation tool to produce the image — do not reply with any text.",
+      };
+      return provider.generate(forced);
+    }
+    throw e;
+  }
+}
+
+/** Insert a "-N" suffix before the extension (for variation filenames). */
+function indexedPath(p: string, i: number): string {
+  const e = extname(p);
+  return `${p.slice(0, p.length - e.length)}-${i}${e}`;
+}
+
 /** Run a backend, persist the bytes, return the path-first result. */
 async function runAndSave(
   input: GenerateInput,
   outputPath: string | undefined,
   backend: string | undefined,
   prefix: string,
-  meta: { prompt: string; preset?: string; modifiers: string[] },
+  meta: { prompt: string; preset?: string; modifiers: string[]; count?: number; transform?: (b: Buffer) => Buffer },
 ): Promise<GenerateOutput> {
   const provider = getProvider(backend);
-  const result = await provider.generate(input);
-  const outPath = resolveOutputPath(outputPath, result.format, prefix);
-  await mkdir(dirname(outPath), { recursive: true });
-  await writeFile(outPath, result.bytes);
+  const count = Math.max(1, Math.min(6, meta.count ?? 1));
+  const basePath = resolveOutputPath(outputPath, input.format, prefix);
+  await mkdir(dirname(basePath), { recursive: true });
+
+  const saved: { path: string; result: Awaited<ReturnType<ImageProvider["generate"]>> }[] = [];
+  for (let i = 0; i < count; i++) {
+    const result = await generateWithRetry(provider, input);
+    if (meta.transform) result.bytes = meta.transform(result.bytes);
+    const outPath = count > 1 ? indexedPath(basePath, i + 1) : basePath;
+    await writeFile(outPath, result.bytes);
+    saved.push({ path: outPath, result });
+  }
+
+  const primary = saved[0]!;
   return {
-    path: outPath,
-    bytes: result.bytes.length,
-    format: result.format,
+    path: primary.path,
+    bytes: primary.result.bytes.length,
+    format: primary.result.format,
+    background: input.background ?? "auto",
     backend: provider.name,
     prompt: meta.prompt,
     preset: meta.preset,
     modifiers: meta.modifiers,
-    revisedPrompt: result.revisedPrompt,
-    base64: result.bytes.toString("base64"),
+    revisedPrompt: primary.result.revisedPrompt,
+    base64: primary.result.bytes.toString("base64"),
+    variants: saved.length > 1 ? saved.slice(1).map((s) => s.path) : undefined,
   };
+}
+
+const STYLE_REF_PREFIX =
+  "Use the attached image(s) ONLY as a style and aesthetic reference — match their visual style, " +
+  "color palette, lighting, and treatment — but depict the subject described below, not the reference's content. ";
+
+// Injected when we need transparency on a backend that can't emit it natively (subscription): the
+// model renders on a flat chroma background we then key out locally.
+const CHROMA_HEX = "#00B140"; // broadcast chroma-green: rarely present in real subjects
+const CHROMA_RGB = { r: 0x00, g: 0xb1, b: 0x40 };
+const CHROMA_PROMPT =
+  ` Render the subject fully isolated and centered on a completely solid, uniform chroma-key green` +
+  ` (${CHROMA_HEX}) background — no shadows, no gradient, no reflections, no other elements, and do` +
+  ` not use that green anywhere in the subject itself.`;
+
+function resolveBackendName(backend: string | undefined): string {
+  return (backend || process.env.GPT_IMAGE_BACKEND || "subscription").toLowerCase();
 }
 
 /** Text-to-image. Compose from subject + preset (+ modifiers + style overrides), or a raw prompt. */
@@ -112,17 +177,37 @@ export async function generateImage(opts: StyleInput): Promise<GenerateOutput> {
     size: opts.size,
     quality: opts.quality,
     format: opts.format,
+    background: opts.transparent ? "transparent" : opts.background,
   });
+
+  const wantTransparent = composed.background === "transparent";
+  const backendName = resolveBackendName(opts.backend);
+  // apikey supports native transparency; subscription does not, so render-on-chroma + key it out.
+  const nativeTransparent = wantTransparent && backendName === "apikey";
+  const chromaTransparent = wantTransparent && backendName !== "apikey";
+
+  let inputImages: InputImage[] | undefined;
+  let prompt = composed.prompt;
+  if (chromaTransparent) prompt += CHROMA_PROMPT;
+  if (opts.styleReference?.length) {
+    inputImages = (await Promise.all(opts.styleReference.map(readInputImage))).map((l) => l.image);
+    prompt = STYLE_REF_PREFIX + prompt;
+  }
+
   const input: GenerateInput = {
-    prompt: composed.prompt,
+    prompt,
     size: composed.size,
     quality: composed.quality,
-    format: composed.format,
+    format: wantTransparent ? "png" : composed.format, // alpha needs png
+    background: nativeTransparent ? "transparent" : "auto",
+    inputImages,
   };
   return runAndSave(input, opts.outputPath, opts.backend, "img", {
-    prompt: composed.prompt,
+    prompt,
     preset: composed.presetId,
     modifiers: composed.modifierIds,
+    count: opts.count,
+    transform: chromaTransparent ? (b) => removeBackground(b, { keyColor: CHROMA_RGB, tolerance: 70 }) : undefined,
   });
 }
 
@@ -166,12 +251,14 @@ export async function editImage(opts: EditInput): Promise<GenerateOutput> {
     size: composed.size,
     quality: composed.quality,
     format: composed.format,
+    background: composed.background,
     inputImages,
   };
   return runAndSave(input, opts.outputPath, opts.backend, "edit", {
     prompt,
     preset: composed.presetId,
     modifiers: composed.modifierIds,
+    count: opts.count,
   });
 }
 

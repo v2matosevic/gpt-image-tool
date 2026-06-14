@@ -2,7 +2,7 @@
 // natural-language prompt gpt-image-1 responds to best, and resolves size/quality/format.
 // Pure and dependency-free (takes already-resolved preset/modifier objects) so it's unit-testable.
 
-import type { ImageFormat, ImageQuality, ImageSize } from "../providers/types.js";
+import type { ImageBackground, ImageFormat, ImageQuality, ImageSize } from "../providers/types.js";
 import type { Modifier, Preset, PromptDims } from "./types.js";
 
 export interface PromptOverrides extends Partial<PromptDims> {
@@ -23,6 +23,7 @@ export interface ComposeInput {
   size?: ImageSize;
   quality?: ImageQuality;
   format?: ImageFormat;
+  background?: ImageBackground;
 }
 
 export interface Composed {
@@ -30,6 +31,7 @@ export interface Composed {
   size: ImageSize;
   quality: ImageQuality;
   format: ImageFormat;
+  background: ImageBackground;
   presetId?: string;
   modifierIds: string[];
 }
@@ -71,7 +73,10 @@ export function compose(input: ComposeInput): Composed {
 
   const size = input.size ?? input.preset?.recommended.size ?? DEFAULTS.size;
   const quality = input.quality ?? input.preset?.recommended.quality ?? DEFAULTS.quality;
-  const format = input.format ?? input.preset?.recommended.format ?? DEFAULTS.format;
+  let format = input.format ?? input.preset?.recommended.format ?? DEFAULTS.format;
+  let background: ImageBackground = input.background ?? input.preset?.background ?? "auto";
+  // Transparency needs alpha; silently promote jpeg → png so the request stays valid.
+  if (background === "transparent" && format === "jpeg") format = "png";
 
   let prompt: string;
   if (input.rawPrompt?.trim()) {
@@ -107,6 +112,7 @@ export function compose(input: ComposeInput): Composed {
     size,
     quality,
     format,
+    background,
     presetId: input.preset?.id,
     modifierIds: modifiers.map((m) => m.id),
   };

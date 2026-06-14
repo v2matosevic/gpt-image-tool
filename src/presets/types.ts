@@ -2,7 +2,7 @@
 // for a use case (e.g. product studio shot); the compiler weaves a subject + overrides + modifiers
 // into the natural-language prose that gpt-image-1 responds to best.
 
-import type { ImageFormat, ImageQuality, ImageSize } from "../providers/types.js";
+import type { ImageBackground, ImageFormat, ImageQuality, ImageSize } from "../providers/types.js";
 
 export type PresetCategory =
   | "photography"
@@ -55,6 +55,8 @@ export interface Preset {
   title: string;
   description: string;
   recommended: { size: ImageSize; quality: ImageQuality; format: ImageFormat };
+  /** Default alpha handling for this style (e.g. logos/stickers → "transparent"). */
+  background?: ImageBackground;
   dims: PromptDims;
   /** Things to steer away from; emitted as an "Avoid: …" clause. */
   avoid?: string[];

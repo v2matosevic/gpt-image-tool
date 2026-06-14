@@ -43,9 +43,11 @@ const styleSchema = z
   .partial();
 
 function ok(out: GenerateOutput, verb: string) {
+  const allPaths = [out.path, ...(out.variants ?? [])];
+  const pathLine = allPaths.length > 1 ? `${allPaths.length} images saved to:\n${allPaths.join("\n")}` : `saved to:\n${out.path}`;
   const text =
-    `Image ${verb} via the ${out.backend} backend and saved to:\n${out.path}\n\n` +
-    `Open/view that path to see it (${out.bytes} bytes, ${out.format}).` +
+    `Image ${verb} via the ${out.backend} backend and ${pathLine}\n\n` +
+    `Open/view to see (${out.bytes} bytes, ${out.format}${out.background === "transparent" ? ", transparent" : ""}).` +
     (out.preset ? `\nPreset: ${out.preset}${out.modifiers.length ? ` + [${out.modifiers.join(", ")}]` : ""}` : "") +
     `\nCompiled prompt: ${out.prompt}` +
     (out.revisedPrompt ? `\nModel-revised prompt: ${out.revisedPrompt}` : "");
@@ -83,9 +85,16 @@ server.registerTool(
         .describe("Composable overlays (lighting/mood/color/quality/angle) layered onto the preset."),
       style: styleSchema.optional().describe("Override individual prompt dimensions (and avoid[]/text)."),
       prompt: z.string().optional().describe("Raw prompt for full manual control. If set, preset/subject composition is bypassed."),
+      transparent: z.boolean().optional().describe("Render on a transparent background (icons/logos/stickers). Forces a png output."),
+      style_reference: z
+        .array(z.string())
+        .optional()
+        .describe("Path(s) to reference image(s) used ONLY for style/brand aesthetics (palette, treatment), not content. Great for on-brand assets."),
+      count: z.number().int().min(1).max(6).optional().describe("Produce N variations of the same brief (1–6). All paths are returned."),
       size: sizeSchema.optional().describe("Default 1024x1024. 1536x1024 = landscape, 1024x1536 = portrait. Falls back to the preset's recommended size."),
       quality: qualitySchema.optional(),
       format: formatSchema.optional(),
+      background: z.enum(["auto", "transparent", "opaque"]).optional().describe("Alpha handling. 'transparent' forces png."),
       output_path: z.string().optional().describe("Absolute file path (or a directory ending in /) to save to. Defaults to ./generated-images/."),
       backend: backendSchema.optional(),
     },
@@ -101,6 +110,10 @@ server.registerTool(
         modifiers: a.modifiers,
         style: a.style,
         prompt: a.prompt,
+        transparent: a.transparent,
+        background: a.background,
+        styleReference: a.style_reference,
+        count: a.count,
         size: a.size,
         quality: a.quality,
         format: a.format,

@@ -34,6 +34,7 @@ export class ApiKeyProvider implements ImageProvider {
     };
     if (input.size !== "auto") body.size = input.size;
     if (input.quality !== "auto") body.quality = input.quality;
+    if (input.background && input.background !== "auto" && input.format !== "jpeg") body.background = input.background;
 
     const res = await fetch(GEN_ENDPOINT, {
       method: "POST",
@@ -51,6 +52,7 @@ export class ApiKeyProvider implements ImageProvider {
     form.set("n", "1");
     if (input.size !== "auto") form.set("size", input.size);
     if (input.quality !== "auto") form.set("quality", input.quality);
+    if (input.background && input.background !== "auto" && input.format !== "jpeg") form.set("background", input.background);
     for (const img of input.inputImages ?? []) {
       // image[] supports multiple references on gpt-image-1.
       form.append("image[]", new Blob([new Uint8Array(img.bytes)], { type: img.mime }), `ref.${extFor(img.mime)}`);

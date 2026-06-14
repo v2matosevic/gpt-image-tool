@@ -24,6 +24,7 @@ export const design: Preset[] = [
     title: "Logo mark",
     description: "Minimal vector logo symbol on transparent background. Brand marks, favicons.",
     recommended: { size: "1024x1024", quality: "high", format: "png" },
+    background: "transparent",
     dims: {
       medium: "minimal flat vector logo mark",
       composition: "single centered geometric symbol, perfectly balanced, lots of clear space",
@@ -86,6 +87,7 @@ export const design: Preset[] = [
     title: "Die-cut sticker",
     description: "Glossy die-cut sticker with bold outline on transparent background.",
     recommended: { size: "1024x1024", quality: "high", format: "png" },
+    background: "transparent",
     dims: {
       medium: "die-cut sticker illustration",
       composition: "single bold subject, centered, thick clean white border outline",
