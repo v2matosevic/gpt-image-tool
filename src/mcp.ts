@@ -98,7 +98,18 @@ server.registerTool(
         .array(z.string())
         .optional()
         .describe("Path(s) to reference image(s) used ONLY for style/brand aesthetics (palette, treatment), not content. Great for on-brand assets."),
-      count: z.number().int().min(1).max(10).optional().describe("Produce N variations of the same brief (1–10). All paths are returned."),
+      count: z.number().int().min(1).max(10).optional().describe("Produce N INDEPENDENT variations of the same brief (1–10). All paths are returned."),
+      series: z
+        .number()
+        .int()
+        .min(1)
+        .max(10)
+        .optional()
+        .describe("Produce N CONSISTENT images (1–10): the first is reused as a style reference for the rest, so a character/brand stays coherent across the set."),
+      from_image: z
+        .string()
+        .optional()
+        .describe("Path to a previously-generated image: reload its saved settings (sidecar) as the base, then apply any args here on top to reproduce or tweak it."),
       size: sizeSchema.optional().describe("Default 1024x1024. 1536x1024 = landscape, 1024x1536 = portrait. Falls back to the preset's recommended size."),
       quality: qualitySchema.optional(),
       format: formatSchema.optional(),
@@ -109,8 +120,8 @@ server.registerTool(
   },
   async (a) => {
     try {
-      if (!a.subject?.trim() && !a.prompt?.trim()) {
-        throw new Error("Provide either `subject` (with an optional preset) or a raw `prompt`.");
+      if (!a.subject?.trim() && !a.prompt?.trim() && !a.from_image?.trim()) {
+        throw new Error("Provide `subject` (with an optional preset), a raw `prompt`, or `from_image`.");
       }
       const out = await generateImage({
         subject: a.subject,
@@ -122,6 +133,8 @@ server.registerTool(
         background: a.background,
         styleReference: a.style_reference,
         count: a.count,
+        series: a.series,
+        fromImage: a.from_image,
         size: a.size,
         quality: a.quality,
         format: a.format,

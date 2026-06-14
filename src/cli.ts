@@ -28,6 +28,8 @@ interface CliArgs {
   mask?: string;
   transparent?: boolean;
   count?: number;
+  series?: number;
+  from?: string;
   styleRef: string[];
   size?: ImageSize;
   quality?: ImageQuality;
@@ -58,7 +60,9 @@ function printHelp(): void {
       "  --modifier <id>        Layer a modifier (repeatable)",
       "  --style.<dim> <text>   Override a dimension, e.g. --style.lighting \"neon glow\"",
       "  --transparent          Transparent background (icons/logos/stickers; forces png)",
-      "  -n, --count <N>        Produce N variations (1-10)",
+      "  -n, --count <N>        Produce N independent variations (1-10)",
+      "  --series <N>           Produce N CONSISTENT images (first reused as style ref for the rest)",
+      "  --from <image>         Reproduce/tweak a prior image from its sidecar (then override with args)",
       "  --mask <path>          Mask PNG for --edit inpainting (transparent = regenerate here)",
       "  --style-ref <path>     Style/brand reference image (repeatable; aesthetics only)",
       "  --upscale <path>       Enhance/upscale an existing image",
@@ -129,6 +133,12 @@ function parseArgs(argv: string[]): CliArgs {
       case "--count":
       case "-n":
         args.count = Number(argv[++i]) || 1;
+        break;
+      case "--series":
+        args.series = Number(argv[++i]) || 1;
+        break;
+      case "--from":
+        args.from = argv[++i];
         break;
       case "--style-ref":
         { const v = argv[++i]; if (v) args.styleRef.push(v); }
@@ -219,7 +229,7 @@ try {
       backend: args.backend,
     });
   } else {
-    if (!args.prompt && !args.subject) {
+    if (!args.prompt && !args.subject && !args.from) {
       printHelp();
       process.exit(1);
     }
@@ -231,6 +241,8 @@ try {
       style: hasStyle ? args.style : undefined,
       transparent: args.transparent,
       count: args.count,
+      series: args.series,
+      fromImage: args.from,
       styleReference: args.styleRef.length ? args.styleRef : undefined,
       size: args.size,
       quality: args.quality,
