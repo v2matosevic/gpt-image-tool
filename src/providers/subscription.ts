@@ -14,8 +14,11 @@ const TOTAL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_TIMEOUT_MS) || 300_000;
 const STALL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_STALL_MS) || 120_000;
 
 function buildUserText(input: GenerateInput): string {
-  let t = "Use the image_generation tool to render the following. ";
-  t += `Request: ${input.prompt}. `;
+  const hasRef = (input.inputImages?.length ?? 0) > 0;
+  let t = hasRef
+    ? "Use the image_generation tool to produce a new image from the attached reference image(s), following these instructions. "
+    : "Use the image_generation tool to render the following. ";
+  t += `${hasRef ? "Instructions" : "Request"}: ${input.prompt}. `;
   t += `Output format: ${input.format}.`;
   if (input.size !== "auto") t += ` Size: ${input.size}.`;
   t += " Do not include explanatory text — produce only the image.";
@@ -26,11 +29,19 @@ function buildBody(input: GenerateInput, model: string): unknown {
   const imageTool: Record<string, unknown> = { type: "image_generation", output_format: input.format };
   if (input.size !== "auto") imageTool.size = input.size;
   if (input.quality !== "auto") imageTool.quality = input.quality; // backend may ignore/downgrade
+
+  // Multimodal content: the text brief first, then any reference images (img2img / edit / upscale).
+  // Confirmed against the live endpoint: input_image with a base64 data URI is accepted and used.
+  const content: Array<Record<string, unknown>> = [{ type: "input_text", text: buildUserText(input) }];
+  for (const img of input.inputImages ?? []) {
+    content.push({ type: "input_image", image_url: `data:${img.mime};base64,${img.bytes.toString("base64")}` });
+  }
+
   return {
     model,
     stream: true,
     instructions: "You are an image generation assistant.",
-    input: [{ type: "message", role: "user", content: [{ type: "input_text", text: buildUserText(input) }] }],
+    input: [{ type: "message", role: "user", content }],
     tools: [imageTool],
     tool_choice: "auto",
     parallel_tool_calls: false,
