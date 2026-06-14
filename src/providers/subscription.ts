@@ -3,7 +3,7 @@
 // usage bucket, not the paid API. The request shape mirrors the proven `chatgpt-imagegen` payload.
 
 import { randomUUID } from "node:crypto";
-import { getValidCreds, refreshCreds, codexVersionHeader, userAgent, reloginHint } from "../auth.js";
+import { getValidCreds, refreshAfter401, codexVersionHeader, userAgent, reloginHint } from "../auth.js";
 import type { SubscriptionCreds as Creds } from "../auth.js";
 import { parseSse } from "../sse.js";
 import { MAX_RETRIES, backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "../retry.js";
@@ -143,8 +143,9 @@ export class SubscriptionProvider implements ImageProvider {
         let res = await doRequest(creds, version, body, controller.signal);
         if (res.status === 401 || res.status === 403) {
           if (creds.refreshToken) {
-            // refreshCreds throws a clear re-login message if the session is truly dead.
-            creds = await refreshCreds(creds.refreshToken);
+            // Single-flight: re-reads the token file and only refreshes if no peer already did,
+            // so parallel jobs never reuse a rotated refresh token (which kills the session).
+            creds = await refreshAfter401(creds.accessToken);
             res = await doRequest(creds, version, body, controller.signal);
           }
           if (res.status === 401 || res.status === 403) {
