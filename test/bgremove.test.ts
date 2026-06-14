@@ -50,6 +50,24 @@ test("known chroma key clears chroma ENCLOSED by the subject (3D holes, line int
   assert.equal(out.data[(4 * 10 + 4) * 4 + 3], 255, "adjacent red subject pixel stays opaque");
 });
 
+test("de-spill leaves the subject interior fully saturated (brand teal not desaturated)", () => {
+  // Regression: the green de-spill used to clamp the green channel of EVERY
+  // opaque pixel, silently desaturating green-dominant brand colour. AVES teal
+  // #1CB5A3 = (28,181,163) became (28,163,163). De-spill must touch only the
+  // edge fringe, never the subject interior.
+  const green = [0x00, 0xb1, 0x40, 255];
+  const teal = [28, 181, 163, 255]; // green-dominant; survives the key (B differs by 99)
+  const W = 16, H = 16;
+  const png = makePng(W, H, (x, y) => (x >= 4 && x < 12 && y >= 4 && y < 12 ? teal : green));
+  const out = decodePng(removeBackground(png, { keyColor: { r: 0, g: 0xb1, b: 0x40 }, tolerance: 70 }));
+  const at = (x: number, y: number) => {
+    const o = (y * W + x) * 4;
+    return [out.data[o], out.data[o + 1], out.data[o + 2], out.data[o + 3]];
+  };
+  assert.deepEqual(at(8, 8), [28, 181, 163, 255], "interior brand teal preserved exactly");
+  assert.equal(at(0, 0)[3], 0, "green border still keyed out");
+});
+
 test("corner-sampled flood-fill preserves bg-colored pixels enclosed by the subject", () => {
   // No keyColor → sample the white corners → flood-fill removes the border but keeps an enclosed
   // white pixel surrounded by the red subject.

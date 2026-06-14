@@ -178,11 +178,44 @@ export function removeBackground(png: Buffer, opts: RemoveBgOptions = {}): Buffe
     for (let px = 0; px < n; px++) {
       if (isBg(px)) data[px * 4 + 3] = 0;
     }
-    // Green de-spill: clamp the green channel of surviving edge pixels so no green fringe remains.
+    // Green de-spill — but ONLY on true fringe: opaque pixels that border a
+    // keyed-out (transparent) pixel. The earlier version clamped the green
+    // channel of EVERY surviving pixel, which silently desaturated legitimate
+    // brand colour anywhere green dominates (AVES teal #1CB5A3 -> dull cyan,
+    // mint, foliage, etc.). Spill only ever appears at the subject's
+    // anti-aliased edge against the chroma field, so a narrow ring is all that
+    // should be touched; the subject's interior keeps its full saturation.
     if (gg > rr && gg > bb) {
+      // 1px fringe: opaque pixels 4-adjacent to a transparent pixel.
+      const ring = new Uint8Array(n);
       for (let px = 0; px < n; px++) {
+        if (data[px * 4 + 3] !== 0) continue; // scan outward from transparent
+        const x = px % w;
+        const y = (px / w) | 0;
+        if (x > 0 && data[(px - 1) * 4 + 3] !== 0) ring[px - 1] = 1;
+        if (x < w - 1 && data[(px + 1) * 4 + 3] !== 0) ring[px + 1] = 1;
+        if (y > 0 && data[(px - w) * 4 + 3] !== 0) ring[px - w] = 1;
+        if (y < h - 1 && data[(px + w) * 4 + 3] !== 0) ring[px + w] = 1;
+      }
+      // Dilate once (8-connected) to a ~2px band so wider AA halos are covered.
+      const band = Uint8Array.from(ring);
+      for (let px = 0; px < n; px++) {
+        if (!ring[px]) continue;
+        const x = px % w;
+        const y = (px / w) | 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+            const nbr = ny * w + nx;
+            if (data[nbr * 4 + 3] !== 0) band[nbr] = 1;
+          }
+        }
+      }
+      for (let px = 0; px < n; px++) {
+        if (!band[px]) continue;
         const o = px * 4;
-        if (data[o + 3] === 0) continue;
         const cap = Math.max(data[o]!, data[o + 2]!);
         if (data[o + 1]! > cap) data[o + 1] = cap;
       }
