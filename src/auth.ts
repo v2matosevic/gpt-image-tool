@@ -2,10 +2,11 @@
 // Codex CLI writes to ~/.codex/auth.json. We deliberately reuse Codex's own token file
 // (last-writer-wins) so we never run a second OAuth flow and Codex keeps the tokens fresh.
 
-import { readFile, writeFile, rename, chmod, unlink } from "node:fs/promises";
+import { readFile, writeFile, rename, chmod, unlink, open, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
+import { sleep } from "./retry.js";
 
 const OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"; // Codex CLI's published public client id
@@ -288,12 +289,68 @@ export async function checkSession(): Promise<SessionStatus> {
   }
 }
 
-/** Load creds, proactively refreshing if the access token is expired/near-expiry. */
+/**
+ * Cross-process single-flight lock around token refresh. The OAuth refresh token ROTATES on every
+ * use, and OpenAI invalidates the whole session if a rotated token is reused — so two processes
+ * refreshing at once (e.g. parallel image jobs) would kill the session. This serializes refresh:
+ * only one process refreshes; the others wait and pick up the freshly-written token. Best-effort —
+ * if the lock can't be taken within the budget, we proceed (a stale lock never blocks forever).
+ */
+export async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  const lockPath = join(dirname(authPath()), ".gpt-image-refresh.lock");
+  const deadlineMs = Date.now() + 30_000;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  while (!handle) {
+    try {
+      handle = await open(lockPath, "wx"); // O_CREAT|O_EXCL: fails if another holder exists
+    } catch (e: any) {
+      if (e?.code !== "EEXIST") throw e;
+      // Steal a stale lock (holder crashed) or give up waiting and proceed un-locked.
+      try {
+        const st = await stat(lockPath);
+        if (Date.now() - st.mtimeMs > 60_000) {
+          await unlink(lockPath).catch(() => {});
+          continue;
+        }
+      } catch {
+        continue; // lock vanished between catch and stat — retry the create
+      }
+      if (Date.now() > deadlineMs) return fn();
+      await sleep(200);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    await handle.close();
+    await unlink(lockPath).catch(() => {});
+  }
+}
+
+/**
+ * Refresh after a 401, single-flight. Under the lock we re-read the token file first: if a peer
+ * already refreshed (the stored access token changed), we use theirs instead of refreshing again —
+ * which is what prevents the rotated-token reuse that kills the session.
+ */
+export async function refreshAfter401(staleAccessToken: string): Promise<SubscriptionCreds> {
+  return withRefreshLock(async () => {
+    const fresh = await loadCreds();
+    if (fresh.accessToken !== staleAccessToken) return fresh; // a peer already refreshed
+    if (!fresh.refreshToken) throw new Error(reloginHint("subscription auth rejected and no refresh token"));
+    return refreshCreds(fresh.refreshToken);
+  });
+}
+
+/** Load creds, proactively refreshing (single-flight) if the access token is expired/near-expiry. */
 export async function getValidCreds(): Promise<SubscriptionCreds> {
   const creds = await loadCreds();
   if (isExpired(creds.accessToken) && creds.refreshToken) {
     try {
-      return await refreshCreds(creds.refreshToken);
+      return await withRefreshLock(async () => {
+        const fresh = await loadCreds();
+        if (!isExpired(fresh.accessToken)) return fresh; // a peer refreshed while we waited
+        return refreshCreds(fresh.refreshToken ?? creds.refreshToken!);
+      });
     } catch (e) {
       // If the refresh token itself is dead, surface it. Otherwise fall back to the (possibly
       // stale) token and let the request's reactive 401 handler try once more.
