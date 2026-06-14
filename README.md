@@ -66,9 +66,7 @@ up a new machine.
 **Claude Code** (user scope = available in every project):
 
 ```bash
-claude mcp add --scope user --transport stdio gpt-image \
-  --env GPT_IMAGE_AUTH_FILE=C:/Users/matos/.codex-image/auth.json \
-  -- node "B:/Coding/gpt-image-tool/dist/mcp.js"
+claude mcp add --scope user --transport stdio gpt-image -- node "B:/Coding/gpt-image-tool/dist/mcp.js"
 ```
 
 **Codex** — in `~/.codex/config.toml`:
@@ -78,15 +76,13 @@ claude mcp add --scope user --transport stdio gpt-image \
 command = "node"
 args = ["B:/Coding/gpt-image-tool/dist/mcp.js"]
 tool_timeout_sec = 180   # image generation exceeds the 60s default
-
-[mcp_servers.gpt-image.env]
-GPT_IMAGE_AUTH_FILE = "C:/Users/matos/.codex-image/auth.json"
 ```
 
-`GPT_IMAGE_AUTH_FILE` pins generation to a **dedicated image account** so it doesn't fight your
-main `codex` login for the same session (see *Caveats* → shared token file). Omit it to ride
-`~/.codex/auth.json`. Any other MCP client: run `node B:/Coding/gpt-image-tool/dist/mcp.js` as a
-stdio server.
+By default it rides `~/.codex/auth.json` — the same login your normal Codex coding keeps fresh, so
+nothing extra goes stale. `GPT_IMAGE_AUTH_FILE` can point it at a separate auth file, but note that
+Codex allows only **one live ChatGPT session per machine**: a dedicated second account just gets
+superseded (see *Caveats* → shared token file), so the override is rarely worth it. Any other MCP
+client: run `node B:/Coding/gpt-image-tool/dist/mcp.js` as a stdio server.
 
 ## Backends
 
@@ -102,26 +98,24 @@ See `.env.example`. Everything is optional for the subscription backend. Notable
 
 ## Use it on a new machine
 
-The repo carries the code; the **auth is per-device** (each machine logs the image account into its
-own Codex store — the token file is never committed). On a fresh checkout:
+The repo carries the code; the **auth is per-device** (each machine has its own `codex login`; the
+token file is never committed). On a fresh checkout:
 
 ```bash
 git clone https://github.com/v2matosevic/gpt-image-tool.git
 cd gpt-image-tool && npm install && npm run build
 
-# Log the dedicated image account into its own Codex home (path is per-OS):
-#   Windows:  $env:CODEX_HOME="C:/Users/<you>/.codex-image"; codex login
-#   macOS:    CODEX_HOME="$HOME/.codex-image" codex login
-node dist/cli.js --check       # confirm the session is live
+codex login            # if not already signed in on this machine
+node dist/cli.js --check   # confirm the session is live
 ```
 
-Then register with your agents (above), pointing `GPT_IMAGE_AUTH_FILE` at that machine's
-`.codex-image/auth.json` and the `dist/mcp.js` at this checkout's path. Both differ per machine, so
-the MCP registration is **not** synced between devices — set it once per machine.
+Then register with your agents (above), pointing `dist/mcp.js` at this checkout's path. That path
+differs per machine, so the MCP registration is **not** synced between devices — set it once per
+machine.
 
-> ⚠ Don't log the image account into Codex on two machines at once — the ChatGPT session is
-> last-writer-wins and the older one gets invalidated (`--check` will report "session ended").
-> Use a different account for images than the one you actively run `codex` with.
+> ⚠ It's the same ChatGPT account & quota as your interactive Codex/ChatGPT use. Codex keeps only
+> **one live session per machine**, and signing the same account into Codex on another device
+> supersedes this one (`--check` will then report "session ended" — just `codex login` again).
 
 ## Caveats (read once)
 
