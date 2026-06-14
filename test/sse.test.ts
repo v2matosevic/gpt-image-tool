@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseSse, type SseEvent } from "../src/sse.ts";
+import { parseSse, type SseEvent } from "../dist/sse.js";
 
 // Turn string chunks into a ReadableStream<Uint8Array>, mimicking arbitrary network framing.
 function streamOf(chunks: string[]): ReadableStream<Uint8Array> {

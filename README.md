@@ -1,23 +1,37 @@
 # gpt-image-tool
 
-Generate images from your **ChatGPT / Codex subscription** — no per-image API cost — and expose
-that as a tool any LLM agent (Claude Code, Codex CLI, Cursor, …) can call via the **Model Context
-Protocol (MCP)**. Also usable as a plain CLI.
+Generate, **edit**, and **upscale** images from your **ChatGPT / Codex subscription** — no per-image
+API cost — and expose that as a tool any LLM agent (Claude Code, Codex CLI, Cursor, …) can call via
+the **Model Context Protocol (MCP)**. Also usable as a plain CLI.
 
 It works by reusing the OAuth token that `codex login` already stores at `~/.codex/auth.json` and
 POSTing to the same ChatGPT-backend Responses endpoint Codex uses, with the built-in
 `image_generation` tool. This is the same mechanism behind Codex's own `$imagegen` — generation is
 metered against your ChatGPT/Codex usage, not API credits.
 
+**The agent doesn't write raw prompts.** It declares *intent* — a `subject` plus a curated **style
+preset** (e.g. `product-studio`, `watercolor`, `app-icon`) and optional `modifiers` (lighting, mood,
+color, angle) — and a built-in **prompt compiler** assembles the professional, natural-language
+prompt gpt-image-1 responds to best. 43 presets across 5 categories, 23 composable modifiers, every
+dimension overridable. Edit and upscale work image-to-image: pass a reference image and the model
+regenerates it (restyle, swap backgrounds, enhance detail) — also free, also on the subscription.
+
 ## How it works
 
 ```
-agent ──MCP──▶ generate_image ──▶ SubscriptionProvider
-                                     ├─ read ~/.codex/auth.json (refresh token if expired)
-                                     ├─ POST https://chatgpt.com/backend-api/codex/responses
-                                     │     model gpt-5.5, tools:[{type:image_generation}], stream
-                                     └─ parse SSE → image_generation_call.result (base64)
-                                  ──▶ save PNG to disk ──▶ return absolute path
+agent ──MCP──▶ generate_image / edit_image / upscale_image
+                     │  (subject + preset + modifiers + style)
+                     ▼
+              prompt compiler ──▶ optimized natural-language prompt + size/quality/format
+                     ▼
+              SubscriptionProvider
+                ├─ read ~/.codex/auth.json (refresh token if expired)
+                ├─ POST https://chatgpt.com/backend-api/codex/responses
+                │     model gpt-5.5, tools:[{type:image_generation}], + input_image for edit/upscale
+                └─ parse SSE → image_generation_call.result (base64)
+              ──▶ save image to disk ──▶ return absolute path
+
+MCP tools:  generate_image · edit_image · upscale_image · list_image_presets
 ```
 
 The tool **saves the image to disk and returns its path**. That's the only return shape that works
@@ -42,13 +56,42 @@ npm run build
 ## CLI
 
 ```bash
+# Raw prompt (full manual control)
 node dist/cli.js "a red fox curled up in fresh snow, soft watercolor" -o fox.png
-node dist/cli.js "minimal flat logo, single line, navy" --size 1024x1024 --format webp
+
+# Preset-driven (compiled prompt): subject + style + modifiers + per-dimension overrides
+node dist/cli.js --subject "a ceramic coffee mug with a gold rim" --preset product-studio --modifier warm-grade -o mug.png
+node dist/cli.js --subject "a friendly robot mascot" --preset clay-render --style.color "teal and coral palette"
+
+# Image-to-image
+node dist/cli.js --upscale mug.png --guidance "sharpen the gold rim" -o mug-hi.png
+node dist/cli.js --edit mug.png --instruction "place it on a sunlit wooden table"
+
+# Discover presets, or fall back to the paid API
+node dist/cli.js --presets photography      # prints the catalog (JSON)
 node dist/cli.js "product mockup" --backend apikey   # paid OpenAI Images API (needs OPENAI_API_KEY)
 ```
 
-Prints the saved file path to stdout. Options: `-o/--out`, `--size`, `-q/--quality`, `-f/--format`,
-`-b/--backend`, `-h`.
+Prints the saved file path to stdout. Key options: `--subject`, `--preset`, `--modifier` (repeatable),
+`--style.<dim>`, `--upscale`, `--edit`, `--instruction`, `--guidance`, `--presets`, `-o/--out`,
+`--size`, `-q/--quality`, `-f/--format`, `-b/--backend`, `--check`. Run `-h` for the full list.
+
+## Presets & the prompt compiler
+
+A **preset** is a curated bundle of prompt *dimensions* (medium, composition, lighting, camera,
+color, mood, detail…) for a use case. The agent supplies a `subject`; the compiler weaves a
+subject-led, natural-language prompt and resolves the recommended size/quality/format. **Modifiers**
+(`golden-hour`, `cinematic`, `pastel`, `low-angle`, …) overlay onto any preset; a `style` object
+overrides any single dimension; an `avoid` list and literal `text` are appended cleanly.
+
+Categories: **photography** (product, food, portrait, real-estate, automotive, macro, golden-hour…),
+**illustration** (flat-vector, watercolor, line-art, comic, concept-art, children's-book…),
+**design** (app-icon, logo-mark, ui-mockup, hero-banner, OG-card, sticker, seamless-pattern,
+texture…), **render3d** (isometric, clay, low-poly, CGI product, glass, voxel), **specialized**
+(pixel-art, blueprint, coloring-page, infographic, tattoo-flash, cyberpunk, synthwave, minimalist).
+
+Run `node dist/cli.js --presets` (or the `list_image_presets` MCP tool) for the full catalog. Adding
+a style is just dropping an entry into `src/presets/lib/*.ts` — no engine change.
 
 ### Health check
 

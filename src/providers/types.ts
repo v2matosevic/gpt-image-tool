@@ -7,6 +7,14 @@ export interface GenerateInput {
   size: ImageSize;
   format: ImageFormat;
   quality: ImageQuality;
+  /** Reference images for image-to-image (edit / upscale / variation). Empty/undefined = text-to-image. */
+  inputImages?: InputImage[];
+}
+
+export interface InputImage {
+  bytes: Buffer;
+  /** MIME, e.g. "image/png". Used to build the data URI / multipart part. */
+  mime: string;
 }
 
 export interface GenerateResult {

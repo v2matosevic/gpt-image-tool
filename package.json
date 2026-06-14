@@ -1,6 +1,6 @@
 {
   "name": "gpt-image-tool",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Generate images via your ChatGPT/Codex subscription (no API cost), exposed as an MCP tool + CLI for any LLM agent (Claude Code, Codex, Cursor, ...).",
@@ -20,7 +20,7 @@
     "mcp": "node dist/mcp.js",
     "cli": "node dist/cli.js",
     "check": "node dist/cli.js --check",
-    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test": "npm run build && node --experimental-strip-types --test test/*.test.ts",
     "dev:cli": "node --experimental-strip-types src/cli.ts"
   },
   "dependencies": {

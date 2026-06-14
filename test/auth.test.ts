@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cmpVersion, jwtExpiryMs, isExpired } from "../src/auth.ts";
+import { cmpVersion, jwtExpiryMs, isExpired } from "../dist/auth.js";
 
 test("cmpVersion orders semver triples", () => {
   assert.equal(cmpVersion("0.130.0", "0.130.0"), 0);
