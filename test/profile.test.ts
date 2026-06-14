@@ -4,7 +4,8 @@ import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadProfile, resetProfileCache } from "../dist/profile.js";
-import { overlay, mergeStyle } from "../dist/generate.js";
+import { overlay, mergeStyle, profileStartDir } from "../dist/generate.js";
+import { resolve, dirname } from "node:path";
 
 function withProfile(json: string, fn: () => void) {
   const dir = mkdtempSync(join(tmpdir(), "gptimg-prof-"));
@@ -40,6 +41,34 @@ test("loadProfile returns null on malformed JSON and when absent", () => {
   assert.equal(loadProfile(), null);
   delete process.env.GPT_IMAGE_PROFILE;
   resetProfileCache();
+});
+
+test("loadProfile discovers per startDir — not frozen across projects (shared server)", () => {
+  const savedProj = process.env.CLAUDE_PROJECT_DIR;
+  delete process.env.CLAUDE_PROJECT_DIR;
+  delete process.env.GPT_IMAGE_PROFILE;
+  const a = mkdtempSync(join(tmpdir(), "gptimg-A-"));
+  const b = mkdtempSync(join(tmpdir(), "gptimg-B-"));
+  writeFileSync(join(a, ".gptimage.json"), JSON.stringify({ preset: "flat-vector" }));
+  resetProfileCache();
+  try {
+    assert.equal(loadProfile(a)?.profile.preset, "flat-vector", "finds project A's profile");
+    assert.equal(loadProfile(b), null, "project B has no profile — not frozen to A");
+  } finally {
+    if (savedProj !== undefined) process.env.CLAUDE_PROJECT_DIR = savedProj;
+    resetProfileCache();
+    rmSync(a, { recursive: true, force: true });
+    rmSync(b, { recursive: true, force: true });
+  }
+});
+
+test("profileStartDir: a directory output is itself the search root (not its parent)", () => {
+  // file path → the file's directory
+  assert.equal(profileStartDir("assets/hero.png"), dirname(resolve("assets/hero.png")));
+  // directory path (trailing slash) → that directory itself, NOT one level up
+  assert.equal(profileStartDir("assets/"), resolve("assets/"));
+  assert.equal(profileStartDir("assets\\"), resolve("assets\\"));
+  assert.equal(profileStartDir(undefined), undefined);
 });
 
 test("overlay: per-call args win; modifiers and avoid merge", () => {

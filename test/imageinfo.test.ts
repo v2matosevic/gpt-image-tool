@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { imageSize, sizeForAspect, upscaleSizeForAspect } from "../dist/imageinfo.js";
+import { imageSize, looksLikeImage, sizeForAspect, upscaleSizeForAspect } from "../dist/imageinfo.js";
 
 // Minimal valid PNG header (IHDR) for a WxH image — only the header is parsed.
 function pngHeader(w: number, h: number): Buffer {
@@ -42,6 +42,15 @@ test("sizeForAspect maps to the closest supported size", () => {
   assert.equal(sizeForAspect({ width: 1920, height: 1080 }), "1536x1024");
   assert.equal(sizeForAspect({ width: 1080, height: 1920 }), "1024x1536");
   assert.equal(sizeForAspect(null), "auto");
+});
+
+test("looksLikeImage accepts image magic bytes and rejects text/garbage", () => {
+  assert.equal(looksLikeImage(pngHeader(8, 8)), true);
+  assert.equal(looksLikeImage(jpegHeader(8, 8)), true);
+  assert.equal(looksLikeImage(Buffer.from("RIFF\0\0\0\0WEBP....")), true);
+  assert.equal(looksLikeImage(Buffer.from("I'm sorry, I can't create that image.")), false);
+  assert.equal(looksLikeImage(Buffer.from("<html>error</html>")), false);
+  assert.equal(looksLikeImage(Buffer.alloc(4)), false);
 });
 
 test("upscaleSizeForAspect targets the 2K tier", () => {

@@ -4,7 +4,7 @@
 // runtime to additionally decode jpeg/webp input and encode jpeg/webp/avif output — never a hard dep.
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, extname } from "node:path";
 import { decodePng, encodePng, removeBackground, type RemoveBgOptions } from "./bgremove.js";
 
 export interface RGBA {
@@ -202,6 +202,11 @@ export async function canEncode(format: OutFormat): Promise<boolean> {
  * Cut out the background of an existing image → transparent PNG. Best on clean/solid backgrounds:
  * it samples the corner color and flood-fills from the edges (it's a keyer, not AI matting).
  */
+/** Default output path for a cutout: `<src-without-ext>-cutout.png` (no regex; handles no-extension). */
+export function cutoutPath(src: string): string {
+  return src.slice(0, src.length - extname(src).length) + "-cutout.png";
+}
+
 export async function removeBackgroundFile(srcPath: string, outPath: string, opts?: RemoveBgOptions): Promise<void> {
   const buf = await readFile(srcPath);
   const png = isPng(buf) ? buf : encodePng(await loadRGBA(srcPath));

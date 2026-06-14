@@ -13,8 +13,7 @@ import { z } from "zod";
 import { editImage, generateImage, upscaleImage, type GenerateOutput } from "./generate.js";
 import { catalog, MODIFIER_IDS, PRESET_IDS } from "./presets/index.js";
 import { exportWebAssets } from "./webassets.js";
-import { removeBackgroundFile } from "./imageops.js";
-import { extname } from "node:path";
+import { cutoutPath, removeBackgroundFile } from "./imageops.js";
 import type { ImageFormat } from "./providers/types.js";
 
 const INLINE = process.env.GPT_IMAGE_INLINE === "1";
@@ -313,7 +312,7 @@ server.registerTool(
   },
   async (a) => {
     try {
-      const out = a.output_path ?? a.image_path.replace(new RegExp(`${extname(a.image_path)}$`), "") + "-cutout.png";
+      const out = a.output_path ?? cutoutPath(a.image_path);
       await removeBackgroundFile(a.image_path, out, a.tolerance != null ? { tolerance: a.tolerance } : undefined);
       return { content: [{ type: "text", text: `Background removed → ${out} (transparent PNG).` }] } as any;
     } catch (e) {
