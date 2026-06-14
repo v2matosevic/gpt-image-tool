@@ -25,6 +25,9 @@ interface CliArgs {
   edit?: string;
   instruction?: string;
   guidance?: string;
+  transparent?: boolean;
+  count?: number;
+  styleRef: string[];
   size?: ImageSize;
   quality?: ImageQuality;
   format?: ImageFormat;
@@ -53,6 +56,9 @@ function printHelp(): void {
       "  --preset <id>          Curated style preset (see --presets)",
       "  --modifier <id>        Layer a modifier (repeatable)",
       "  --style.<dim> <text>   Override a dimension, e.g. --style.lighting \"neon glow\"",
+      "  --transparent          Transparent background (icons/logos/stickers; forces png)",
+      "  -n, --count <N>        Produce N variations (1-6)",
+      "  --style-ref <path>     Style/brand reference image (repeatable; aesthetics only)",
       "  --upscale <path>       Enhance/upscale an existing image",
       "  --edit <path>          Edit an existing image (with --instruction)",
       "  --instruction <text>   What to change (for --edit)",
@@ -72,7 +78,7 @@ function printHelp(): void {
 }
 
 function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { prompt: "", modifiers: [], style: {} };
+  const args: CliArgs = { prompt: "", modifiers: [], style: {}, styleRef: [] };
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -111,6 +117,16 @@ function parseArgs(argv: string[]): CliArgs {
         break;
       case "--guidance":
         args.guidance = argv[++i];
+        break;
+      case "--transparent":
+        args.transparent = true;
+        break;
+      case "--count":
+      case "-n":
+        args.count = Number(argv[++i]) || 1;
+        break;
+      case "--style-ref":
+        { const v = argv[++i]; if (v) args.styleRef.push(v); }
         break;
       case "--presets":
         args.presets = true;
@@ -206,6 +222,9 @@ try {
       preset: args.preset,
       modifiers: args.modifiers,
       style: hasStyle ? args.style : undefined,
+      transparent: args.transparent,
+      count: args.count,
+      styleReference: args.styleRef.length ? args.styleRef : undefined,
       size: args.size,
       quality: args.quality,
       format: args.format,
@@ -213,9 +232,10 @@ try {
       backend: args.backend,
     });
   }
-  console.log(out.path);
+  for (const p of [out.path, ...(out.variants ?? [])]) console.log(p);
   console.error(
-    `✓ ${out.backend} · ${out.bytes} bytes · ${out.format}` +
+    `✓ ${out.backend} · ${out.bytes} bytes · ${out.format}${out.background === "transparent" ? " · transparent" : ""}` +
+      (out.variants?.length ? ` · ${out.variants.length + 1} variants` : "") +
       (out.preset ? ` · preset ${out.preset}${out.modifiers.length ? ` +[${out.modifiers.join(",")}]` : ""}` : "") +
       (out.revisedPrompt ? `\n  revised: ${out.revisedPrompt}` : ""),
   );

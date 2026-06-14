@@ -71,6 +71,18 @@ test("compose throws without subject or rawPrompt", () => {
   assert.throws(() => compose({ preset }), /requires `subject`/);
 });
 
+test("background resolves from preset and transparency promotes jpeg → png", () => {
+  const transparentPreset: Preset = { ...preset, background: "transparent", recommended: { ...preset.recommended, format: "jpeg" } };
+  const c = compose({ subject: "a logo", preset: transparentPreset });
+  assert.equal(c.background, "transparent");
+  assert.equal(c.format, "png"); // promoted because jpeg can't hold alpha
+});
+
+test("explicit background overrides preset and defaults to auto", () => {
+  assert.equal(compose({ subject: "x", preset }).background, "auto");
+  assert.equal(compose({ subject: "x", preset, background: "transparent", format: "png" }).background, "transparent");
+});
+
 test("subjectDetail folds into the lead sentence", () => {
   const c = compose({
     subject: "a watch",

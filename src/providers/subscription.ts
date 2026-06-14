@@ -29,6 +29,9 @@ function buildBody(input: GenerateInput, model: string): unknown {
   const imageTool: Record<string, unknown> = { type: "image_generation", output_format: input.format };
   if (input.size !== "auto") imageTool.size = input.size;
   if (input.quality !== "auto") imageTool.quality = input.quality; // backend may ignore/downgrade
+  // NOTE: the subscription routing model rejects `background: transparent` ("not supported for this
+  // model"). Transparency is handled out-of-band by generate.ts (render on a flat bg, then key it
+  // out locally). Only the apikey backend supports the native background param.
 
   // Multimodal content: the text brief first, then any reference images (img2img / edit / upscale).
   // Confirmed against the live endpoint: input_image with a base64 data URI is accepted and used.
