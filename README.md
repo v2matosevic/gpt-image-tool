@@ -144,6 +144,41 @@ client: run `node B:/Coding/gpt-image-tool/dist/mcp.js` as a stdio server.
 See `.env.example`. Everything is optional for the subscription backend. Notable:
 `GPT_IMAGE_MODEL` (default `gpt-5.5`), `GPT_IMAGE_OUTPUT_DIR`, `GPT_IMAGE_INLINE`, `GPT_IMAGE_TIMEOUT_MS`.
 
+## Consistency & reproducibility
+
+Three features keep a project's assets coherent and re-runnable:
+
+**Project brand profile** — drop a `.gptimage.json` at your project root; every generation inherits
+it (per-call args still override). Auto-found by walking up from `CLAUDE_PROJECT_DIR` / cwd.
+
+```jsonc
+{
+  "preset": "flat-vector",
+  "style": { "color": "navy, coral and cream brand palette" },
+  "modifiers": ["minimal"],
+  "avoid": ["watermark", "stock-photo look"],
+  "outputDir": "./public/img"
+}
+```
+Edits/upscales only inherit the *operational* defaults (output dir, backend) — never the brand
+style — so an edit is never silently re-themed.
+
+**Reproducible sidecars** — every output writes a `<image>.png.json` next to it (subject, preset,
+modifiers, style, settings, compiled + model-revised prompt). Re-run or tweak any past image:
+
+```bash
+node dist/cli.js --from hero.png --style.color "warmer"   # reload hero's spec, change one thing
+```
+(Disable with `GPT_IMAGE_NO_SIDECAR=1`.)
+
+**Series mode** — generate a *consistent* set (same character/brand look) by reusing the first
+image as a style reference for the rest:
+
+```bash
+node dist/cli.js --subject "a robot mascot waving" --preset mascot --series 4
+```
+(`--count` gives N *independent* variations; `--series` gives N *coherent* ones.)
+
 ## Use it on a new machine
 
 The repo carries the code; the **auth is per-device** (each machine has its own `codex login`; the

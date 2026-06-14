@@ -3,12 +3,161 @@
 // image to disk, and returns a path-first result (the only return shape that works across agents).
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import { getProvider } from "./providers/index.js";
 import type { GenerateInput, ImageBackground, ImageFormat, ImageProvider, ImageQuality, ImageSize, InputImage } from "./providers/types.js";
 import { build, type PromptOverrides } from "./presets/index.js";
 import { imageSize, sizeForAspect, upscaleSizeForAspect } from "./imageinfo.js";
 import { removeBackground } from "./bgremove.js";
+import { loadProfile, type BrandProfile } from "./profile.js";
+
+const SIDECARS = process.env.GPT_IMAGE_NO_SIDECAR !== "1";
+
+function dedupe(xs: string[]): string[] {
+  return [...new Set(xs.map((s) => s.trim()).filter(Boolean))];
+}
+
+/** Merge two style-override sets: top dims win per-key, avoid lists concatenate, text prefers top. */
+export function mergeStyle(base?: PromptOverrides, top?: PromptOverrides): PromptOverrides | undefined {
+  if (!base && !top) return undefined;
+  const out: PromptOverrides = { ...(base ?? {}), ...(top ?? {}) };
+  const avoid = dedupe([...(base?.avoid ?? []), ...(top?.avoid ?? [])]);
+  if (avoid.length) out.avoid = avoid;
+  else delete out.avoid;
+  if (top?.text ?? base?.text) out.text = top?.text ?? base?.text;
+  return out;
+}
+
+/**
+ * Overlay explicit call options on top of a base layer (project profile or a `--from` sidecar).
+ * `top` (the per-call args) always wins; modifiers and avoid lists are merged, not replaced.
+ */
+export function overlay(base: StyleInput, top: StyleInput): StyleInput {
+  return {
+    subject: top.subject ?? base.subject,
+    prompt: top.prompt ?? base.prompt,
+    preset: top.preset ?? base.preset,
+    modifiers: dedupe([...(base.modifiers ?? []), ...(top.modifiers ?? [])]),
+    style: mergeStyle(base.style, top.style),
+    transparent: top.transparent ?? base.transparent,
+    background: top.background ?? base.background,
+    styleReference: top.styleReference ?? base.styleReference,
+    size: top.size ?? base.size,
+    quality: top.quality ?? base.quality,
+    format: top.format ?? base.format,
+    count: top.count ?? base.count,
+    series: top.series ?? base.series,
+    outputPath: top.outputPath ?? base.outputPath,
+    backend: top.backend ?? base.backend,
+  };
+}
+
+function profileAsBase(p: BrandProfile): StyleInput {
+  return {
+    preset: p.preset,
+    modifiers: p.modifiers,
+    style: p.style,
+    size: p.size,
+    quality: p.quality,
+    format: p.format,
+    background: p.background,
+    backend: p.backend,
+    // A directory default — trailing sep makes resolveOutputPath drop a timestamped file in it.
+    outputPath: p.outputDir ? (p.outputDir.endsWith(sep) || p.outputDir.endsWith("/") ? p.outputDir : p.outputDir + sep) : undefined,
+  };
+}
+
+interface Sidecar {
+  tool: string;
+  operation: "generate" | "edit" | "upscale";
+  subject?: string;
+  prompt?: string;
+  preset?: string;
+  modifiers?: string[];
+  style?: PromptOverrides;
+  size?: ImageSize;
+  quality?: ImageQuality;
+  format?: ImageFormat;
+  background?: ImageBackground;
+  backend?: string;
+  compiledPrompt: string;
+  revisedPrompt?: string;
+  styleReference?: string[];
+  inputImages?: string[];
+  maskPath?: string;
+}
+
+interface SaveMeta {
+  prompt: string;
+  preset?: string;
+  modifiers: string[];
+  count?: number;
+  transform?: (b: Buffer) => Buffer;
+  operation: Sidecar["operation"];
+  opts: StyleInput;
+  refs?: string[];
+  mask?: string;
+}
+
+function sidecarFromOpts(op: Sidecar["operation"], opts: StyleInput, meta: SaveMeta): Sidecar {
+  return {
+    tool: "gpt-image-tool",
+    operation: op,
+    subject: opts.subject,
+    prompt: opts.prompt,
+    preset: meta.preset,
+    modifiers: meta.modifiers,
+    style: opts.style,
+    size: opts.size,
+    quality: opts.quality,
+    format: opts.format,
+    background: opts.background ?? (opts.transparent ? "transparent" : undefined),
+    backend: opts.backend,
+    compiledPrompt: meta.prompt,
+    styleReference: opts.styleReference,
+  };
+}
+
+/** Reconstruct call options from a previously-written sidecar (for `--from`). */
+async function sidecarAsBase(imagePath: string): Promise<StyleInput> {
+  let raw: string;
+  try {
+    raw = await readFile(`${imagePath}.json`, "utf8");
+  } catch {
+    throw new Error(`No sidecar found for ${imagePath} (expected ${basename(imagePath)}.json). Can't --from this image.`);
+  }
+  const s = JSON.parse(raw) as Sidecar;
+  return {
+    subject: s.subject,
+    prompt: s.prompt,
+    preset: s.preset,
+    modifiers: s.modifiers,
+    style: s.style,
+    size: s.size,
+    quality: s.quality,
+    format: s.format,
+    background: s.background,
+    styleReference: s.styleReference,
+    backend: s.backend,
+  };
+}
+
+/**
+ * Apply the base layer beneath the explicit call args. `--from` reproduces a prior image (full
+ * sidecar base). Otherwise the project profile applies — its full style for generate, but only
+ * operational defaults (output dir, backend) for edit/upscale so an edit isn't silently re-branded.
+ */
+async function resolveOpts(opts: StyleInput, applyProfileStyle = true): Promise<StyleInput> {
+  if (opts.fromImage) {
+    const base = await sidecarAsBase(opts.fromImage);
+    return overlay(base, { ...opts, fromImage: undefined });
+  }
+  const loaded = loadProfile();
+  if (!loaded) return opts;
+  const full = profileAsBase(loaded.profile);
+  const base: StyleInput = applyProfileStyle ? full : { outputPath: full.outputPath, backend: full.backend };
+  return overlay(base, opts);
+}
 
 export interface StyleInput {
   subject?: string;
@@ -24,8 +173,12 @@ export interface StyleInput {
   transparent?: boolean;
   /** Reference image path(s) used ONLY for style/aesthetic, not content (brand matching). */
   styleReference?: string[];
-  /** Produce N variations of the same brief (1–10). Returned in `variants`. */
+  /** Produce N independent variations of the same brief (1–10). Returned in `variants`. */
   count?: number;
+  /** Produce a CONSISTENT set of N: the first image is reused as a style reference for the rest. */
+  series?: number;
+  /** Reproduce/tweak a prior image: load its sidecar as the base, then apply any args on top. */
+  fromImage?: string;
   outputPath?: string;
   backend?: string;
 }
@@ -111,13 +264,13 @@ function indexedPath(p: string, i: number): string {
   return `${p.slice(0, p.length - e.length)}-${i}${e}`;
 }
 
-/** Run a backend, persist the bytes, return the path-first result. */
+/** Run a backend, persist the bytes (+ a reproducibility sidecar), return the path-first result. */
 async function runAndSave(
   input: GenerateInput,
   outputPath: string | undefined,
   backend: string | undefined,
   prefix: string,
-  meta: { prompt: string; preset?: string; modifiers: string[]; count?: number; transform?: (b: Buffer) => Buffer },
+  meta: SaveMeta,
 ): Promise<GenerateOutput> {
   const provider = getProvider(backend);
   const count = Math.max(1, Math.min(10, meta.count ?? 1));
@@ -130,6 +283,14 @@ async function runAndSave(
     if (meta.transform) result.bytes = meta.transform(result.bytes);
     const outPath = count > 1 ? indexedPath(basePath, i + 1) : basePath;
     await writeFile(outPath, result.bytes);
+    if (SIDECARS) {
+      const sc = sidecarFromOpts(meta.operation, meta.opts, meta);
+      sc.revisedPrompt = result.revisedPrompt;
+      if (meta.refs) sc.inputImages = meta.refs;
+      if (meta.mask) sc.maskPath = meta.mask;
+      sc.backend = provider.name;
+      await writeFile(`${outPath}.json`, JSON.stringify(sc, null, 2)).catch(() => {});
+    }
     saved.push({ path: outPath, result });
   }
 
@@ -167,7 +328,11 @@ function resolveBackendName(backend: string | undefined): string {
 }
 
 /** Text-to-image. Compose from subject + preset (+ modifiers + style overrides), or a raw prompt. */
-export async function generateImage(opts: StyleInput): Promise<GenerateOutput> {
+export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput> {
+  const opts = await resolveOpts(rawOpts); // apply project profile / --from sidecar beneath the call
+  const series = Math.max(1, Math.min(10, opts.series ?? 1));
+  if (series > 1) return generateSeries(opts, series);
+
   const composed = build({
     subject: opts.subject,
     rawPrompt: opts.prompt,
@@ -207,8 +372,30 @@ export async function generateImage(opts: StyleInput): Promise<GenerateOutput> {
     preset: composed.presetId,
     modifiers: composed.modifierIds,
     count: opts.count,
+    operation: "generate",
+    opts,
+    refs: opts.styleReference,
     transform: chromaTransparent ? (b) => removeBackground(b, { keyColor: CHROMA_RGB, tolerance: 70 }) : undefined,
   });
+}
+
+/**
+ * Consistent SET of N: generate an anchor, then reuse it as a style reference for the rest so the
+ * whole series shares a coherent look (same character / brand). Returns anchor + variants.
+ */
+async function generateSeries(opts: StyleInput, n: number): Promise<GenerateOutput> {
+  const base = { ...opts, series: undefined, count: undefined };
+  const anchor = await generateImage(base);
+  const variants: string[] = [];
+  for (let i = 2; i <= n; i++) {
+    const next = await generateImage({
+      ...base,
+      styleReference: [...(opts.styleReference ?? []), anchor.path],
+      outputPath: opts.outputPath ? indexedPath(resolveOutputPath(opts.outputPath, anchor.format, "img"), i) : undefined,
+    });
+    variants.push(next.path);
+  }
+  return { ...anchor, variants: variants.length ? variants : undefined };
 }
 
 export interface EditInput extends StyleInput {
@@ -224,7 +411,9 @@ export interface EditInput extends StyleInput {
 const EDIT_PRESERVE = " Change only what is described; keep all other elements, composition, framing, lighting, and style identical to the reference.";
 
 /** Image-to-image edit / variation / restyle, guided by reference image(s). */
-export async function editImage(opts: EditInput): Promise<GenerateOutput> {
+export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
+  // Merge profile's operational defaults (+ a --from sidecar) without re-branding the edit.
+  const opts: EditInput = { ...rawOpts, ...(await resolveOpts(rawOpts, false)) };
   if (!opts.imagePaths?.length) throw new Error("editImage requires at least one imagePath.");
   const loaded = await Promise.all(opts.imagePaths.map(readInputImage));
   const inputImages = loaded.map((l) => l.image);
@@ -266,6 +455,10 @@ export async function editImage(opts: EditInput): Promise<GenerateOutput> {
     preset: composed.presetId,
     modifiers: composed.modifierIds,
     count: opts.count,
+    operation: "edit",
+    opts,
+    refs: opts.imagePaths,
+    mask: opts.maskPath,
   });
 }
 
@@ -289,6 +482,11 @@ const UPSCALE_PROMPT =
 /** Detail-enhancing regeneration ("upscale") guided by the source image, targeting the 2K tier. */
 export async function upscaleImage(opts: UpscaleInput): Promise<GenerateOutput> {
   if (!opts.imagePath) throw new Error("upscaleImage requires an imagePath.");
+  // Profile operational defaults only (output dir / backend) — never restyle an upscale.
+  const prof = loadProfile()?.profile;
+  const outputPath = opts.outputPath ?? (prof?.outputDir ? profileAsBase(prof).outputPath : undefined);
+  const backend = opts.backend ?? prof?.backend;
+
   const { image, dim } = await readInputImage(opts.imagePath);
   const prompt = opts.guidance?.trim() ? `${UPSCALE_PROMPT} ${opts.guidance.trim()}` : UPSCALE_PROMPT;
   const input: GenerateInput = {
@@ -299,5 +497,11 @@ export async function upscaleImage(opts: UpscaleInput): Promise<GenerateOutput> 
     inputImages: [image],
   };
   const prefix = `${basename(opts.imagePath, extname(opts.imagePath))}-upscaled`;
-  return runAndSave(input, opts.outputPath, opts.backend, prefix, { prompt, modifiers: [] });
+  return runAndSave(input, outputPath, backend, prefix, {
+    prompt,
+    modifiers: [],
+    operation: "upscale",
+    opts: { size: opts.size, quality: opts.quality, format: opts.format, backend },
+    refs: [opts.imagePath],
+  });
 }
