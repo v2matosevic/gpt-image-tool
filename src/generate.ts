@@ -341,14 +341,88 @@ const STYLE_REF_PREFIX =
   "Use the attached image(s) ONLY as a style and aesthetic reference — match their visual style, " +
   "color palette, lighting, and treatment — but depict the subject described below, not the reference's content. ";
 
-// Injected when we need transparency on a backend that can't emit it natively (subscription): the
-// model renders on a flat chroma background we then key out locally.
-const CHROMA_HEX = "#00B140"; // broadcast chroma-green: rarely present in real subjects
-const CHROMA_RGB = { r: 0x00, g: 0xb1, b: 0x40 };
-const CHROMA_PROMPT =
-  ` Render the subject fully isolated and centered on a completely solid, uniform chroma-key green` +
-  ` (${CHROMA_HEX}) background — no shadows, no gradient, no reflections, no other elements, and do` +
-  ` not use that green anywhere in the subject itself.`;
+// Transparency on a backend that can't emit it natively (subscription) is faked: the model renders
+// on a flat chroma field we key out locally. A FIXED green field fails when the subject is itself
+// green/teal/cyan — the key bites into the subject and the de-spill has no clean colour to clamp to.
+// So the key ADAPTS: we pick the candidate whose hue sits farthest from the brand/subject colour.
+interface ChromaKey {
+  hex: string;
+  name: string;
+  rgb: { r: number; g: number; b: number };
+  hue: number;
+}
+
+const CHROMA_KEYS: ChromaKey[] = [
+  { hex: "#00B140", name: "green", rgb: { r: 0x00, g: 0xb1, b: 0x40 }, hue: 150 },
+  { hex: "#FF00FF", name: "magenta", rgb: { r: 0xff, g: 0x00, b: 0xff }, hue: 300 },
+  { hex: "#1E5AFF", name: "blue", rgb: { r: 0x1e, g: 0x5a, b: 0xff }, hue: 224 },
+];
+const DEFAULT_CHROMA = CHROMA_KEYS[0]!; // green — the safe default when no colour hint is available
+
+function hexToHue(hex: string): number | null {
+  const m = /([0-9a-f]{6})/i.exec(hex);
+  if (!m) return null;
+  const int = parseInt(m[1]!, 16);
+  const r = (int >> 16) / 255;
+  const g = ((int >> 8) & 0xff) / 255;
+  const b = (int & 0xff) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (d < 1e-6) return null; // achromatic — no usable hue
+  let h: number;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  h *= 60;
+  return h < 0 ? h + 360 : h;
+}
+
+function hueDistance(a: number, b: number): number {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+/**
+ * Pick the chroma key whose hue is FARTHEST from the subject's colour hint (the first hex found in
+ * the style colour). A teal brand (#1CB5A3, hue ~172) lands on magenta, never on green. Falls back
+ * to green when there's no usable hint.
+ */
+export function pickChromaKey(colorHint?: string): ChromaKey {
+  if (!colorHint) return DEFAULT_CHROMA;
+  const hex = /#?[0-9a-f]{6}\b/i.exec(colorHint)?.[0];
+  const hue = hex ? hexToHue(hex) : null;
+  if (hue == null) return DEFAULT_CHROMA;
+  let best = DEFAULT_CHROMA;
+  let bestDist = -1;
+  for (const k of CHROMA_KEYS) {
+    const dist = hueDistance(hue, k.hue);
+    if (dist > bestDist) {
+      bestDist = dist;
+      best = k;
+    }
+  }
+  return best;
+}
+
+/**
+ * Shared chroma-transparency setup for generate + edit. Returns the prompt suffix that tells the
+ * model to render on the chosen chroma field, and the post-process that keys it back out. A no-op
+ * when transparency isn't wanted or the backend emits it natively (apikey).
+ */
+function chromaSetup(
+  wantTransparent: boolean,
+  backendName: string,
+  colorHint?: string,
+): { promptSuffix: string; transform?: (b: Buffer) => Buffer } {
+  if (!wantTransparent || backendName === "apikey") return { promptSuffix: "" };
+  const key = pickChromaKey(colorHint);
+  const promptSuffix =
+    ` Render the subject fully isolated and centered on a completely solid, uniform chroma-key ${key.name}` +
+    ` (${key.hex}) background — no shadows, no gradient, no reflections, no other elements, and do` +
+    ` not use that ${key.name} anywhere in the subject itself.`;
+  return { promptSuffix, transform: (b: Buffer) => removeBackground(b, { keyColor: key.rgb, tolerance: 70 }) };
+}
 
 function resolveBackendName(backend: string | undefined): string {
   return (backend || process.env.GPT_IMAGE_BACKEND || "subscription").toLowerCase();
@@ -376,11 +450,11 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
   const backendName = resolveBackendName(opts.backend);
   // apikey supports native transparency; subscription does not, so render-on-chroma + key it out.
   const nativeTransparent = wantTransparent && backendName === "apikey";
-  const chromaTransparent = wantTransparent && backendName !== "apikey";
+  const chroma = chromaSetup(wantTransparent, backendName, opts.style?.color);
 
   let inputImages: InputImage[] | undefined;
   let prompt = composed.prompt;
-  if (chromaTransparent) prompt += CHROMA_PROMPT;
+  if (chroma.promptSuffix) prompt += chroma.promptSuffix;
   if (opts.styleReference?.length) {
     // Skip (with a warning) any reference that can't be read — a typo in a brand profile's
     // styleReference must not break every generation in the project.
@@ -414,7 +488,7 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
     operation: "generate",
     opts,
     refs: opts.styleReference,
-    transform: chromaTransparent ? (b) => removeBackground(b, { keyColor: CHROMA_RGB, tolerance: 70 }) : undefined,
+    transform: chroma.transform,
   });
 }
 
@@ -484,18 +558,28 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
     size: opts.size ?? sizeForAspect(loaded[0]!.dim),
     quality: opts.quality,
     format: opts.format,
+    background: opts.transparent ? "transparent" : opts.background,
   });
 
   let prompt = composed.prompt;
   if (instruction && hasStyle) prompt = `${instruction}. Apply this to the reference image. ${composed.prompt}`;
   else if (instruction) prompt = instruction + EDIT_PRESERVE;
 
+  // Edits need the same fake-transparency path as generate: without it, a
+  // `transparent` edit on the subscription backend renders on a white field
+  // that nothing keys out (the "white box" cutout bug).
+  const wantTransparent = composed.background === "transparent";
+  const backendName = resolveBackendName(opts.backend);
+  const nativeTransparent = wantTransparent && backendName === "apikey";
+  const chroma = chromaSetup(wantTransparent, backendName, opts.style?.color);
+  if (chroma.promptSuffix) prompt += chroma.promptSuffix;
+
   const input: GenerateInput = {
     prompt,
     size: composed.size,
     quality: composed.quality,
-    format: composed.format,
-    background: composed.background,
+    format: wantTransparent ? "png" : composed.format, // alpha needs png
+    background: nativeTransparent ? "transparent" : "auto",
     inputImages,
     maskImage,
   };
@@ -508,6 +592,7 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
     opts,
     refs: opts.imagePaths,
     mask: opts.maskPath,
+    transform: chroma.transform,
   });
 }
 

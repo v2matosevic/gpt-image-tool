@@ -68,6 +68,22 @@ test("de-spill leaves the subject interior fully saturated (brand teal not desat
   assert.equal(at(0, 0)[3], 0, "green border still keyed out");
 });
 
+test("de-spill generalises to a non-green key (magenta) without touching the subject", () => {
+  // The de-spill must follow whatever key is used. Under a magenta key it
+  // clamps R+B fringe, and (as always) leaves the interior alone.
+  const magenta = [255, 0, 255, 255];
+  const teal = [28, 181, 163, 255];
+  const W = 16, H = 16;
+  const png = makePng(W, H, (x, y) => (x >= 4 && x < 12 && y >= 4 && y < 12 ? teal : magenta));
+  const out = decodePng(removeBackground(png, { keyColor: { r: 255, g: 0, b: 255 }, tolerance: 70 }));
+  const at = (x: number, y: number) => {
+    const o = (y * W + x) * 4;
+    return [out.data[o], out.data[o + 1], out.data[o + 2], out.data[o + 3]];
+  };
+  assert.deepEqual(at(8, 8), [28, 181, 163, 255], "interior teal preserved under a magenta key");
+  assert.equal(at(0, 0)[3], 0, "magenta border keyed out");
+});
+
 test("corner-sampled flood-fill preserves bg-colored pixels enclosed by the subject", () => {
   // No keyColor → sample the white corners → flood-fill removes the border but keeps an enclosed
   // white pixel surrounded by the red subject.
