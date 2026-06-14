@@ -25,7 +25,7 @@ test("compose builds subject-led prose and pulls preset settings", () => {
   const c = compose({ subject: "a ceramic mug", preset });
   assert.match(c.prompt, /^Studio photograph of a ceramic mug\./);
   assert.match(c.prompt, /Centered hero shot\./);
-  assert.match(c.prompt, /Avoid: watermark, clutter\.$/);
+  assert.match(c.prompt, /Do not include: watermark, clutter\.$/);
   assert.equal(c.size, "1536x1024");
   assert.equal(c.quality, "high");
   assert.equal(c.format, "jpeg");
@@ -51,19 +51,19 @@ test("modifiers overlay, overrides win, avoid merges + dedupes", () => {
   assert.doesNotMatch(c.prompt, /grey backdrop/i); // override replaced preset setting
   assert.equal(c.modifierIds[0], "warm");
   // avoid: watermark, clutter (preset) + blur (override), deduped
-  assert.match(c.prompt, /Avoid: watermark, clutter, blur\.$/);
+  assert.match(c.prompt, /Do not include: watermark, clutter, blur\.$/);
 });
 
-test("text override is rendered as a legible-text clause", () => {
+test("text override is rendered as a verbatim-text clause", () => {
   const c = compose({ subject: "a poster", preset, overrides: { text: "SALE" } });
-  assert.match(c.prompt, /includes the text "SALE", rendered clearly/);
+  assert.match(c.prompt, /Render the text "SALE" exactly and verbatim/);
 });
 
 test("raw prompt bypasses composition but still appends avoid/text", () => {
   const c = compose({ rawPrompt: "a neon cat", overrides: { avoid: ["dogs"], text: "MEOW" } });
   assert.match(c.prompt, /^a neon cat\./);
-  assert.match(c.prompt, /includes the text "MEOW"/);
-  assert.match(c.prompt, /Avoid: dogs\.$/);
+  assert.match(c.prompt, /Render the text "MEOW"/);
+  assert.match(c.prompt, /Do not include: dogs\.$/);
   assert.equal(c.size, "1024x1024"); // defaults, no preset
 });
 

@@ -25,6 +25,7 @@ interface CliArgs {
   edit?: string;
   instruction?: string;
   guidance?: string;
+  mask?: string;
   transparent?: boolean;
   count?: number;
   styleRef: string[];
@@ -57,7 +58,8 @@ function printHelp(): void {
       "  --modifier <id>        Layer a modifier (repeatable)",
       "  --style.<dim> <text>   Override a dimension, e.g. --style.lighting \"neon glow\"",
       "  --transparent          Transparent background (icons/logos/stickers; forces png)",
-      "  -n, --count <N>        Produce N variations (1-6)",
+      "  -n, --count <N>        Produce N variations (1-10)",
+      "  --mask <path>          Mask PNG for --edit inpainting (transparent = regenerate here)",
       "  --style-ref <path>     Style/brand reference image (repeatable; aesthetics only)",
       "  --upscale <path>       Enhance/upscale an existing image",
       "  --edit <path>          Edit an existing image (with --instruction)",
@@ -117,6 +119,9 @@ function parseArgs(argv: string[]): CliArgs {
         break;
       case "--guidance":
         args.guidance = argv[++i];
+        break;
+      case "--mask":
+        args.mask = argv[++i];
         break;
       case "--transparent":
         args.transparent = true;
@@ -201,6 +206,8 @@ try {
     out = await editImage({
       imagePaths: [args.edit],
       instruction: args.instruction ?? (args.prompt || undefined),
+      maskPath: args.mask,
+      count: args.count,
       subject: args.subject,
       preset: args.preset,
       modifiers: args.modifiers,

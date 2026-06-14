@@ -57,6 +57,9 @@ export class ApiKeyProvider implements ImageProvider {
       // image[] supports multiple references on gpt-image-1.
       form.append("image[]", new Blob([new Uint8Array(img.bytes)], { type: img.mime }), `ref.${extFor(img.mime)}`);
     }
+    if (input.maskImage) {
+      form.append("mask", new Blob([new Uint8Array(input.maskImage.bytes)], { type: input.maskImage.mime }), `mask.${extFor(input.maskImage.mime)}`);
+    }
     const res = await fetch(EDIT_ENDPOINT, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}` }, // fetch sets multipart boundary

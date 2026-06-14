@@ -39,6 +39,12 @@ function buildBody(input: GenerateInput, model: string): unknown {
   for (const img of input.inputImages ?? []) {
     content.push({ type: "input_image", image_url: `data:${img.mime};base64,${img.bytes.toString("base64")}` });
   }
+  // Inpainting: transparent areas of the mask mark the regions to regenerate.
+  if (input.maskImage) {
+    imageTool.input_image_mask = {
+      image_url: `data:${input.maskImage.mime};base64,${input.maskImage.bytes.toString("base64")}`,
+    };
+  }
 
   return {
     model,
