@@ -12,6 +12,20 @@ export function imageSize(buf: Buffer): Dimensions | null {
   return pngSize(buf) ?? jpegSize(buf) ?? webpSize(buf);
 }
 
+/**
+ * Cheap sanity check that a buffer is actually an image (PNG/JPEG/WebP — the formats this tool ever
+ * produces), not text/HTML/garbage — catches a backend returning a non-image payload before we save
+ * it. Magic bytes only, so it never false-rejects an unusual-but-valid encoding (unlike a full
+ * dimension parse).
+ */
+export function looksLikeImage(buf: Buffer): boolean {
+  if (buf.length < 12) return false;
+  if (buf.readUInt32BE(0) === 0x89504e47) return true; // PNG
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return true; // JPEG
+  if (buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return true; // WebP
+  return false;
+}
+
 function pngSize(b: Buffer): Dimensions | null {
   // 8-byte signature, then IHDR: [len][IHDR][width:4][height:4] → width at byte 16, height at 20.
   if (b.length < 24) return null;

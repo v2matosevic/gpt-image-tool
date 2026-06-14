@@ -7,11 +7,19 @@ import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node
 import { getProvider } from "./providers/index.js";
 import type { GenerateInput, ImageBackground, ImageFormat, ImageProvider, ImageQuality, ImageSize, InputImage } from "./providers/types.js";
 import { build, type PromptOverrides } from "./presets/index.js";
-import { imageSize, sizeForAspect, upscaleSizeForAspect } from "./imageinfo.js";
+import { imageSize, looksLikeImage, sizeForAspect, upscaleSizeForAspect } from "./imageinfo.js";
 import { removeBackground } from "./bgremove.js";
 import { loadProfile, type BrandProfile } from "./profile.js";
 
 const SIDECARS = process.env.GPT_IMAGE_NO_SIDECAR !== "1";
+
+/** The directory to discover a `.gptimage.json` profile from, given where an asset is being written.
+ *  A trailing-separator path IS the target directory; otherwise use the file's directory. */
+export function profileStartDir(outputPath?: string): string | undefined {
+  if (!outputPath) return undefined;
+  const abs = resolve(process.cwd(), outputPath);
+  return /[\\/]$/.test(outputPath) ? abs : dirname(abs);
+}
 
 function dedupe(xs: string[]): string[] {
   return [...new Set(xs.map((s) => s.trim()).filter(Boolean))];
@@ -155,7 +163,9 @@ async function resolveOpts(opts: StyleInput, applyProfileStyle = true): Promise<
     const base = await sidecarAsBase(opts.fromImage);
     return overlay(base, { ...opts, fromImage: undefined });
   }
-  const loaded = loadProfile();
+  // Discover the profile from where the caller is writing the asset (follows the right project on a
+  // shared MCP server), falling back to CLAUDE_PROJECT_DIR / cwd inside loadProfile.
+  const loaded = loadProfile(profileStartDir(opts.outputPath));
   if (!loaded) return opts;
   const full = profileAsBase(loaded.profile, dirname(loaded.path));
   const base: StyleInput = applyProfileStyle ? full : { outputPath: full.outputPath, backend: full.backend };
@@ -242,10 +252,17 @@ async function readInputImage(path: string): Promise<{ image: InputImage; dim: R
   return { image: { bytes, mime: mimeForPath(path) }, dim: imageSize(bytes) };
 }
 
-/** Call the provider, retrying once if the model replied with text instead of an image. */
+/** Call the provider, retrying once if the model replied with text instead of an image. Validates
+ *  the returned bytes are actually an image at the provider boundary (protects every consumer). */
 async function generateWithRetry(provider: ImageProvider, input: GenerateInput) {
+  const ensureImage = (r: Awaited<ReturnType<ImageProvider["generate"]>>) => {
+    if (!looksLikeImage(r.bytes)) {
+      throw new Error("backend returned data that isn't a valid image — try again or switch --backend apikey.");
+    }
+    return r;
+  };
   try {
-    return await provider.generate(input);
+    return ensureImage(await provider.generate(input));
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (/no image|returned no image/i.test(msg)) {
@@ -255,7 +272,7 @@ async function generateWithRetry(provider: ImageProvider, input: GenerateInput) 
           input.prompt +
           " IMPORTANT: respond ONLY by calling the image_generation tool to produce the image — do not reply with any text.",
       };
-      return provider.generate(forced);
+      return ensureImage(await provider.generate(forced));
     }
     throw e;
   }
@@ -282,8 +299,15 @@ async function runAndSave(
 
   const saved: { path: string; result: Awaited<ReturnType<ImageProvider["generate"]>> }[] = [];
   for (let i = 0; i < count; i++) {
-    const result = await generateWithRetry(provider, input);
-    if (meta.transform) result.bytes = meta.transform(result.bytes);
+    const result = await generateWithRetry(provider, input); // validated to be an image
+    if (meta.transform) {
+      // A keying/post-process failure must not lose the image — fall back to the original bytes.
+      try {
+        result.bytes = meta.transform(result.bytes);
+      } catch (e) {
+        console.error(`[gpt-image] background key-out failed (${e instanceof Error ? e.message : e}); saving without transparency.`);
+      }
+    }
     const outPath = count > 1 ? indexedPath(basePath, i + 1) : basePath;
     await writeFile(outPath, result.bytes);
     if (SIDECARS) {
@@ -358,8 +382,20 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
   let prompt = composed.prompt;
   if (chromaTransparent) prompt += CHROMA_PROMPT;
   if (opts.styleReference?.length) {
-    inputImages = (await Promise.all(opts.styleReference.map(readInputImage))).map((l) => l.image);
-    prompt = STYLE_REF_PREFIX + prompt;
+    // Skip (with a warning) any reference that can't be read — a typo in a brand profile's
+    // styleReference must not break every generation in the project.
+    const loaded: InputImage[] = [];
+    for (const ref of opts.styleReference) {
+      try {
+        loaded.push((await readInputImage(ref)).image);
+      } catch (e) {
+        console.error(`[gpt-image] skipping style reference ${ref}: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+    if (loaded.length) {
+      inputImages = loaded;
+      prompt = STYLE_REF_PREFIX + prompt;
+    }
   }
 
   const input: GenerateInput = {
@@ -420,7 +456,17 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
   if (!opts.imagePaths?.length) throw new Error("editImage requires at least one imagePath.");
   const loaded = await Promise.all(opts.imagePaths.map(readInputImage));
   const inputImages = loaded.map((l) => l.image);
-  const maskImage = opts.maskPath ? (await readInputImage(opts.maskPath)).image : undefined;
+  let maskImage: InputImage | undefined;
+  if (opts.maskPath) {
+    const m = await readInputImage(opts.maskPath);
+    const img = loaded[0]!.dim;
+    if (img && m.dim && (img.width !== m.dim.width || img.height !== m.dim.height)) {
+      throw new Error(
+        `mask ${opts.maskPath} (${m.dim.width}x${m.dim.height}) must match the first image (${img.width}x${img.height}).`,
+      );
+    }
+    maskImage = m.image;
+  }
 
   const hasStyle = Boolean(opts.preset || opts.subject || opts.modifiers?.length || opts.style);
   const instruction = opts.instruction?.trim();
@@ -486,7 +532,7 @@ const UPSCALE_PROMPT =
 export async function upscaleImage(opts: UpscaleInput): Promise<GenerateOutput> {
   if (!opts.imagePath) throw new Error("upscaleImage requires an imagePath.");
   // Profile operational defaults only (output dir / backend) — never restyle an upscale.
-  const loaded = loadProfile();
+  const loaded = loadProfile(profileStartDir(opts.outputPath) ?? dirname(resolve(process.cwd(), opts.imagePath)));
   const outputPath = opts.outputPath ?? (loaded ? profileAsBase(loaded.profile, dirname(loaded.path)).outputPath : undefined);
   const backend = opts.backend ?? loaded?.profile.backend;
 

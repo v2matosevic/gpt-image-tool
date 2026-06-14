@@ -13,8 +13,7 @@ import { editImage, generateImage, upscaleImage } from "./generate.js";
 import { checkSession } from "./auth.js";
 import { catalog } from "./presets/index.js";
 import { exportWebAssets, type WebAssetKind } from "./webassets.js";
-import { removeBackgroundFile } from "./imageops.js";
-import { extname } from "node:path";
+import { cutoutPath, removeBackgroundFile } from "./imageops.js";
 import type { PromptOverrides } from "./presets/index.js";
 import type { ImageFormat, ImageQuality, ImageSize } from "./providers/types.js";
 
@@ -221,7 +220,7 @@ const hasStyle = Object.keys(args.style).length > 0;
 
 // Local-only operations (no generation) handled up front.
 if (args.removeBg) {
-  const outPath = args.output ?? args.removeBg.replace(new RegExp(`${extname(args.removeBg)}$`), "") + "-cutout.png";
+  const outPath = args.output ?? cutoutPath(args.removeBg);
   await removeBackgroundFile(args.removeBg, outPath);
   console.log(outPath);
   console.error(`✓ background removed → ${outPath}`);

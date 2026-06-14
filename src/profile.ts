@@ -48,11 +48,15 @@ function findUp(filename: string, start: string): string | null {
   }
 }
 
-/** Locate the active profile: explicit env path, then walk up from CLAUDE_PROJECT_DIR, then cwd. */
-export function findProfilePath(): string | null {
+/**
+ * Locate the active profile: explicit env path, then walk up from `startDir` (where the asset is
+ * being written — this is what makes a long-lived, user-scoped MCP server find the RIGHT project's
+ * profile rather than its launch directory), then CLAUDE_PROJECT_DIR, then cwd.
+ */
+export function findProfilePath(startDir?: string): string | null {
   const explicit = process.env.GPT_IMAGE_PROFILE?.trim();
   if (explicit) return existsSync(explicit) ? explicit : null;
-  const roots = [process.env.CLAUDE_PROJECT_DIR?.trim(), process.cwd()].filter(Boolean) as string[];
+  const roots = [startDir, process.env.CLAUDE_PROJECT_DIR?.trim(), process.cwd()].filter(Boolean) as string[];
   for (const root of roots) {
     const found = findUp(PROFILE_FILENAME, root);
     if (found) return found;
@@ -60,24 +64,24 @@ export function findProfilePath(): string | null {
   return null;
 }
 
-let cache: { path: string; profile: BrandProfile } | null | undefined;
-
-/** Load + parse the project profile (cached per process). Returns null if none / unreadable. */
-export function loadProfile(): { path: string; profile: BrandProfile } | null {
-  if (cache !== undefined) return cache;
-  const path = findProfilePath();
-  if (!path) return (cache = null);
+/**
+ * Discover + parse the project profile for a context (the directory the asset is being written to).
+ * Re-read every call — deliberately NOT cached: a few `existsSync` + a tiny `readFileSync` is
+ * sub-millisecond next to a multi-second generation, and it means a long-lived MCP server always
+ * sees the right project's *current* profile (no stale entry, no unbounded cache to leak). Returns
+ * null if none / unreadable.
+ */
+export function loadProfile(startDir?: string): { path: string; profile: BrandProfile } | null {
+  const path = findProfilePath(startDir);
+  if (!path) return null;
   try {
-    const profile = JSON.parse(readFileSync(path, "utf8")) as BrandProfile;
-    return (cache = { path, profile });
+    return { path, profile: JSON.parse(readFileSync(path, "utf8")) as BrandProfile };
   } catch (e) {
     // Surface to stderr but don't fail generation over a malformed profile.
     console.error(`[gpt-image] ignoring malformed ${PROFILE_FILENAME} at ${path}: ${e instanceof Error ? e.message : e}`);
-    return (cache = null);
+    return null;
   }
 }
 
-/** Test seam: drop the cached profile. */
-export function resetProfileCache(): void {
-  cache = undefined;
-}
+/** Kept for test compatibility — there is no longer a cache to reset. */
+export function resetProfileCache(): void {}
