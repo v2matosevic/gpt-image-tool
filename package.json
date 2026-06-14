@@ -1,6 +1,6 @@
 {
   "name": "gpt-image-tool",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Generate images via your ChatGPT/Codex subscription (no API cost), exposed as an MCP tool + CLI for any LLM agent (Claude Code, Codex, Cursor, ...).",

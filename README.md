@@ -33,7 +33,8 @@ agent ──MCP──▶ generate_image / edit_image / upscale_image
                 └─ parse SSE → image_generation_call.result (base64)
               ──▶ save image to disk ──▶ return absolute path
 
-MCP tools:  generate_image · edit_image · upscale_image · list_image_presets
+MCP tools:  generate_image · edit_image · upscale_image · export_web_assets
+            remove_background · list_image_presets
 ```
 
 The tool **saves the image to disk and returns its path**. That's the only return shape that works
@@ -144,6 +145,29 @@ client: run `node B:/Coding/gpt-image-tool/dist/mcp.js` as a stdio server.
 See `.env.example`. Everything is optional for the subscription backend. Notable:
 `GPT_IMAGE_MODEL` (default `gpt-5.5`), `GPT_IMAGE_OUTPUT_DIR`, `GPT_IMAGE_INLINE`, `GPT_IMAGE_TIMEOUT_MS`.
 
+## Web-ready assets (favicons, OG, hero, app icons)
+
+Generate once, then slice into the exact production deliverables — correctly sized and cropped —
+without leaving the tool. All local (no model call), and **dependency-free** (PNG + `.ico`); install
+`sharp` only if you want `webp`/`jpeg` output or non-PNG input.
+
+```bash
+# from an existing image
+node dist/cli.js --web favicon --image logo.png            # 16/32/48/180/512 PNGs + favicon.ico
+node dist/cli.js --web og      --image hero.png             # 1200x630, 1080x1080, 1600x900
+node dist/cli.js --web hero    --image hero.png             # responsive widths (640…1920)
+node dist/cli.js --web appicon --image mark.png            # iOS/Android/PWA sizes
+
+# or generate the source inline
+node dist/cli.js --web favicon --subject "a mountain peak mark" --preset logo-mark
+```
+
+MCP: `export_web_assets({ kind, image_path | subject, out_dir? })`. Generate the source at high
+quality (it auto-picks 2K for hero/og) and the slices downsample crisply.
+
+**Background cutout** — `remove_background` (MCP) / `--remove-bg <image>` cuts out *any* image to a
+transparent PNG. Best on clean/solid backgrounds (it's a chroma/edge keyer, not AI matting).
+
 ## Consistency & reproducibility
 
 Three features keep a project's assets coherent and re-runnable:
@@ -155,11 +179,14 @@ it (per-call args still override). Auto-found by walking up from `CLAUDE_PROJECT
 {
   "preset": "flat-vector",
   "style": { "color": "navy, coral and cream brand palette" },
+  "styleReference": ["./brand/hero.png"],
   "modifiers": ["minimal"],
   "avoid": ["watermark", "stock-photo look"],
   "outputDir": "./public/img"
 }
 ```
+`styleReference` (a logo/hero/brand image, resolved relative to the profile) is the strongest anchor —
+every generation visually matches it. Paths in the profile resolve from the profile's own location.
 Edits/upscales only inherit the *operational* defaults (output dir, backend) — never the brand
 style — so an edit is never silently re-themed.
 
