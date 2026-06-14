@@ -6,6 +6,7 @@ import { illustration } from "./lib/illustration.js";
 import { design } from "./lib/design.js";
 import { render3d } from "./lib/render3d.js";
 import { specialized } from "./lib/specialized.js";
+import { webdev } from "./lib/webdev.js";
 import { modifiers as MODIFIER_LIST } from "./lib/modifiers.js";
 
 export const ALL_PRESETS: Preset[] = [
@@ -14,11 +15,12 @@ export const ALL_PRESETS: Preset[] = [
   ...design,
   ...render3d,
   ...specialized,
+  ...webdev,
 ];
 
 export const ALL_MODIFIERS: Modifier[] = MODIFIER_LIST;
 
-export const CATEGORIES: PresetCategory[] = ["photography", "illustration", "design", "render3d", "specialized"];
+export const CATEGORIES: PresetCategory[] = ["photography", "illustration", "design", "render3d", "specialized", "webdev"];
 
 function indexBy<T extends { id: string }>(items: T[], label: string): Map<string, T> {
   const map = new Map<string, T>();

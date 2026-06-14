@@ -37,13 +37,27 @@ test("removeBackground keys out the green border but keeps the subject", () => {
   assert.equal(out.data[(5 * 10 + 5) * 4], 220, "subject color preserved");
 });
 
-test("flood-fill leaves background-colored pixels INSIDE the subject opaque", () => {
+test("known chroma key clears chroma ENCLOSED by the subject (3D holes, line interiors)", () => {
   const green = [0x00, 0xb1, 0x40, 255];
-  // subject block contains a green pixel in its middle — not reachable from the edge, must stay opaque.
+  // A green pixel trapped inside a red block — unreachable from the edge. With a known key color
+  // it must still be removed (global key), since the background is defined by color.
   const png = makePng(10, 10, (x, y) => {
     if (x >= 3 && x < 7 && y >= 3 && y < 7) return x === 5 && y === 5 ? green : [220, 30, 30, 255];
     return green;
   });
   const out = decodePng(removeBackground(png, { keyColor: { r: 0, g: 0xb1, b: 0x40 }, tolerance: 40 }));
-  assert.equal(out.data[(5 * 10 + 5) * 4 + 3], 255, "enclosed green pixel must remain opaque");
+  assert.equal(out.data[(5 * 10 + 5) * 4 + 3], 0, "enclosed chroma must be removed with a known key");
+  assert.equal(out.data[(4 * 10 + 4) * 4 + 3], 255, "adjacent red subject pixel stays opaque");
+});
+
+test("corner-sampled flood-fill preserves bg-colored pixels enclosed by the subject", () => {
+  // No keyColor → sample the white corners → flood-fill removes the border but keeps an enclosed
+  // white pixel surrounded by the red subject.
+  const png = makePng(10, 10, (x, y) => {
+    if (x >= 3 && x < 7 && y >= 3 && y < 7) return x === 5 && y === 5 ? [255, 255, 255, 255] : [220, 30, 30, 255];
+    return [255, 255, 255, 255];
+  });
+  const out = decodePng(removeBackground(png, { tolerance: 40 }));
+  assert.equal(out.data[0 + 3], 0, "border must be removed");
+  assert.equal(out.data[(5 * 10 + 5) * 4 + 3], 255, "enclosed white must remain opaque");
 });

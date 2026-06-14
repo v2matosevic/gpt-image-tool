@@ -171,27 +171,42 @@ export function removeBackground(png: Buffer, opts: RemoveBgOptions = {}): Buffe
     return Math.abs(data[o]! - rr) <= tol && Math.abs(data[o + 1]! - gg) <= tol && Math.abs(data[o + 2]! - bb) <= tol;
   };
 
-  const visited = new Uint8Array(n);
-  const stack: number[] = [];
-  for (let x = 0; x < w; x++) {
-    stack.push(x, (h - 1) * w + x);
-  }
-  for (let y = 0; y < h; y++) {
-    stack.push(y * w, y * w + (w - 1));
-  }
-
-  while (stack.length) {
-    const px = stack.pop()!;
-    if (visited[px]) continue;
-    visited[px] = 1;
-    if (!isBg(px)) continue;
-    data[px * 4 + 3] = 0; // transparent
-    const x = px % w;
-    const y = (px / w) | 0;
-    if (x > 0) stack.push(px - 1);
-    if (x < w - 1) stack.push(px + 1);
-    if (y > 0) stack.push(px - w);
-    if (y < h - 1) stack.push(px + w);
+  if (opts.keyColor) {
+    // Known chroma key: the background is DEFINED by color, so remove every matching pixel —
+    // this also clears chroma trapped INSIDE the subject (holes in 3D forms, line-icon interiors)
+    // that an edge flood-fill can never reach.
+    for (let px = 0; px < n; px++) {
+      if (isBg(px)) data[px * 4 + 3] = 0;
+    }
+    // Green de-spill: clamp the green channel of surviving edge pixels so no green fringe remains.
+    if (gg > rr && gg > bb) {
+      for (let px = 0; px < n; px++) {
+        const o = px * 4;
+        if (data[o + 3] === 0) continue;
+        const cap = Math.max(data[o]!, data[o + 2]!);
+        if (data[o + 1]! > cap) data[o + 1] = cap;
+      }
+    }
+  } else {
+    // Unknown background (e.g. a flat white photo): flood-fill from the edges so background-colored
+    // regions enclosed by the subject stay opaque.
+    const visited = new Uint8Array(n);
+    const stack: number[] = [];
+    for (let x = 0; x < w; x++) stack.push(x, (h - 1) * w + x);
+    for (let y = 0; y < h; y++) stack.push(y * w, y * w + (w - 1));
+    while (stack.length) {
+      const px = stack.pop()!;
+      if (visited[px]) continue;
+      visited[px] = 1;
+      if (!isBg(px)) continue;
+      data[px * 4 + 3] = 0;
+      const x = px % w;
+      const y = (px / w) | 0;
+      if (x > 0) stack.push(px - 1);
+      if (x < w - 1) stack.push(px + 1);
+      if (y > 0) stack.push(px - w);
+      if (y < h - 1) stack.push(px + w);
+    }
   }
 
   return encodePng(img);
