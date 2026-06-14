@@ -10,13 +10,23 @@ POSTing to the same ChatGPT-backend Responses endpoint Codex uses, with the buil
 metered against your ChatGPT/Codex usage, not API credits.
 
 **The agent doesn't write raw prompts.** It declares *intent* — a `subject` plus a curated **style
-preset** (e.g. `product-studio`, `watercolor`, `app-icon`) and optional `modifiers` (lighting, mood,
-color, angle) — and a built-in **prompt compiler** assembles the professional, natural-language
-prompt gpt-image-1 responds to best. 56 presets across 5 categories, 23 composable modifiers, every
-dimension overridable. Edit and upscale work image-to-image: pass a reference image and the model
-regenerates it (restyle, swap backgrounds, mask-based **inpainting**, enhance detail) — also free,
-also on the subscription. Plus **transparency** (logos/stickers), **variations** (up to 10 per call),
-**brand/style references**, and **2K output**.
+preset** (e.g. `product-studio`, `watercolor`, `app-icon`, `hero-3d`) and optional `modifiers`
+(lighting, mood, color, angle) — and a built-in **prompt compiler** assembles the professional,
+natural-language prompt the gpt-image model responds to best. **66 presets across 6 categories**, 23
+composable modifiers, every dimension overridable. Edit and upscale work image-to-image (restyle,
+swap backgrounds, mask **inpainting**, enhance to **2K**). Plus **transparency** (logos/stickers),
+**variations** + consistent **series**, **brand profiles**, **web-asset export** (favicons/OG/hero/
+app-icons), and **background cutout** — all free, all on the subscription.
+
+## Documentation
+
+| Doc | What's in it |
+|---|---|
+| This README | Overview, quick start, the toolkit, install/register, caveats. |
+| [docs/AGENTS.md](docs/AGENTS.md) | How an AI agent should drive the tools (the practical loop). |
+| [docs/TOOLS.md](docs/TOOLS.md) | Complete reference: every MCP tool + param, every CLI flag, `.gptimage.json`, env vars. |
+| [docs/PRESETS.md](docs/PRESETS.md) | The full preset + modifier catalog (auto-generated). |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How it works internally: auth, SSE, compiler, transparency, web pipeline, reliability. |
 
 ## How it works
 
@@ -90,14 +100,16 @@ subject-led, natural-language prompt and resolves the recommended size/quality/f
 (`golden-hour`, `cinematic`, `pastel`, `low-angle`, …) overlay onto any preset; a `style` object
 overrides any single dimension; an `avoid` list and literal `text` are appended cleanly.
 
-Categories: **photography** (product, food, portrait, real-estate, automotive, macro, golden-hour…),
-**illustration** (flat-vector, watercolor, line-art, comic, concept-art, children's-book…),
-**design** (app-icon, logo-mark, ui-mockup, hero-banner, OG-card, sticker, seamless-pattern,
-texture…), **render3d** (isometric, clay, low-poly, CGI product, glass, voxel), **specialized**
-(pixel-art, blueprint, coloring-page, infographic, tattoo-flash, cyberpunk, synthwave, minimalist).
+Categories: **photography** (product, food, portrait, automotive, macro, golden-hour…),
+**illustration** (flat-vector, watercolor, oil, comic, ukiyo-e, children's-book…), **design**
+(app-icon, logo-mark, ui-mockup, hero-banner, OG-card, sticker, seamless-pattern…), **render3d**
+(isometric, clay, low-poly, CGI product, glass, voxel), **specialized** (pixel-art, blueprint,
+infographic, tattoo-flash, cyberpunk, synthwave, trading-card…), and **webdev** (hero-3d, icon-3d,
+glyph-icon, spot-illustration, mesh-gradient, device-mockup, avatar, mascot, wireframe).
 
-Run `node dist/cli.js --presets` (or the `list_image_presets` MCP tool) for the full catalog. Adding
-a style is just dropping an entry into `src/presets/lib/*.ts` — no engine change.
+Full catalog: [docs/PRESETS.md](docs/PRESETS.md), or `node dist/cli.js --presets` / the
+`list_image_presets` MCP tool. Adding a style is just dropping an entry into `src/presets/lib/*.ts` —
+no engine change (`npm run docs:presets` regenerates the catalog).
 
 ### Health check
 
@@ -142,8 +154,10 @@ client: run `node B:/Coding/gpt-image-tool/dist/mcp.js` as a stdio server.
 
 ## Configuration
 
-See `.env.example`. Everything is optional for the subscription backend. Notable:
-`GPT_IMAGE_MODEL` (default `gpt-5.5`), `GPT_IMAGE_OUTPUT_DIR`, `GPT_IMAGE_INLINE`, `GPT_IMAGE_TIMEOUT_MS`.
+Everything is optional for the subscription backend. The full table of environment variables, the
+`.gptimage.json` profile schema, and every tool/flag are in **[docs/TOOLS.md](docs/TOOLS.md)**
+(see also `.env.example`). Notable: `GPT_IMAGE_MODEL` (default `gpt-5.5`), `GPT_IMAGE_OUTPUT_DIR`,
+`GPT_IMAGE_INLINE`, `GPT_IMAGE_PROFILE`, `GPT_IMAGE_MAX_RETRIES`.
 
 ## Web-ready assets (favicons, OG, hero, app icons)
 
