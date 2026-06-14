@@ -235,9 +235,9 @@ server.registerTool(
       "Optionally filter by category.",
     inputSchema: {
       category: z
-        .enum(["photography", "illustration", "design", "render3d", "specialized"])
+        .enum(["photography", "illustration", "design", "render3d", "specialized", "webdev"])
         .optional()
-        .describe("Filter presets to one category."),
+        .describe("Filter presets to one category (webdev = hero 3D / icons / mockups / gradients for web & app dev)."),
     },
   },
   async (a) => {
