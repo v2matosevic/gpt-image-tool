@@ -63,12 +63,23 @@ export interface CatalogEntry {
 
 const TUNABLE = ["medium", "composition", "subjectDetail", "setting", "lighting", "camera", "color", "mood", "detail"];
 
+// A concise how-to-use-this-well guide so a fresh agent uses the toolset expertly.
+const PLAYBOOK = [
+  "Pick a preset from this catalog that matches the goal, then call generate_image with { subject, preset }. Add `modifiers` (lighting/mood/color/angle) and `style` (override any single dimension) to fine-tune.",
+  "Transparent assets (logos, icons, stickers, 3D hero elements): set transparent:true (or use a preset whose background is transparent). Output is a real RGBA PNG that composites onto any page.",
+  "Consistency: drop a .gptimage.json brand profile at the project root (preset, brand color/style, styleReference to a logo/hero image, outputDir) — every generation inherits it. Or pass style_reference per call to match an existing image. Use `series: N` for a coherent set (vs `count: N` for independent variations).",
+  "Web deliverables: use export_web_assets({ image_path | <generate>, kind }) to slice one image into favicons (16-512 + .ico), OG/social cards (1200x630…), responsive hero widths, or app-icon sets — correctly sized & cropped. Generate the source at high quality first (2K), then export.",
+  "Edit/iterate: edit_image to change an existing image (instruction; add mask_path for inpainting a region). upscale_image to enhance to ~2K. remove_background to cut out any image (best on clean backgrounds). from_image reloads a prior image's settings to reproduce or tweak it.",
+  "Quality: prefer specific direction over generic words (the presets already do this). For text in an image use the `style.text` field (quoted, rendered verbatim). Set GPT_IMAGE_INLINE=1 to also receive the image inline so you can see and judge it.",
+];
+
 /** The structured catalog for `list_image_presets`: presets grouped + the modifier list. */
 export function catalog(category?: PresetCategory): {
   presets: CatalogEntry[];
   modifiers: { id: string; kind: string; title: string }[];
   categories: PresetCategory[];
   usage: string;
+  playbook: string[];
 } {
   const presets = listPresets(category).map((p) => ({
     id: p.id,
@@ -86,5 +97,6 @@ export function catalog(category?: PresetCategory): {
       "Call generate_image with { subject, preset, modifiers?, style? }. `subject` is what to depict; " +
       "`preset` picks a curated style; `modifiers` layer lighting/mood/color/quality/angle; `style` overrides " +
       "any individual dimension (e.g. {\"setting\":\"dark walnut table\"}). Omit preset and pass a raw `prompt` for full manual control.",
+    playbook: PLAYBOOK,
   };
 }

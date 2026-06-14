@@ -52,18 +52,21 @@ export function overlay(base: StyleInput, top: StyleInput): StyleInput {
   };
 }
 
-function profileAsBase(p: BrandProfile): StyleInput {
+function profileAsBase(p: BrandProfile, baseDir: string): StyleInput {
+  const rel = (x: string) => (isAbsolute(x) ? x : resolve(baseDir, x));
+  const dir = p.outputDir ? rel(p.outputDir) : undefined;
   return {
     preset: p.preset,
     modifiers: p.modifiers,
     style: p.style,
+    styleReference: p.styleReference?.map(rel),
     size: p.size,
     quality: p.quality,
     format: p.format,
     background: p.background,
     backend: p.backend,
     // A directory default — trailing sep makes resolveOutputPath drop a timestamped file in it.
-    outputPath: p.outputDir ? (p.outputDir.endsWith(sep) || p.outputDir.endsWith("/") ? p.outputDir : p.outputDir + sep) : undefined,
+    outputPath: dir ? (dir.endsWith(sep) ? dir : dir + sep) : undefined,
   };
 }
 
@@ -154,7 +157,7 @@ async function resolveOpts(opts: StyleInput, applyProfileStyle = true): Promise<
   }
   const loaded = loadProfile();
   if (!loaded) return opts;
-  const full = profileAsBase(loaded.profile);
+  const full = profileAsBase(loaded.profile, dirname(loaded.path));
   const base: StyleInput = applyProfileStyle ? full : { outputPath: full.outputPath, backend: full.backend };
   return overlay(base, opts);
 }
@@ -483,9 +486,9 @@ const UPSCALE_PROMPT =
 export async function upscaleImage(opts: UpscaleInput): Promise<GenerateOutput> {
   if (!opts.imagePath) throw new Error("upscaleImage requires an imagePath.");
   // Profile operational defaults only (output dir / backend) — never restyle an upscale.
-  const prof = loadProfile()?.profile;
-  const outputPath = opts.outputPath ?? (prof?.outputDir ? profileAsBase(prof).outputPath : undefined);
-  const backend = opts.backend ?? prof?.backend;
+  const loaded = loadProfile();
+  const outputPath = opts.outputPath ?? (loaded ? profileAsBase(loaded.profile, dirname(loaded.path)).outputPath : undefined);
+  const backend = opts.backend ?? loaded?.profile.backend;
 
   const { image, dim } = await readInputImage(opts.imagePath);
   const prompt = opts.guidance?.trim() ? `${UPSCALE_PROMPT} ${opts.guidance.trim()}` : UPSCALE_PROMPT;

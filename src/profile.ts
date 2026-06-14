@@ -26,6 +26,8 @@ export interface BrandProfile {
   preset?: string;
   modifiers?: string[];
   style?: ProfileStyle;
+  /** Path(s) to a logo/hero/brand image; every generation matches its look (strongest anchor). */
+  styleReference?: string[];
   size?: ImageSize;
   quality?: ImageQuality;
   format?: ImageFormat;

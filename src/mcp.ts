@@ -12,6 +12,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { editImage, generateImage, upscaleImage, type GenerateOutput } from "./generate.js";
 import { catalog, MODIFIER_IDS, PRESET_IDS } from "./presets/index.js";
+import { exportWebAssets } from "./webassets.js";
+import { removeBackgroundFile } from "./imageops.js";
+import { extname } from "node:path";
 import type { ImageFormat } from "./providers/types.js";
 
 const INLINE = process.env.GPT_IMAGE_INLINE === "1";
@@ -232,6 +235,87 @@ server.registerTool(
         backend: a.backend,
       });
       return ok(out, "upscaled");
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "export_web_assets",
+  {
+    title: "Export web-ready asset set (favicons, OG, hero, app icons)",
+    description:
+      "Slice ONE image into the exact production deliverables a site needs — correctly sized and " +
+      "cropped, dropped into a folder. kinds: 'favicon' (16-512 PNGs + favicon.ico), 'og' " +
+      "(1200x630 / 1080x1080 / 1600x900 social cards), 'hero' (responsive widths), 'appicon' " +
+      "(iOS/Android/PWA sizes). Provide an existing `image_path`, OR generate the source inline by " +
+      "passing `subject` (+ optional preset/transparent). PNG output is dependency-free; jpeg/webp " +
+      "for og/hero need `sharp` installed (falls back to PNG otherwise).",
+    inputSchema: {
+      kind: z.enum(["favicon", "og", "hero", "appicon"]).describe("Which deliverable set to produce."),
+      image_path: z.string().optional().describe("Existing source image to slice. Omit to generate one from `subject`."),
+      subject: z.string().optional().describe("If no image_path: what to depict for the generated source."),
+      preset: z.enum(PRESET_IDS as [string, ...string[]]).optional().describe("Preset for the generated source (e.g. logo-mark for favicons, hero-banner for hero)."),
+      transparent: z.boolean().optional().describe("Generate the source on a transparent background (recommended for favicon/appicon)."),
+      out_dir: z.string().optional().describe("Output directory. Defaults to a ./web folder next to the source."),
+      base_name: z.string().optional().describe("Base filename for the assets (default = kind)."),
+      format: z.enum(["png", "jpeg", "webp"]).optional().describe("Preferred format for og/hero (icons are always png)."),
+    },
+  },
+  async (a) => {
+    try {
+      let sourcePath = a.image_path;
+      let genNote = "";
+      if (!sourcePath) {
+        if (!a.subject?.trim()) throw new Error("Provide either `image_path` or `subject` to generate the source.");
+        const gen = await generateImage({
+          subject: a.subject,
+          preset: a.preset,
+          transparent: a.transparent ?? (a.kind === "favicon" || a.kind === "appicon"),
+          size: a.kind === "og" ? "1536x1024" : a.kind === "hero" ? "2048x1152" : "1024x1024",
+        });
+        sourcePath = gen.path;
+        genNote = `Generated source: ${gen.path}\n`;
+      }
+      const res = await exportWebAssets({
+        sourcePath,
+        kind: a.kind,
+        outDir: a.out_dir,
+        baseName: a.base_name,
+        format: a.format,
+      });
+      const list = res.files.map((f) => `  ${f.path}  (${f.width}x${f.height} ${f.format})`).join("\n");
+      const text =
+        `${genNote}Exported ${res.files.length} ${res.kind} asset(s) to ${res.outDir}:\n${list}` +
+        (res.notes.length ? `\n\nNotes: ${res.notes.join(" ")}` : "");
+      return { content: [{ type: "text", text }] } as any;
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "remove_background",
+  {
+    title: "Remove image background (cutout → transparent PNG)",
+    description:
+      "Cut out the background of ANY image and save a transparent PNG. Works best on a clean/solid " +
+      "background — it samples the corner color and flood-fills from the edges (a keyer, not AI " +
+      "matting), so busy/photographic backgrounds won't cut cleanly. PNG input is dependency-free; " +
+      "jpeg/webp input needs `sharp` installed.",
+    inputSchema: {
+      image_path: z.string().describe("Image to cut out."),
+      output_path: z.string().optional().describe("Where to save (default: <image>-cutout.png)."),
+      tolerance: z.number().int().min(0).max(180).optional().describe("Color tolerance vs the sampled background (default 28). Raise for soft/anti-aliased edges."),
+    },
+  },
+  async (a) => {
+    try {
+      const out = a.output_path ?? a.image_path.replace(new RegExp(`${extname(a.image_path)}$`), "") + "-cutout.png";
+      await removeBackgroundFile(a.image_path, out, a.tolerance != null ? { tolerance: a.tolerance } : undefined);
+      return { content: [{ type: "text", text: `Background removed → ${out} (transparent PNG).` }] } as any;
     } catch (e) {
       return fail(e);
     }

@@ -12,6 +12,9 @@
 import { editImage, generateImage, upscaleImage } from "./generate.js";
 import { checkSession } from "./auth.js";
 import { catalog } from "./presets/index.js";
+import { exportWebAssets, type WebAssetKind } from "./webassets.js";
+import { removeBackgroundFile } from "./imageops.js";
+import { extname } from "node:path";
 import type { PromptOverrides } from "./presets/index.js";
 import type { ImageFormat, ImageQuality, ImageSize } from "./providers/types.js";
 
@@ -23,6 +26,9 @@ interface CliArgs {
   style: PromptOverrides;
   upscale?: string;
   edit?: string;
+  web?: string;
+  image?: string;
+  removeBg?: string;
   instruction?: string;
   guidance?: string;
   mask?: string;
@@ -67,6 +73,10 @@ function printHelp(): void {
       "  --style-ref <path>     Style/brand reference image (repeatable; aesthetics only)",
       "  --upscale <path>       Enhance/upscale an existing image",
       "  --edit <path>          Edit an existing image (with --instruction)",
+      "  --web <kind>           Export web assets: favicon | og | hero | appicon",
+      "                           source = --image <path>, or generate from --subject/--preset",
+      "  --image <path>         Source image for --web (instead of generating)",
+      "  --remove-bg <path>     Cut out background → transparent PNG (clean backgrounds only)",
       "  --instruction <text>   What to change (for --edit)",
       "  --guidance <text>      Extra guidance (for --upscale)",
       "  --presets [category]   Print the preset + modifier catalog (JSON)",
@@ -117,6 +127,15 @@ function parseArgs(argv: string[]): CliArgs {
         break;
       case "--edit":
         args.edit = argv[++i];
+        break;
+      case "--web":
+        args.web = argv[++i];
+        break;
+      case "--image":
+        args.image = argv[++i];
+        break;
+      case "--remove-bg":
+        args.removeBg = argv[++i];
         break;
       case "--instruction":
         args.instruction = argv[++i];
@@ -199,6 +218,38 @@ if (args.presets) {
 }
 
 const hasStyle = Object.keys(args.style).length > 0;
+
+// Local-only operations (no generation) handled up front.
+if (args.removeBg) {
+  const outPath = args.output ?? args.removeBg.replace(new RegExp(`${extname(args.removeBg)}$`), "") + "-cutout.png";
+  await removeBackgroundFile(args.removeBg, outPath);
+  console.log(outPath);
+  console.error(`✓ background removed → ${outPath}`);
+  process.exit(0);
+}
+
+if (args.web) {
+  let source = args.image;
+  if (!source) {
+    if (!args.subject) {
+      console.error("✗ --web needs --image <path> or --subject to generate a source");
+      process.exit(1);
+    }
+    const kind = args.web as WebAssetKind;
+    const g = await generateImage({
+      subject: args.subject,
+      preset: args.preset,
+      transparent: args.transparent ?? (kind === "favicon" || kind === "appicon"),
+      size: kind === "og" ? "1536x1024" : kind === "hero" ? "2048x1152" : "1024x1024",
+    });
+    source = g.path;
+    console.error(`  generated source: ${g.path}`);
+  }
+  const res = await exportWebAssets({ sourcePath: source, kind: args.web as WebAssetKind, outDir: args.output, format: args.format });
+  for (const f of res.files) console.log(f.path);
+  console.error(`✓ ${res.files.length} ${res.kind} asset(s) → ${res.outDir}${res.notes.length ? `\n  ${res.notes.join(" ")}` : ""}`);
+  process.exit(0);
+}
 
 try {
   let out;
