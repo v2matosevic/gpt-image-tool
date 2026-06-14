@@ -104,8 +104,10 @@ export function compose(input: ComposeInput): Composed {
   }
 
   if (!/[.!?]$/.test(prompt.trim())) prompt = prompt.trim() + ".";
-  if (text) prompt += ` The image includes the text "${text}", rendered clearly and legibly.`;
-  if (avoid.length) prompt += ` Avoid: ${avoid.join(", ")}.`;
+  // Text: OpenAI's guide recommends quoting the literal string and demanding verbatim rendering.
+  if (text) prompt += ` Render the text "${text}" exactly and verbatim with no extra characters, clearly legible.`;
+  // Negatives: an imperative directive tests stronger than a bare "Avoid:" label on gpt-image.
+  if (avoid.length) prompt += ` Do not include: ${avoid.join(", ")}.`;
 
   return {
     prompt: prompt.replace(/\s+/g, " ").trim(),

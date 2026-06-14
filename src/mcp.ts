@@ -20,7 +20,15 @@ function mimeFor(f: ImageFormat): string {
   return f === "jpeg" ? "image/jpeg" : f === "webp" ? "image/webp" : "image/png";
 }
 
-const sizeSchema = z.enum(["auto", "1024x1024", "1536x1024", "1024x1536"]);
+const sizeSchema = z.enum([
+  "auto",
+  "1024x1024",
+  "1536x1024",
+  "1024x1536",
+  "2048x2048",
+  "2048x1152",
+  "1152x2048",
+]);
 const qualitySchema = z.enum(["auto", "low", "medium", "high"]);
 const formatSchema = z.enum(["png", "jpeg", "webp"]);
 const backendSchema = z.enum(["subscription", "apikey"]);
@@ -90,7 +98,7 @@ server.registerTool(
         .array(z.string())
         .optional()
         .describe("Path(s) to reference image(s) used ONLY for style/brand aesthetics (palette, treatment), not content. Great for on-brand assets."),
-      count: z.number().int().min(1).max(6).optional().describe("Produce N variations of the same brief (1–6). All paths are returned."),
+      count: z.number().int().min(1).max(10).optional().describe("Produce N variations of the same brief (1–10). All paths are returned."),
       size: sizeSchema.optional().describe("Default 1024x1024. 1536x1024 = landscape, 1024x1536 = portrait. Falls back to the preset's recommended size."),
       quality: qualitySchema.optional(),
       format: formatSchema.optional(),
@@ -137,8 +145,13 @@ server.registerTool(
       "Great for variations, restyling, background swaps, adding/removing elements. Output aspect " +
       "matches the first reference unless `size` is set. Saves to disk, returns the path.",
     inputSchema: {
-      image_paths: z.array(z.string()).min(1).describe("Absolute path(s) to reference image(s). First is primary; extras are style/context references."),
+      image_paths: z.array(z.string()).min(1).describe("Absolute path(s) to reference image(s). First is primary; extras are style/context references (up to 16)."),
       instruction: z.string().optional().describe("What to change, e.g. 'replace the background with a sunlit beach'."),
+      mask_path: z
+        .string()
+        .optional()
+        .describe("Optional PNG mask (same size as the first image): transparent areas mark the region to regenerate (inpainting)."),
+      count: z.number().int().min(1).max(10).optional().describe("Produce N variations (1–10)."),
       preset: z.enum(PRESET_IDS as [string, ...string[]]).optional().describe("Restyle the image into this preset's look."),
       modifiers: z.array(z.enum(MODIFIER_IDS as [string, ...string[]])).optional(),
       style: styleSchema.optional(),
@@ -155,6 +168,8 @@ server.registerTool(
       const out = await editImage({
         imagePaths: a.image_paths,
         instruction: a.instruction,
+        maskPath: a.mask_path,
+        count: a.count,
         preset: a.preset,
         modifiers: a.modifiers,
         style: a.style,

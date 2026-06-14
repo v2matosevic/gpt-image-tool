@@ -12,9 +12,11 @@ metered against your ChatGPT/Codex usage, not API credits.
 **The agent doesn't write raw prompts.** It declares *intent* — a `subject` plus a curated **style
 preset** (e.g. `product-studio`, `watercolor`, `app-icon`) and optional `modifiers` (lighting, mood,
 color, angle) — and a built-in **prompt compiler** assembles the professional, natural-language
-prompt gpt-image-1 responds to best. 43 presets across 5 categories, 23 composable modifiers, every
+prompt gpt-image-1 responds to best. 56 presets across 5 categories, 23 composable modifiers, every
 dimension overridable. Edit and upscale work image-to-image: pass a reference image and the model
-regenerates it (restyle, swap backgrounds, enhance detail) — also free, also on the subscription.
+regenerates it (restyle, swap backgrounds, mask-based **inpainting**, enhance detail) — also free,
+also on the subscription. Plus **transparency** (logos/stickers), **variations** (up to 10 per call),
+**brand/style references**, and **2K output**.
 
 ## How it works
 
@@ -64,8 +66,11 @@ node dist/cli.js --subject "a ceramic coffee mug with a gold rim" --preset produ
 node dist/cli.js --subject "a friendly robot mascot" --preset clay-render --style.color "teal and coral palette"
 
 # Image-to-image
-node dist/cli.js --upscale mug.png --guidance "sharpen the gold rim" -o mug-hi.png
+node dist/cli.js --upscale mug.png --guidance "sharpen the gold rim" -o mug-hi.png   # → 2K
 node dist/cli.js --edit mug.png --instruction "place it on a sunlit wooden table"
+node dist/cli.js --edit photo.png --mask mask.png --instruction "add a bird in the sky"  # inpaint
+node dist/cli.js --subject "a fox logo" --preset logo-mark --transparent -n 4           # 4 variations
+node dist/cli.js --subject "a hero banner" --preset hero-banner --style-ref brand.png    # match brand
 
 # Discover presets, or fall back to the paid API
 node dist/cli.js --presets photography      # prints the catalog (JSON)
@@ -159,6 +164,16 @@ machine.
 > ⚠ It's the same ChatGPT account & quota as your interactive Codex/ChatGPT use. Codex keeps only
 > **one live session per machine**, and signing the same account into Codex on another device
 > supersedes this one (`--check` will then report "session ended" — just `codex login` again).
+
+## Model notes
+
+The subscription endpoint routes to a current GPT Image model (the `gpt-image-2` generation as of
+mid-2026). Verified behavior on this path: **2K output** (up to `2048x2048`; the long edge can go
+higher but stays within the model's pixel budget), reference-image **edit/upscale**, and **mask
+inpainting** (`input_image_mask`). It does **not** support a native transparent-background flag —
+so transparency is produced by rendering on a chroma field and keying it out locally (see
+`src/bgremove.ts`). The paid `apikey` backend (`gpt-image-1` by default; set `GPT_IMAGE_API_MODEL`)
+*does* support native transparency and `input_fidelity` for faithful edits.
 
 ## Caveats (read once)
 

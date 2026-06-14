@@ -7,7 +7,7 @@ import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path
 import { getProvider } from "./providers/index.js";
 import type { GenerateInput, ImageBackground, ImageFormat, ImageProvider, ImageQuality, ImageSize, InputImage } from "./providers/types.js";
 import { build, type PromptOverrides } from "./presets/index.js";
-import { imageSize, sizeForAspect } from "./imageinfo.js";
+import { imageSize, sizeForAspect, upscaleSizeForAspect } from "./imageinfo.js";
 import { removeBackground } from "./bgremove.js";
 
 export interface StyleInput {
@@ -24,7 +24,7 @@ export interface StyleInput {
   transparent?: boolean;
   /** Reference image path(s) used ONLY for style/aesthetic, not content (brand matching). */
   styleReference?: string[];
-  /** Produce N variations of the same brief (1–6). Returned in `variants`. */
+  /** Produce N variations of the same brief (1–10). Returned in `variants`. */
   count?: number;
   outputPath?: string;
   backend?: string;
@@ -120,7 +120,7 @@ async function runAndSave(
   meta: { prompt: string; preset?: string; modifiers: string[]; count?: number; transform?: (b: Buffer) => Buffer },
 ): Promise<GenerateOutput> {
   const provider = getProvider(backend);
-  const count = Math.max(1, Math.min(6, meta.count ?? 1));
+  const count = Math.max(1, Math.min(10, meta.count ?? 1));
   const basePath = resolveOutputPath(outputPath, input.format, prefix);
   await mkdir(dirname(basePath), { recursive: true });
 
@@ -216,13 +216,19 @@ export interface EditInput extends StyleInput {
   imagePaths: string[];
   /** What to change. Becomes the core directive; preset/style add styling guidance on top. */
   instruction?: string;
+  /** Optional mask (PNG with alpha): transparent areas mark the region to regenerate (inpainting). */
+  maskPath?: string;
 }
+
+// Restating invariants every edit fights gpt-image's tendency to drift across regenerations.
+const EDIT_PRESERVE = " Change only what is described; keep all other elements, composition, framing, lighting, and style identical to the reference.";
 
 /** Image-to-image edit / variation / restyle, guided by reference image(s). */
 export async function editImage(opts: EditInput): Promise<GenerateOutput> {
   if (!opts.imagePaths?.length) throw new Error("editImage requires at least one imagePath.");
   const loaded = await Promise.all(opts.imagePaths.map(readInputImage));
   const inputImages = loaded.map((l) => l.image);
+  const maskImage = opts.maskPath ? (await readInputImage(opts.maskPath)).image : undefined;
 
   const hasStyle = Boolean(opts.preset || opts.subject || opts.modifiers?.length || opts.style);
   const instruction = opts.instruction?.trim();
@@ -244,7 +250,7 @@ export async function editImage(opts: EditInput): Promise<GenerateOutput> {
 
   let prompt = composed.prompt;
   if (instruction && hasStyle) prompt = `${instruction}. Apply this to the reference image. ${composed.prompt}`;
-  else if (instruction) prompt = instruction;
+  else if (instruction) prompt = instruction + EDIT_PRESERVE;
 
   const input: GenerateInput = {
     prompt,
@@ -253,6 +259,7 @@ export async function editImage(opts: EditInput): Promise<GenerateOutput> {
     format: composed.format,
     background: composed.background,
     inputImages,
+    maskImage,
   };
   return runAndSave(input, opts.outputPath, opts.backend, "edit", {
     prompt,
@@ -279,14 +286,14 @@ const UPSCALE_PROMPT =
   "or rearrange any elements. Enhance fine detail and texture, and remove compression artifacts, " +
   "blur and noise. Keep it faithful to the original.";
 
-/** Detail-enhancing regeneration ("upscale") guided by the source image. Caps at the model's max (~1536px). */
+/** Detail-enhancing regeneration ("upscale") guided by the source image, targeting the 2K tier. */
 export async function upscaleImage(opts: UpscaleInput): Promise<GenerateOutput> {
   if (!opts.imagePath) throw new Error("upscaleImage requires an imagePath.");
   const { image, dim } = await readInputImage(opts.imagePath);
   const prompt = opts.guidance?.trim() ? `${UPSCALE_PROMPT} ${opts.guidance.trim()}` : UPSCALE_PROMPT;
   const input: GenerateInput = {
     prompt,
-    size: opts.size ?? sizeForAspect(dim),
+    size: opts.size ?? upscaleSizeForAspect(dim),
     quality: opts.quality ?? "high",
     format: opts.format ?? "png",
     inputImages: [image],

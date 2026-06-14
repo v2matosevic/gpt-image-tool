@@ -67,3 +67,12 @@ export function sizeForAspect(dim: Dimensions | null): ImageSize {
   if (ratio < 0.83) return "1024x1536"; // portrait
   return "1024x1024"; // roughly square
 }
+
+/** Like sizeForAspect, but targets the 2K tier — used by upscale for a real resolution gain. */
+export function upscaleSizeForAspect(dim: Dimensions | null): ImageSize {
+  if (!dim || !dim.width || !dim.height) return "2048x2048";
+  const ratio = dim.width / dim.height;
+  if (ratio > 1.2) return "2048x1152"; // landscape
+  if (ratio < 0.83) return "1152x2048"; // portrait
+  return "2048x2048"; // roughly square
+}
