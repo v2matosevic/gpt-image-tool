@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { getValidCreds, refreshCreds, codexVersionHeader, userAgent, reloginHint } from "../auth.js";
 import type { SubscriptionCreds as Creds } from "../auth.js";
 import { parseSse } from "../sse.js";
+import { MAX_RETRIES, backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "../retry.js";
 import type { GenerateInput, GenerateResult, ImageProvider } from "./types.js";
 
 const ENDPOINT = "https://chatgpt.com/backend-api/codex/responses";
@@ -126,52 +127,73 @@ export class SubscriptionProvider implements ImageProvider {
     const body = buildBody(input, DEFAULT_MODEL);
     let creds = await getValidCreds();
 
-    const controller = new AbortController();
-    const totalTimer = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
-    let stallTimer: NodeJS.Timeout | undefined;
-    const resetStall = () => {
-      if (stallTimer) clearTimeout(stallTimer);
-      stallTimer = setTimeout(() => controller.abort(), STALL_TIMEOUT_MS);
-    };
-
-    try {
-      let res = await doRequest(creds, version, body, controller.signal);
-      if (res.status === 401 || res.status === 403) {
-        if (creds.refreshToken) {
-          // refreshCreds throws a clear re-login message if the session is truly dead.
-          creds = await refreshCreds(creds.refreshToken);
-          res = await doRequest(creds, version, body, controller.signal);
-        }
+    // Retry transient failures (429 rate limit / 5xx / network) with bounded backoff, so a brief
+    // quota throttle recovers on its own instead of failing the call.
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const totalTimer = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
+      let stallTimer: NodeJS.Timeout | undefined;
+      let streaming = false;
+      const resetStall = () => {
+        if (stallTimer) clearTimeout(stallTimer);
+        stallTimer = setTimeout(() => controller.abort(), STALL_TIMEOUT_MS);
+      };
+      try {
+        let res = await doRequest(creds, version, body, controller.signal);
         if (res.status === 401 || res.status === 403) {
-          throw new Error(reloginHint(`subscription auth rejected (HTTP ${res.status})`));
+          if (creds.refreshToken) {
+            // refreshCreds throws a clear re-login message if the session is truly dead.
+            creds = await refreshCreds(creds.refreshToken);
+            res = await doRequest(creds, version, body, controller.signal);
+          }
+          if (res.status === 401 || res.status === 403) {
+            throw new Error(reloginHint(`subscription auth rejected (HTTP ${res.status})`));
+          }
         }
+        if (isRetryableStatus(res.status) && attempt < MAX_RETRIES) {
+          const wait = retryAfterMs(res) ?? backoffMs(attempt);
+          clearTimeout(totalTimer);
+          if (stallTimer) clearTimeout(stallTimer);
+          await sleep(wait);
+          continue;
+        }
+        if (!res.ok || !res.body) {
+          const detail = await safeText(res);
+          throw new Error(
+            `subscription image request failed: HTTP ${res.status}${detail ? ` — ${detail}` : ""}` +
+              (res.status === 400 ? " (a 400 / 'newer version of Codex' usually means the model is gated — try GPT_IMAGE_MODEL=gpt-5.4-mini)" : "") +
+              (res.status === 429 ? ` (rate limited — your ChatGPT/Codex quota; retried ${MAX_RETRIES}×, still throttled. Wait a few minutes)` : ""),
+          );
+        }
+        resetStall();
+        streaming = true;
+        const { b64, revisedPrompt } = await consumeStream(res.body, resetStall);
+        if (!b64) {
+          throw new Error(
+            "subscription backend returned no image (the model may have replied with text). Try a more explicit prompt.",
+          );
+        }
+        return { bytes: Buffer.from(b64, "base64"), format: input.format, revisedPrompt };
+      } catch (e) {
+        if (controller.signal.aborted) {
+          lastErr = new Error(
+            `subscription image request timed out (>${Math.round(TOTAL_TIMEOUT_MS / 1000)}s total or >${Math.round(STALL_TIMEOUT_MS / 1000)}s stalled).`,
+          );
+        } else {
+          lastErr = e;
+        }
+        // Retry pre-stream network blips; never retry a mid-stream or content error.
+        if (!streaming && isNetworkError(e, controller.signal.aborted) && attempt < MAX_RETRIES) {
+          await sleep(backoffMs(attempt));
+          continue;
+        }
+        throw lastErr;
+      } finally {
+        clearTimeout(totalTimer);
+        if (stallTimer) clearTimeout(stallTimer);
       }
-      if (!res.ok || !res.body) {
-        const detail = await safeText(res);
-        throw new Error(
-          `subscription image request failed: HTTP ${res.status}${detail ? ` — ${detail}` : ""}` +
-            (res.status === 400 ? " (a 400 / 'newer version of Codex' usually means the model is gated — try GPT_IMAGE_MODEL=gpt-5.4-mini)" : "") +
-            (res.status === 429 ? " (rate limited — your ChatGPT/Codex quota; wait a few minutes)" : ""),
-        );
-      }
-      resetStall();
-      const { b64, revisedPrompt } = await consumeStream(res.body, resetStall);
-      if (!b64) {
-        throw new Error(
-          "subscription backend returned no image (the model may have replied with text). Try a more explicit prompt.",
-        );
-      }
-      return { bytes: Buffer.from(b64, "base64"), format: input.format, revisedPrompt };
-    } catch (e) {
-      if (controller.signal.aborted) {
-        throw new Error(
-          `subscription image request timed out (>${Math.round(TOTAL_TIMEOUT_MS / 1000)}s total or >${Math.round(STALL_TIMEOUT_MS / 1000)}s stalled).`,
-        );
-      }
-      throw e;
-    } finally {
-      clearTimeout(totalTimer);
-      if (stallTimer) clearTimeout(stallTimer);
     }
+    throw lastErr ?? new Error("subscription image request failed after retries.");
   }
 }

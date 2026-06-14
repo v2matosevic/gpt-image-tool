@@ -1,6 +1,7 @@
 // The paid fallback backend: standard OpenAI Images API with an OPENAI_API_KEY. Stable and
 // supported, but bills API credits (not the subscription). Only used when explicitly selected.
 
+import { MAX_RETRIES, backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "../retry.js";
 import type { GenerateInput, GenerateResult, ImageProvider } from "./types.js";
 
 const GEN_ENDPOINT = "https://api.openai.com/v1/images/generations";
@@ -24,6 +25,29 @@ export class ApiKeyProvider implements ImageProvider {
       : this.create(key, input);
   }
 
+  /** fetch with bounded retry on 429 / 5xx / network blips (honors Retry-After). */
+  private async requestWithRetry(url: string, init: RequestInit): Promise<Response> {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch(url, init);
+        if (isRetryableStatus(res.status) && attempt < MAX_RETRIES) {
+          await sleep(retryAfterMs(res) ?? backoffMs(attempt));
+          continue;
+        }
+        return res;
+      } catch (e) {
+        lastErr = e;
+        if (isNetworkError(e, false) && attempt < MAX_RETRIES) {
+          await sleep(backoffMs(attempt));
+          continue;
+        }
+        throw e;
+      }
+    }
+    throw lastErr ?? new Error("OpenAI Images request failed after retries.");
+  }
+
   /** Text-to-image: /v1/images/generations (JSON). */
   private async create(key: string, input: GenerateInput): Promise<GenerateResult> {
     const body: Record<string, unknown> = {
@@ -36,7 +60,7 @@ export class ApiKeyProvider implements ImageProvider {
     if (input.quality !== "auto") body.quality = input.quality;
     if (input.background && input.background !== "auto" && input.format !== "jpeg") body.background = input.background;
 
-    const res = await fetch(GEN_ENDPOINT, {
+    const res = await this.requestWithRetry(GEN_ENDPOINT, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -60,7 +84,7 @@ export class ApiKeyProvider implements ImageProvider {
     if (input.maskImage) {
       form.append("mask", new Blob([new Uint8Array(input.maskImage.bytes)], { type: input.maskImage.mime }), `mask.${extFor(input.maskImage.mime)}`);
     }
-    const res = await fetch(EDIT_ENDPOINT, {
+    const res = await this.requestWithRetry(EDIT_ENDPOINT, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}` }, // fetch sets multipart boundary
       body: form,
