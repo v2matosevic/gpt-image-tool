@@ -1,0 +1,10 @@
+node_modules/
+dist/
+generated-images/
+*.png
+*.jpg
+*.jpeg
+*.webp
+.env
+.env.local
+*.log
