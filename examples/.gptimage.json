@@ -1,0 +1,15 @@
+{
+  "preset": "flat-vector",
+  "modifiers": ["minimal"],
+  "style": {
+    "color": "navy, coral and cream palette",
+    "mood": "confident, modern",
+    "avoid": ["watermark", "stock-photo look", "lens flare"]
+  },
+  "styleReference": ["./brand/logo.png"],
+  "size": "1536x1024",
+  "format": "png",
+  "background": "auto",
+  "outputDir": "./public/img",
+  "backend": "subscription"
+}
