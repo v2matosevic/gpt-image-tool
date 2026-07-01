@@ -3,6 +3,8 @@ export type ImageSize =
   | "1024x1024"
   | "1536x1024"
   | "1024x1536"
+  | "1024x1280" // 4:5 portrait — Instagram/Facebook feed (backend renders native 4:5, ~1122x1402)
+  | "1280x1024" // 5:4 landscape
   | "2048x2048" // 2K square (verified on the subscription endpoint)
   | "2048x1152" // 2K landscape (~16:9)
   | "1152x2048"; // 2K portrait

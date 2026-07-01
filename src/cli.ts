@@ -82,7 +82,7 @@ function printHelp(): void {
       "",
       "Options:",
       "  -o, --out <path>       Output file or directory (default ./generated-images/)",
-      "  --size <size>          auto | 1024x1024 | 1536x1024 | 1024x1536",
+      "  --size <size>          auto | 1024x1024 | 1536x1024 | 1024x1536 | 1024x1280 (4:5) | 1280x1024 (5:4) | 2048x2048 | 2048x1152 | 1152x2048",
       "  -q, --quality <q>      auto | low | medium | high",
       "  -f, --format <fmt>     png | jpeg | webp",
       "  -b, --backend <name>   subscription | apikey",
