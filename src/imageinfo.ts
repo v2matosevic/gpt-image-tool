@@ -78,7 +78,8 @@ export function sizeForAspect(dim: Dimensions | null): ImageSize {
   if (!dim || !dim.width || !dim.height) return "auto";
   const ratio = dim.width / dim.height;
   if (ratio > 1.2) return "1536x1024"; // landscape
-  if (ratio < 0.83) return "1024x1536"; // portrait
+  if (ratio < 0.72) return "1024x1536"; // tall portrait (2:3 and taller)
+  if (ratio < 0.9) return "1024x1280"; // 4:5 portrait (Instagram feed)
   return "1024x1024"; // roughly square
 }
 

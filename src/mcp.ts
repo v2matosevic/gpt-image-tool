@@ -27,6 +27,8 @@ const sizeSchema = z.enum([
   "1024x1024",
   "1536x1024",
   "1024x1536",
+  "1024x1280",
+  "1280x1024",
   "2048x2048",
   "2048x1152",
   "1152x2048",
@@ -112,7 +114,7 @@ server.registerTool(
         .string()
         .optional()
         .describe("Path to a previously-generated image: reload its saved settings (sidecar) as the base, then apply any args here on top to reproduce or tweak it."),
-      size: sizeSchema.optional().describe("Default 1024x1024. 1536x1024 = landscape, 1024x1536 = portrait. Falls back to the preset's recommended size."),
+      size: sizeSchema.optional().describe("Default 1024x1024. 1536x1024 = landscape (3:2), 1024x1536 = portrait (2:3), 1024x1280 = 4:5 portrait (Instagram/Facebook feed — renders native 4:5), 1280x1024 = 5:4 landscape. Falls back to the preset's recommended size."),
       quality: qualitySchema.optional(),
       format: formatSchema.optional(),
       background: z.enum(["auto", "transparent", "opaque"]).optional().describe("Alpha handling. 'transparent' forces png."),
