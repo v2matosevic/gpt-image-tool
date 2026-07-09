@@ -1,8 +1,12 @@
-// MCP stdio server. Exposes four tools any MCP client (Claude Code, Codex, Cursor, …) can call:
-//   generate_image      text-to-image, driven by a curated preset library + prompt compiler
+// MCP stdio server. Tools any MCP client (Claude Code, Codex, Cursor, …) can call:
+//   generate_image      text-to-image via preset compiler; platform targets; vision proof-loop
 //   edit_image          image-to-image edit / restyle / variation from reference image(s)
-//   upscale_image       detail-enhancing regeneration of an existing image (up to ~1536px)
-//   list_image_presets  the catalog of presets + modifiers so the agent can choose well
+//   upscale_image       detail-enhancing regeneration of an existing image (up to ~2K)
+//   export_web_assets   slice one image into favicons / OG cards / hero / app icons
+//   remove_background   local chroma keyer, or model-assisted cutout (use_model)
+//   compose_overlay     deterministic type + real-logo compositing (exact by construction)
+//   create_social_card  one call: text-free plate + exact type + logo
+//   list_image_presets  the catalog of presets + modifiers + platforms so the agent chooses well
 //
 // All return the saved file path as text (works everywhere); GPT_IMAGE_INLINE=1 also attaches the
 // image inline. IMPORTANT: stdout is the JSON-RPC channel — never write to it; logging goes to stderr.
@@ -16,6 +20,7 @@ import { exportWebAssets } from "./webassets.js";
 import { cutoutPath, removeBackgroundFile } from "./imageops.js";
 import { PLATFORM_IDS, PLATFORMS } from "./platforms.js";
 import { composeOverlay } from "./typeset.js";
+import { createSocialCard } from "./socialcard.js";
 import type { ImageFormat } from "./providers/types.js";
 
 const INLINE = process.env.GPT_IMAGE_INLINE === "1";
@@ -423,6 +428,9 @@ server.registerTool(
             font_size: z.number().int().optional().describe("Px. Default: canvasWidth/9 for the first block, /22 after."),
             font_weight: z.union([z.number(), z.string()]).optional().describe("Default 700."),
             color: z.string().optional().describe("CSS color / hex. Default #111111."),
+            accent_word: z.string().optional().describe("One word/phrase inside `text` to ink in accent_color (the editorial accent)."),
+            accent_color: z.string().optional().describe("Hex for the accent word."),
+            scrim: z.boolean().optional().describe("Legibility scrim behind the block. Omit = auto (added when measured contrast < 2.5:1)."),
             letter_spacing: z.number().optional().describe("Extra px between glyphs (e.g. 2 for airy caps)."),
             line_height: z.number().optional().describe("Multiple of font size. Default 1.12."),
             max_width_ratio: z.number().optional().describe("Wrap width as a fraction of canvas width. Default 0.86."),
@@ -458,6 +466,9 @@ server.registerTool(
           fontSize: b.font_size,
           fontWeight: b.font_weight,
           color: b.color,
+          accentWord: b.accent_word,
+          accentColor: b.accent_color,
+          scrim: b.scrim,
           letterSpacing: b.letter_spacing,
           lineHeight: b.line_height,
           maxWidthRatio: b.max_width_ratio,
@@ -473,6 +484,83 @@ server.registerTool(
       const text =
         `Overlay composited → ${res.path} (${res.width}x${res.height})` +
         (res.notes.length ? `\n${res.notes.map((n) => `• ${n}`).join("\n")}` : "");
+      return { content: [{ type: "text", text }] } as any;
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "create_social_card",
+  {
+    title: "Create a premium social card in one call (plate + exact type + logo)",
+    description:
+      "The complete premium social workflow in ONE call: generates a TEXT-FREE plate with the model " +
+      "(art steered away from where the type goes), then sets the headline/subline/logo " +
+      "DETERMINISTICALLY with real fonts — spelling, diacritics and the logo are exact by " +
+      "construction, no proofing needed. Use instead of generate_image + style.text whenever the " +
+      "copy must be exact (long copy, diacritics, brand fonts). Needs `sharp`.",
+    inputSchema: {
+      headline: z.string().describe("The headline copy — set verbatim."),
+      accent_word: z.string().optional().describe("One word/phrase of the headline inked in the accent color."),
+      accent_color: z.string().optional().describe("Accent hex. Default: dominant brand color from style refs, else wine #8b0f24."),
+      subline: z.string().optional(),
+      headline_position: positionSchema.optional().describe("Default top-left; the plate's art goes to the opposite zone."),
+      headline_font: z.string().optional().describe("Installed font family for the headline."),
+      subline_font: z.string().optional(),
+      headline_color: z.string().optional().describe("Default near-black #1c1917."),
+      subline_color: z.string().optional().describe("Default = accent color."),
+      uppercase: z.boolean().optional().describe("Uppercase the headline (default true)."),
+      logo: z
+        .object({
+          path: z.string(),
+          position: positionSchema.optional().describe("Default bottom-center."),
+          width_ratio: z.number().optional(),
+          opacity: z.number().min(0).max(1).optional(),
+        })
+        .optional()
+        .describe("The real logo asset to place."),
+      platform: z.enum(PLATFORM_IDS as [string, ...string[]]).optional().describe("Default instagram-feed."),
+      plate_subject: z.string().optional().describe("What the plate depicts. Default: a quiet premium material study."),
+      plate_preset: z
+        .enum(PRESET_IDS as [string, ...string[]])
+        .optional()
+        .describe("Plate preset. Default social-bg-plate; use concept-hero for a photographic hero object."),
+      style_reference: z.array(z.string()).optional().describe("Brand reference image(s) — anchors plate style AND auto-extracts the palette."),
+      quality: qualitySchema.optional().describe("Plate quality (default high)."),
+      output_path: z.string().optional(),
+      backend: backendSchema.optional(),
+    },
+  },
+  async (a) => {
+    try {
+      const res = await createSocialCard({
+        headline: a.headline,
+        accentWord: a.accent_word,
+        accentColor: a.accent_color,
+        subline: a.subline,
+        headlinePosition: a.headline_position,
+        headlineFont: a.headline_font,
+        sublineFont: a.subline_font,
+        headlineColor: a.headline_color,
+        sublineColor: a.subline_color,
+        uppercase: a.uppercase,
+        logo: a.logo ? { path: a.logo.path, position: a.logo.position, widthRatio: a.logo.width_ratio, opacity: a.logo.opacity } : undefined,
+        platform: a.platform,
+        plateSubject: a.plate_subject,
+        platePreset: a.plate_preset,
+        styleReference: a.style_reference,
+        quality: a.quality,
+        outputPath: a.output_path,
+        backend: a.backend,
+      });
+      const text =
+        `Social card created → ${res.path} (${res.width}x${res.height})\n` +
+        `Plate (text-free, reusable): ${res.platePath}` +
+        (res.palette?.length ? `\nBrand palette: ${res.palette.join(", ")}` : "") +
+        (res.notes.length ? `\n${res.notes.map((n) => `• ${n}`).join("\n")}` : "") +
+        `\nText is exact by construction — no proofread needed. Check kerning/wrap visually before publishing.`;
       return { content: [{ type: "text", text }] } as any;
     } catch (e) {
       return fail(e);

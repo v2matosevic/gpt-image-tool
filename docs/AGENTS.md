@@ -31,7 +31,7 @@ it directly without a separate read.
 | To cut out a background | `remove_background` (busy background → `use_model: true`) |
 | To reproduce/tweak a past image | `from_image` |
 | A social post for a specific platform | `generate_image` + `platform` (native size + safe areas) |
-| A headline/logo that must be EXACT | plate preset (`social-bg-plate`/`concept-hero`) → `compose_overlay` |
+| A headline/logo that must be EXACT | `create_social_card` (one call: plate + exact type + logo) — or plate preset → `compose_overlay` for full control |
 
 ## Quality tips
 

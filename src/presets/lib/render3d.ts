@@ -16,7 +16,7 @@ export const render3d: Preset[] = [
       mood: "clean, playful, modern tech-explainer",
       detail: "smooth rounded geometry with beveled edges, soft-touch matte plastic surfacing, crisp silhouettes, miniature-diorama charm",
     },
-    avoid: ["perspective convergence", "cluttered overlapping props", "gritty realism", "harsh cast shadows", "watermark"],
+    avoid: ["perspective convergence", "cluttered overlapping props", "speech bubbles or chat bubbles", "floating UI icons and badge clutter", "any text, labels or lettering", "gritty realism", "harsh cast shadows", "watermark"],
   },
   {
     id: "clay-render",

@@ -5,7 +5,7 @@ catalog and [ARCHITECTURE.md](./ARCHITECTURE.md) for internals.
 
 ## MCP tools
 
-The server exposes seven tools. All image-producing tools **save to disk and return the path(s)**.
+The server exposes eight tools. All image-producing tools **save to disk and return the path(s)**.
 
 ### `generate_image`
 Text-to-image via the preset compiler (or a raw prompt).
@@ -86,11 +86,30 @@ plate (`social-bg-plate` / `concept-hero`), set the headline here. Text rasteriz
 | param | type | notes |
 |---|---|---|
 | `image_path` | string | The plate to composite onto. **Required.** |
-| `blocks` | object[] | `{ text, position, font_family, font_size, font_weight, color, letter_spacing, line_height, max_width_ratio, uppercase }`. Positions: `top/center/bottom` × `left/center/right`. |
+| `blocks` | object[] | `{ text, position, font_family, font_size, font_weight, color, accent_word, accent_color, scrim, letter_spacing, line_height, max_width_ratio, uppercase }`. Positions: `top/center/bottom` × `left/center/right`. `accent_word` inks one word of the text in `accent_color`. `scrim` omitted = **auto legibility guard**: contrast under the block is measured and a soft plate is slipped behind type below 2.5:1. |
 | `logo` | object | `{ path, position, width_ratio (default 0.14), opacity }` — the real PNG asset, never model-drawn. |
 | `platform` | enum | Keep overlays inside this platform's UI safe areas. |
 | `output_path` | string | Default `<image>-final.png`. |
 | `format` | enum | `png` (default) \| `jpeg` \| `webp`. |
+
+### `create_social_card`
+The complete premium social workflow in **one call**: generates a text-free plate (art steered to
+the zone opposite the headline), then sets headline/subline/logo deterministically. Use instead of
+`generate_image` + `style.text` whenever the copy must be exact. Returns the final card AND the
+reusable plate path.
+
+| param | type | notes |
+|---|---|---|
+| `headline` | string | Set verbatim. **Required.** |
+| `accent_word` / `accent_color` | string | One word inked in the accent (default accent: brand palette dominant, else `#8b0f24`). |
+| `subline` | string | Secondary line, placed opposite the headline. |
+| `headline_position` | enum | Default `top-left`; the plate's art goes to the opposite third. |
+| `headline_font` / `subline_font` / `headline_color` / `subline_color` / `uppercase` | — | Type controls. |
+| `logo` | object | As in `compose_overlay`. |
+| `platform` | enum | Default `instagram-feed`. Applies to plate size AND overlay safe areas. |
+| `plate_subject` / `plate_preset` | — | Default: "a quiet premium material study" on `social-bg-plate`; try `concept-hero` for a photographic hero object. |
+| `style_reference` | string[] | Brand anchor for the plate + auto-palette. |
+| `quality` / `output_path` / `backend` | — | As above. |
 
 ### `list_image_presets`
 Returns the catalog (`presets`, `modifiers`, `categories`), a `usage` line, and a `playbook` for

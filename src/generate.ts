@@ -102,6 +102,8 @@ interface Sidecar {
   compiledPrompt: string;
   revisedPrompt?: string;
   styleReference?: string[];
+  /** Brand colors auto-extracted from styleReference for this generation. */
+  palette?: string[];
   inputImages?: string[];
   maskPath?: string;
 }
@@ -116,6 +118,8 @@ interface SaveMeta {
   opts: StyleInput;
   refs?: string[];
   mask?: string;
+  /** Brand colors extracted for this call — recorded in the sidecar for reproducibility. */
+  palette?: string[];
   /** Vision proof-loop: verify each render, regenerate with feedback up to maxAttempts. */
   proof?: ProofRequest & { maxAttempts: number };
 }
@@ -137,6 +141,7 @@ function sidecarFromOpts(op: Sidecar["operation"], opts: StyleInput, meta: SaveM
     backend: opts.backend,
     compiledPrompt: meta.prompt,
     styleReference: opts.styleReference,
+    palette: meta.palette,
   };
 }
 
@@ -565,6 +570,7 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
     operation: "generate",
     opts,
     refs: opts.styleReference,
+    palette: palette.length ? palette : undefined,
     transform: chroma.transform,
     proof: proofRequest(opts, Boolean(chroma.transform)),
   });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildOverlaySvg, escapeXml, wrapText } from "../dist/typeset.js";
+import { blockBox, buildOverlaySvg, escapeXml, layoutBlock, regionContrast, wrapText } from "../dist/typeset.js";
 
 const NO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
@@ -34,4 +34,35 @@ test("safe insets push a bottom-center block up", () => {
   const inset = buildOverlaySvg([{ text: "HELLO", position: "bottom-center" }], 1000, 2000, { ...NO_INSETS, bottom: 0.2 });
   const y = (svg: string) => Number(/y="(\d+)"/.exec(svg)![1]);
   assert.ok(y(inset) < y(flat), `inset y ${y(inset)} must sit above flat y ${y(flat)}`);
+});
+
+test("accent word gets its own colored tspan, case-insensitively, uppercase-aware", () => {
+  const svg = buildOverlaySvg(
+    [{ text: "više od očekivanja", uppercase: true, accentWord: "od", accentColor: "#c2261f" }],
+    2000,
+    2000,
+    NO_INSETS,
+  );
+  assert.match(svg, /<tspan fill="#c2261f">OD<\/tspan>/);
+  assert.match(svg, /VIŠE /); // rest of the line intact around the accent
+});
+
+test("forced scrim draws a rounded rect sized to the block box", () => {
+  const svg = buildOverlaySvg([{ text: "HI", position: "top-left", fontSize: 100 }], 1000, 1000, NO_INSETS, [true]);
+  assert.match(svg, /<rect [^>]*rx="\d+"/);
+  const none = buildOverlaySvg([{ text: "HI", position: "top-left", fontSize: 100 }], 1000, 1000, NO_INSETS, [false]);
+  assert.doesNotMatch(none, /<rect/);
+});
+
+test("regionContrast: dark text on white is high, on near-black is low", () => {
+  const solid = (v: number) => {
+    const data = Buffer.alloc(100 * 100 * 4);
+    for (let i = 0; i < 100 * 100; i++) data.set([v, v, v, 255], i * 4);
+    return { width: 100, height: 100, data };
+  };
+  const l = layoutBlock({ text: "X", position: "center", fontSize: 40 }, 100, 100, 0, NO_INSETS);
+  const box = blockBox(l, 100, 100);
+  const darkTextLum = 0.05;
+  assert.ok(regionContrast(solid(255), box, darkTextLum) > 10);
+  assert.ok(regionContrast(solid(20), box, darkTextLum) < 2.5);
 });

@@ -22,8 +22,9 @@ Quality is closed-loop: a **vision proof-loop** sends every text-bearing render 
 same free endpoint to proofread it (verbatim text, diacritics, artifacts) and auto-regenerates with
 concrete feedback; **platform targets** (`instagram-story`, `tiktok`, `og-card`, …) pick the native
 size and keep composition out of platform UI safe areas; a **brand palette** is auto-extracted from
-your style references and anchored in the prompt; and **compose_overlay** sets headlines and the
-real logo deterministically (real fonts — exact spelling by construction) on model-generated plates.
+your style references and anchored in the prompt; and **compose_overlay** / **create_social_card**
+set headlines and the real logo deterministically (real fonts — exact spelling by construction) on
+model-generated plates, with an automatic legibility scrim when the type would sink into the plate.
 
 ## Documentation
 
@@ -51,7 +52,7 @@ agent ──MCP──▶ generate_image / edit_image / upscale_image
               ──▶ save image to disk ──▶ return absolute path
 
 MCP tools:  generate_image · edit_image · upscale_image · export_web_assets
-            remove_background · compose_overlay · list_image_presets
+            remove_background · compose_overlay · create_social_card · list_image_presets
 ```
 
 The tool **saves the image to disk and returns its path**. That's the only return shape that works

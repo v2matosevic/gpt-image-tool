@@ -14,13 +14,13 @@ export const webdev: Preset[] = [
     background: "transparent",
     dims: {
       medium: "a contemporary abstract 3D hero element rendered like a clean studio product shot, smooth subdivision-surface modeling with soft bevels",
-      composition: "one floating sculptural 3D form (a fluid liquid blob, a twisted glossy ribbon, a soft torus knot or a calm cluster of rounded geometric solids), centered with generous breathing room and a gentle three-quarter hero angle, fully isolated on its own",
+      composition: "one floating sculptural 3D form (a fluid liquid form, a soft torus knot, or a calm cluster of rounded geometric solids) as an ABSTRACT evocation of the subject — never a literal object, interface or icon — centered with generous breathing room and a gentle three-quarter hero angle, fully isolated on its own",
       lighting: "soft diffuse studio HDRI light with a large key and a subtle fill, gentle ambient occlusion in the crevices and a soft specular sheen rolling across the surface, no cast ground shadow and no visible floor",
-      color: "modern iridescent or holographic gradient finish blending two or three brand-friendly hues (violet into blue, coral into pink, or teal into indigo) with soft tonal falloff, either a wet glossy coat or a smooth matte-clay material",
-      mood: "premium, contemporary, polished SaaS landing-page aesthetic",
+      color: "a single refined hue with a restrained tonal gradient into a close neighbour, balanced against a neutral — take the hue from the brand or subject when one is given, otherwise choose ONE of deep teal, warm terracotta, forest green, or graphite with a brass accent; never violet, purple or a holographic rainbow; a material that feels real: frosted glass, brushed metal, matte ceramic or smooth clay",
+      mood: "premium, contemporary, polished SaaS landing-page aesthetic — restrained, not flashy",
       detail: "clean smooth surface with crisp silhouette edges, gentle reflections and a faint rim of light, fully isolated with no halos, fringing or green color spill around the edges",
     },
-    avoid: ["background scenery or environment", "cast ground shadow or reflective floor", "busy or overcrowded composition", "green color spill on edges", "halos or fringing", "muddy or contradictory gradients", "watermark"],
+    avoid: ["background scenery or environment", "cast ground shadow or reflective floor", "busy or overcrowded composition", "literal browser windows, app panels, charts or UI icons", "violet or purple hues", "holographic or iridescent rainbow finish", "green color spill on edges", "halos or fringing", "muddy or contradictory gradients", "watermark"],
   },
   {
     id: "icon-3d",

@@ -9,3 +9,4 @@ generated-images/
 .env
 .env.local
 *.log
+bench/

@@ -72,7 +72,7 @@ const PLAYBOOK = [
   "Edit/iterate: edit_image to change an existing image (instruction; add mask_path for inpainting a region). upscale_image to enhance to ~2K. remove_background to cut out any image (best on clean backgrounds). from_image reloads a prior image's settings to reproduce or tweak it.",
   "Quality: prefer specific direction over generic words (the presets already do this). For text in an image use the `style.text` field (quoted, rendered verbatim) — the vision proof-loop then auto-verifies spelling/diacritics and regenerates with feedback; read the ✓/✗ verdict in the result. Set GPT_IMAGE_INLINE=1 to also receive the image inline so you can see and judge it.",
   "Platform posts: pass `platform` (instagram-feed/-story, tiktok, x-post, linkedin-post, og-card, youtube-thumbnail, pinterest-pin) instead of size — native resolution + composition kept out of the platform's UI safe areas.",
-  "Text that must be EXACT (long copy, logos, heavy diacritics): generate a text-free plate (social-bg-plate or concept-hero preset), then compose_overlay sets the headline in a real font and places the real logo file — correct by construction, no proofing needed.",
+  "Text that must be EXACT (long copy, logos, heavy diacritics): create_social_card does the whole premium flow in one call — text-free plate, then the headline (with an accent word), subline and real logo set deterministically in real fonts, with an automatic legibility scrim when contrast under the type is low. For full manual control, generate a plate (social-bg-plate / concept-hero) and call compose_overlay yourself.",
 ];
 
 /** The structured catalog for `list_image_presets`: presets grouped + the modifier list. */

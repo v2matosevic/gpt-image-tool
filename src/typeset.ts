@@ -2,6 +2,8 @@
 // preset), THIS sets the type — real fonts, exact spelling, exact brand hex, zero garbled glyphs.
 // Text is built as SVG and rasterized by `sharp` (the one step that needs it — librsvg + system
 // fonts); logo prep and the final composite are our own dependency-free RGBA ops.
+// A legibility guard samples the plate under each block and slips a subtle scrim behind type that
+// would otherwise sink into a busy or same-tone region.
 
 import { extname } from "node:path";
 import { loadRGBA, loadSharp, resizeRGBA, saveImage, type OutFormat, type RGBA } from "./imageops.js";
@@ -28,6 +30,9 @@ export interface TextBlock {
   fontSize?: number;
   fontWeight?: number | string;
   color?: string;
+  /** One word (or phrase) inside `text` to ink in `accentColor` — the editorial accent. */
+  accentWord?: string;
+  accentColor?: string;
   /** Extra letter spacing in px (e.g. 2 for airy caps). */
   letterSpacing?: number;
   /** Line height as a multiple of fontSize (default 1.12). */
@@ -35,6 +40,8 @@ export interface TextBlock {
   /** Wrap width as a fraction of the canvas width (default 0.86). */
   maxWidthRatio?: number;
   uppercase?: boolean;
+  /** Legibility scrim behind the block: undefined = auto (on when contrast is low), true/false = force. */
+  scrim?: boolean;
 }
 
 export interface LogoOverlay {
@@ -69,12 +76,16 @@ export function escapeXml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => XML_ESCAPES[c]!);
 }
 
+// Approximate average glyph advance for a bold sans, in em. Measured against Segoe UI Bold caps —
+// deliberately slightly wide so wraps land early (never overflowing) and scrims fully cover.
+const GLYPH_EM = 0.6;
+
 /**
- * Greedy word-wrap with an approximate glyph width (bold sans ≈ 0.56 em + letterSpacing). SVG
- * anchoring keeps alignment exact even when the estimate is off by a few px.
+ * Greedy word-wrap with an approximate glyph width (~0.6 em + letterSpacing). SVG anchoring keeps
+ * alignment exact even when the estimate is off by a few px.
  */
 export function wrapText(text: string, fontSize: number, maxWidth: number, letterSpacing = 0): string[] {
-  const em = fontSize * 0.56 + letterSpacing;
+  const em = fontSize * GLYPH_EM + letterSpacing;
   const perLine = Math.max(1, Math.floor(maxWidth / em));
   const lines: string[] = [];
   for (const hard of text.split(/\r?\n/)) {
@@ -104,14 +115,27 @@ function insetsFor(platform?: string): SafeInsets {
   return { ...base, ...(getPlatform(platform).safeInsets ?? {}) };
 }
 
-interface Placed {
-  x: number; // anchor x
+/** Everything needed to both draw a block and reason about the pixels beneath it. */
+export interface BlockLayout {
+  lines: string[];
+  fontSize: number;
+  lineH: number;
+  x: number;
   anchor: "start" | "middle" | "end";
-  top: number; // top of the block
+  top: number;
+  /** Approximate rendered width of the widest line (same estimate the wrapper uses). */
+  estWidth: number;
+  height: number;
 }
 
 /** Resolve a position keyword to an SVG text anchor + block top inside the safe area. */
-function place(pos: OverlayPosition, canvasW: number, canvasH: number, blockH: number, insets: SafeInsets): Placed {
+function place(
+  pos: OverlayPosition,
+  canvasW: number,
+  canvasH: number,
+  blockH: number,
+  insets: SafeInsets,
+): { x: number; anchor: BlockLayout["anchor"]; top: number } {
   const margin = Math.round(Math.min(canvasW, canvasH) * 0.06);
   const left = Math.round(canvasW * insets.left) + margin;
   const right = canvasW - Math.round(canvasW * insets.right) - margin;
@@ -125,37 +149,124 @@ function place(pos: OverlayPosition, canvasW: number, canvasH: number, blockH: n
   return { x, anchor, top: blockTop };
 }
 
-function blockToSvg(b: TextBlock, canvasW: number, canvasH: number, index: number, insets: SafeInsets): string {
+/** Lay out one block (wrap + place). Exported for tests. */
+export function layoutBlock(b: TextBlock, canvasW: number, canvasH: number, index: number, insets: SafeInsets): BlockLayout {
   const fontSize = b.fontSize ?? Math.round(canvasW / (index === 0 ? 9 : 22));
   const lineH = Math.round(fontSize * (b.lineHeight ?? 1.12));
   const spacing = b.letterSpacing ?? 0;
   const maxWidth = canvasW * (b.maxWidthRatio ?? 0.86) - canvasW * (insets.left + insets.right);
   const text = b.uppercase ? b.text.toUpperCase() : b.text;
   const lines = wrapText(text, fontSize, maxWidth, spacing);
-  const blockH = lines.length * lineH;
-  const pos = place(b.position ?? (index === 0 ? "center" : "bottom-center"), canvasW, canvasH, blockH, insets);
+  const height = lines.length * lineH;
+  const pos = place(b.position ?? (index === 0 ? "center" : "bottom-center"), canvasW, canvasH, height, insets);
+  const estWidth = Math.max(...lines.map((l) => l.length)) * (fontSize * GLYPH_EM + spacing);
+  return { lines, fontSize, lineH, x: pos.x, anchor: pos.anchor, top: pos.top, estWidth, height };
+}
+
+/** The block's bounding box in canvas pixels (clamped), derived from its anchor + estimate. */
+export function blockBox(l: BlockLayout, canvasW: number, canvasH: number): { x0: number; y0: number; x1: number; y1: number } {
+  // Widen the estimate a further 8% — a scrim that clips the last glyph is worse than one a
+  // little generous, and the width model is only approximate.
+  const w = l.estWidth * 1.08;
+  const left = l.anchor === "start" ? l.x : l.anchor === "end" ? l.x - w : l.x - w / 2;
+  const pad = l.fontSize * 0.2;
+  return {
+    x0: Math.max(0, Math.round(left - pad)),
+    y0: Math.max(0, Math.round(l.top - pad)),
+    x1: Math.min(canvasW, Math.round(left + w + pad)),
+    y1: Math.min(canvasH, Math.round(l.top + l.height + pad)),
+  };
+}
+
+function srgbLuminance(r: number, g: number, b: number): number {
+  const lin = (v: number) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function colorLuminance(css: string | undefined, fallback: number): number {
+  const m = /#([0-9a-f]{6})\b/i.exec(css ?? "");
+  if (!m) return fallback;
+  const int = parseInt(m[1]!, 16);
+  return srgbLuminance(int >> 16, (int >> 8) & 0xff, int & 0xff);
+}
+
+/** WCAG-style contrast between the text color and the mean of the plate region under the block. */
+export function regionContrast(img: RGBA, box: { x0: number; y0: number; x1: number; y1: number }, textLuminance: number): number {
+  let sum = 0;
+  let n = 0;
+  for (let y = box.y0; y < box.y1; y += 4) {
+    for (let x = box.x0; x < box.x1; x += 4) {
+      const o = (y * img.width + x) * 4;
+      sum += srgbLuminance(img.data[o]!, img.data[o + 1]!, img.data[o + 2]!);
+      n++;
+    }
+  }
+  if (!n) return 21;
+  const bg = sum / n;
+  const [hi, lo] = bg > textLuminance ? [bg, textLuminance] : [textLuminance, bg];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// Display type is huge; below ~2.5:1 even a headline melts into the plate.
+const MIN_DISPLAY_CONTRAST = 2.5;
+
+function accentTspans(line: string, accentWord: string | undefined, accentColor: string | undefined, uppercase: boolean): string {
+  if (!accentWord || !accentColor) return escapeXml(line);
+  const target = (uppercase ? accentWord.toUpperCase() : accentWord).trim();
+  if (!target) return escapeXml(line);
+  const parts = line.split(new RegExp(`(${target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "i"));
+  return parts
+    .map((p) => (p.toLowerCase() === target.toLowerCase() ? `<tspan fill="${escapeXml(accentColor)}">${escapeXml(p)}</tspan>` : escapeXml(p)))
+    .join("");
+}
+
+function blockSvg(b: TextBlock, l: BlockLayout, withScrim: boolean, canvasW: number, canvasH: number): string {
   const family = b.fontFamily ? `${escapeXml(b.fontFamily)}, ` : "";
   const weight = b.fontWeight ?? 700;
   const fill = b.color ?? "#111111";
+  const spacing = b.letterSpacing ?? 0;
 
-  const tspans = lines
+  let scrim = "";
+  if (withScrim) {
+    const box = blockBox(l, canvasW, canvasH);
+    const dark = colorLuminance(fill, 0.05) < 0.5;
+    // Dark type gets a soft light plate; light type a soft dark one. A designer-legit treatment,
+    // not a hack — and it needs no SVG filters (librsvg-safe).
+    const scrimFill = dark ? "rgba(255,255,255,0.62)" : "rgba(0,0,0,0.38)";
+    const r = Math.round(l.fontSize * 0.25);
+    scrim = `<rect x="${box.x0}" y="${box.y0}" width="${box.x1 - box.x0}" height="${box.y1 - box.y0}" rx="${r}" fill="${scrimFill}"/>`;
+  }
+
+  const tspans = l.lines
     .map((line, i) => {
       // Baseline ≈ 0.8em below the line's top — close enough across sans faces.
-      const y = pos.top + i * lineH + Math.round(fontSize * 0.8);
-      return `<tspan x="${pos.x}" y="${y}">${escapeXml(line)}</tspan>`;
+      const y = l.top + i * l.lineH + Math.round(l.fontSize * 0.8);
+      return `<tspan x="${l.x}" y="${y}">${accentTspans(line, b.accentWord, b.accentColor, Boolean(b.uppercase))}</tspan>`;
     })
     .join("");
   return (
-    `<text text-anchor="${pos.anchor}" font-family="${family}'Segoe UI', 'Helvetica Neue', Arial, sans-serif" ` +
-    `font-size="${fontSize}" font-weight="${weight}" fill="${escapeXml(fill)}"` +
+    scrim +
+    `<text text-anchor="${l.anchor}" font-family="${family}'Segoe UI', 'Helvetica Neue', Arial, sans-serif" ` +
+    `font-size="${l.fontSize}" font-weight="${weight}" fill="${escapeXml(fill)}"` +
     (spacing ? ` letter-spacing="${spacing}"` : "") +
     `>${tspans}</text>`
   );
 }
 
-/** Full-canvas SVG containing every text block. Exported for tests. */
-export function buildOverlaySvg(blocks: TextBlock[], canvasW: number, canvasH: number, insets: SafeInsets): string {
-  const inner = blocks.map((b, i) => blockToSvg(b, canvasW, canvasH, i, insets)).join("");
+/** Full-canvas SVG containing every text block. `scrims[i]` forces/suppresses each block's scrim. */
+export function buildOverlaySvg(
+  blocks: TextBlock[],
+  canvasW: number,
+  canvasH: number,
+  insets: SafeInsets,
+  scrims?: boolean[],
+): string {
+  const inner = blocks
+    .map((b, i) => blockSvg(b, layoutBlock(b, canvasW, canvasH, i, insets), scrims?.[i] ?? false, canvasW, canvasH))
+    .join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}">${inner}</svg>`;
 }
 
@@ -208,7 +319,20 @@ export async function composeOverlay(input: ComposeOverlayInput): Promise<Compos
     if (!sharp) {
       throw new Error("compose_overlay text needs `sharp` installed (`npm i sharp`) to rasterize SVG type.");
     }
-    const svg = buildOverlaySvg(blocks, base.width, base.height, insets);
+    // Legibility guard: measure contrast under each block on the ORIGINAL plate, decide scrims.
+    const scrims = blocks.map((b, i) => {
+      if (b.scrim != null) return b.scrim;
+      const l = layoutBlock(b, base.width, base.height, i, insets);
+      const contrast = regionContrast(base, blockBox(l, base.width, base.height), colorLuminance(b.color, 0.05));
+      if (contrast < MIN_DISPLAY_CONTRAST) {
+        notes.push(
+          `Block "${b.text.slice(0, 24)}…" contrast ${contrast.toFixed(1)}:1 < ${MIN_DISPLAY_CONTRAST}:1 — auto-scrim added (override with scrim:false).`,
+        );
+        return true;
+      }
+      return false;
+    });
+    const svg = buildOverlaySvg(blocks, base.width, base.height, insets, scrims);
     const { data, info } = await sharp(Buffer.from(svg), { density: 72 })
       .ensureAlpha()
       .raw()
