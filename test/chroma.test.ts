@@ -15,3 +15,12 @@ test("pickChromaKey selects the key farthest from the brand hue", () => {
   assert.equal(pickChromaKey(undefined).name, "green");
   assert.equal(pickChromaKey("teal, no hex code here").name, "green");
 });
+
+test("pickChromaKey dodges EVERY palette color, not just the first", () => {
+  // Red alone -> green key; but a palette that ALSO contains green must not pick green.
+  assert.equal(pickChromaKey(["#e03131"]).name, "green");
+  const key = pickChromaKey(["#e03131", "#2f9e44"]); // red + green brand palette
+  assert.notEqual(key.name, "green");
+  // Full-spread palette picks the key with the best worst-case distance (never crashes).
+  assert.ok(pickChromaKey(["#e03131", "#2f9e44", "#1e5aff", "#ff00ff"]).name);
+});

@@ -16,6 +16,11 @@ export interface RGBA {
 export type Fit = "cover" | "contain" | "stretch";
 export type OutFormat = "png" | "jpeg" | "webp";
 
+/** MIME for an output format — the ONE format→mime map (MCP inline results, proof data URIs). */
+export function mimeForFormat(f: OutFormat): string {
+  return f === "jpeg" ? "image/jpeg" : f === "webp" ? "image/webp" : "image/png";
+}
+
 let sharpCache: any;
 export async function loadSharp(): Promise<any> {
   if (sharpCache !== undefined) return sharpCache;

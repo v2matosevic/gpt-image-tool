@@ -75,7 +75,7 @@ export const social: Preset[] = [
     category: "social",
     title: "Social card BACKGROUND plate (no text)",
     description:
-      "A premium text-free background plate to sit UNDER type composited elsewhere (e.g. Remotion). Restrained art confined to one zone, the rest clean for a headline overlay.",
+      "A premium text-free background plate to sit UNDER type set deterministically (compose_overlay / create_social_card, or an external compositor). Restrained art confined to one zone, the rest clean for a headline overlay.",
     recommended: { size: "1024x1536", quality: "high", format: "png" },
     background: "opaque",
     dims: {

@@ -4,12 +4,13 @@
 // Proofing FAILS OPEN: any transport/parse problem returns an "unverified" pass so an image is
 // never lost to a broken proofread.
 
-import { randomUUID } from "node:crypto";
-import { codexVersionHeader, getValidCreds, refreshAfter401, userAgent } from "./auth.js";
+import { codexVersionHeader, getValidCreds, refreshAfter401 } from "./auth.js";
+import { codexResponsesRequest } from "./codexhttp.js";
 import { parseSse } from "./sse.js";
+import { backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "./retry.js";
 
-const ENDPOINT = "https://chatgpt.com/backend-api/codex/responses";
 const PROOF_MODEL = process.env.GPT_IMAGE_PROOF_MODEL?.trim() || "gpt-5.5";
+const PROOF_RETRIES = 2; // proofing is cheap but rides the same throttled quota as generation
 const PROOF_TIMEOUT_MS = Number(process.env.GPT_IMAGE_PROOF_TIMEOUT_MS) || 120_000;
 
 export interface ProofVerdict {
@@ -90,33 +91,18 @@ function buildBody(imageB64: string, mime: string, question: string): unknown {
   };
 }
 
-// Mirrors the subscription provider's header shape (kept in sync with src/providers/subscription.ts).
-async function doRequest(accessToken: string, accountId: string | null | undefined, version: string, body: unknown, signal: AbortSignal): Promise<Response> {
-  const uuid = randomUUID();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${accessToken}`,
-    Accept: "text/event-stream",
-    Connection: "Keep-Alive",
-    version,
-    session_id: uuid,
-    "x-client-request-id": uuid,
-    "User-Agent": userAgent(version),
-    originator: "codex_cli_rs",
-  };
-  if (accountId) headers["chatgpt-account-id"] = accountId;
-  return fetch(ENDPOINT, { method: "POST", headers, body: JSON.stringify(body), signal });
-}
-
-/** Harvest assistant output text from the Responses SSE stream. */
+/** Harvest assistant output text from the Responses SSE stream. The same message item can be
+ *  delivered on BOTH `response.output_item.done` and inside `response.completed` — take the first
+ *  non-empty harvest only (mirrors the `??=` idempotency in the subscription provider). */
 async function consumeText(body: ReadableStream<Uint8Array>): Promise<string> {
   let out = "";
   const harvest = (item: any) => {
-    if (item?.type === "message" && Array.isArray(item.content)) {
-      for (const c of item.content) {
-        if (c?.type === "output_text" && typeof c.text === "string") out += c.text;
-      }
+    if (out || item?.type !== "message" || !Array.isArray(item.content)) return;
+    let text = "";
+    for (const c of item.content) {
+      if (c?.type === "output_text" && typeof c.text === "string") text += c.text;
     }
+    out = text;
   };
   for await (const ev of parseSse(body, () => {})) {
     const type = typeof ev.type === "string" ? ev.type : "";
@@ -128,28 +114,42 @@ async function consumeText(body: ReadableStream<Uint8Array>): Promise<string> {
 }
 
 /**
- * Proofread a generated image via the subscription endpoint. Never throws — a transport failure
- * returns an unverified pass (the caller keeps the image and reports "not verified").
+ * Proofread a generated image via the subscription endpoint. Retries transient throttles (the
+ * proof rides the same shared quota as generation, so a 429 right after a burst is the COMMON
+ * case, not the rare one). Never throws — a final failure returns an unverified pass.
  */
 export async function proofImage(imageBytes: Buffer, mime: string, req: ProofRequest): Promise<ProofVerdict> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PROOF_TIMEOUT_MS);
-  try {
-    const version = await codexVersionHeader();
-    let creds = await getValidCreds();
-    const body = buildBody(imageBytes.toString("base64"), mime, proofQuestion(req));
-    let res = await doRequest(creds.accessToken, creds.accountId, version, body, controller.signal);
-    if ((res.status === 401 || res.status === 403) && creds.refreshToken) {
-      creds = await refreshAfter401(creds.accessToken);
-      res = await doRequest(creds.accessToken, creds.accountId, version, body, controller.signal);
+  const body = buildBody(imageBytes.toString("base64"), mime, proofQuestion(req));
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= PROOF_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PROOF_TIMEOUT_MS);
+    try {
+      const version = await codexVersionHeader();
+      let creds = await getValidCreds();
+      let res = await codexResponsesRequest(creds, version, body, controller.signal);
+      if ((res.status === 401 || res.status === 403) && creds.refreshToken) {
+        creds = await refreshAfter401(creds.accessToken);
+        res = await codexResponsesRequest(creds, version, body, controller.signal);
+      }
+      if (isRetryableStatus(res.status) && attempt < PROOF_RETRIES) {
+        clearTimeout(timer);
+        await sleep(retryAfterMs(res) ?? backoffMs(attempt));
+        continue;
+      }
+      if (!res.ok || !res.body) throw new Error(`proof request failed: HTTP ${res.status}`);
+      return parseVerdict(await consumeText(res.body));
+    } catch (e) {
+      lastErr = e;
+      if (isNetworkError(e, controller.signal.aborted) && attempt < PROOF_RETRIES) {
+        await sleep(backoffMs(attempt));
+        continue;
+      }
+      break;
+    } finally {
+      clearTimeout(timer);
     }
-    if (!res.ok || !res.body) throw new Error(`proof request failed: HTTP ${res.status}`);
-    const text = await consumeText(res.body);
-    return parseVerdict(text);
-  } catch (e) {
-    console.error(`[gpt-image] proofread skipped (${e instanceof Error ? e.message : e}) — image NOT verified.`);
-    return { pass: true, issues: [], unverified: true };
-  } finally {
-    clearTimeout(timer);
   }
+  console.error(`[gpt-image] proofread skipped (${lastErr instanceof Error ? lastErr.message : lastErr}) — image NOT verified.`);
+  return { pass: true, issues: [], unverified: true };
 }

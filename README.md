@@ -25,6 +25,8 @@ size and keep composition out of platform UI safe areas; a **brand palette** is 
 your style references and anchored in the prompt; and **compose_overlay** / **create_social_card**
 set headlines and the real logo deterministically (real fonts — exact spelling by construction) on
 model-generated plates, with an automatic legibility scrim when the type would sink into the plate.
+(The two compositing tools are the one feature that needs `sharp` installed — `npm i sharp` —
+for SVG type rasterization; everything else stays dependency-free.)
 
 ## Documentation
 

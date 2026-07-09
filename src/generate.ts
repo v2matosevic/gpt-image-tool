@@ -9,6 +9,7 @@ import type { GenerateInput, ImageBackground, ImageFormat, ImageProvider, ImageQ
 import { build, type PromptOverrides } from "./presets/index.js";
 import { imageSize, looksLikeImage, sizeForAspect, upscaleSizeForAspect } from "./imageinfo.js";
 import { removeBackground } from "./bgremove.js";
+import { mimeForFormat } from "./imageops.js";
 import { loadProfile, type BrandProfile } from "./profile.js";
 import { getPlatform, type PlatformTarget } from "./platforms.js";
 import { extractPalette } from "./palette.js";
@@ -55,6 +56,7 @@ export function overlay(base: StyleInput, top: StyleInput): StyleInput {
     styleReference: top.styleReference ?? base.styleReference,
     platform: top.platform ?? base.platform,
     proof: top.proof ?? base.proof,
+    autoPalette: top.autoPalette ?? base.autoPalette,
     size: top.size ?? base.size,
     quality: top.quality ?? base.quality,
     format: top.format ?? base.format,
@@ -75,6 +77,7 @@ function profileAsBase(p: BrandProfile, baseDir: string): StyleInput {
     styleReference: p.styleReference?.map(rel),
     platform: p.platform,
     proof: p.proof,
+    autoPalette: p.autoPalette,
     size: p.size,
     quality: p.quality,
     format: p.format,
@@ -209,6 +212,8 @@ export interface StyleInput {
   /** Vision proof-loop: verify the render (text verbatim, no artifacts) and auto-regenerate with
    *  feedback on failure. Defaults to ON when style.text is set; set false to skip. */
   proof?: boolean;
+  /** Auto-extract a brand palette from styleReference (profile flag; default true). */
+  autoPalette?: boolean;
   /** Produce N independent variations of the same brief (1–10). Returned in `variants`. */
   count?: number;
   /** Produce a CONSISTENT set of N: the first image is reused as a style reference for the rest. */
@@ -334,7 +339,7 @@ async function runAndSave(
     let verdict: ProofVerdict | undefined;
     if (meta.proof) {
       // Proof-loop: proofread the render; on concrete failures, regenerate with that feedback.
-      const mime = input.format === "jpeg" ? "image/jpeg" : input.format === "webp" ? "image/webp" : "image/png";
+      const mime = mimeForFormat(input.format);
       for (let attempt = 1; ; attempt++) {
         verdict = { ...(await proofImage(result.bytes, mime, meta.proof)), attempts: attempt };
         if (verdict.pass || verdict.unverified || attempt >= meta.proof.maxAttempts) break;
@@ -435,19 +440,25 @@ function hueDistance(a: number, b: number): number {
 }
 
 /**
- * Pick the chroma key whose hue is FARTHEST from the subject's colour hint (the first hex found in
- * the style colour). A teal brand (#1CB5A3, hue ~172) lands on magenta, never on green. Falls back
- * to green when there's no usable hint.
+ * Pick the chroma key whose hue is farthest from EVERY colour the subject is being steered toward
+ * (style colour + the full auto-extracted brand palette — the prompt anchors all of them, so the
+ * key must not collide with any). Maximizes the minimum hue distance; falls back to green when
+ * there's no usable hint.
  */
-export function pickChromaKey(colorHint?: string): ChromaKey {
-  if (!colorHint) return DEFAULT_CHROMA;
-  const hex = /#?[0-9a-f]{6}\b/i.exec(colorHint)?.[0];
-  const hue = hex ? hexToHue(hex) : null;
-  if (hue == null) return DEFAULT_CHROMA;
+export function pickChromaKey(colorHints?: string | string[]): ChromaKey {
+  const hints = (Array.isArray(colorHints) ? colorHints : [colorHints]).filter(Boolean) as string[];
+  const hues: number[] = [];
+  for (const hint of hints) {
+    for (const hex of hint.match(/#?[0-9a-f]{6}\b/gi) ?? []) {
+      const hue = hexToHue(hex);
+      if (hue != null) hues.push(hue);
+    }
+  }
+  if (!hues.length) return DEFAULT_CHROMA;
   let best = DEFAULT_CHROMA;
   let bestDist = -1;
   for (const k of CHROMA_KEYS) {
-    const dist = hueDistance(hue, k.hue);
+    const dist = Math.min(...hues.map((h) => hueDistance(h, k.hue)));
     if (dist > bestDist) {
       bestDist = dist;
       best = k;
@@ -464,10 +475,10 @@ export function pickChromaKey(colorHint?: string): ChromaKey {
 function chromaSetup(
   wantTransparent: boolean,
   backendName: string,
-  colorHint?: string,
+  colorHints?: string | string[],
 ): { promptSuffix: string; transform?: (b: Buffer) => Buffer } {
   if (!wantTransparent || backendName === "apikey") return { promptSuffix: "" };
-  const key = pickChromaKey(colorHint);
+  const key = pickChromaKey(colorHints);
   const promptSuffix =
     ` Render the subject fully isolated and centered on a completely solid, uniform chroma-key ${key.name}` +
     ` (${key.hex}) background — no shadows, no gradient, no reflections, no other elements, and do` +
@@ -505,37 +516,40 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
   // Platform target: native size (explicit size still wins) + a safe-area composition constraint.
   const plat: PlatformTarget | undefined = opts.platform ? getPlatform(opts.platform) : undefined;
 
+  // Brand palette: anchor colors to what the styleReference assets ACTUALLY contain, unless the
+  // caller wrote an explicit color. Opt out via profile `autoPalette: false` / GPT_IMAGE_NO_AUTOPALETTE=1.
+  // Extracted BEFORE compose so it joins the prompt canonically and steers the chroma-key choice.
+  let palette: string[] = [];
+  if (opts.styleReference?.length && !opts.style?.color && opts.autoPalette !== false && process.env.GPT_IMAGE_NO_AUTOPALETTE !== "1") {
+    palette = await extractPalette(opts.styleReference).catch(() => []);
+  }
+
+  const extraClauses: string[] = [];
+  if (plat) extraClauses.push(plat.clause);
+  if (palette.length) extraClauses.push(`Anchor the color palette to the brand colors ${palette.join(", ")}`);
+
   const composed = build({
     subject: opts.subject,
     rawPrompt: opts.prompt,
     preset: opts.preset,
     modifiers: opts.modifiers,
     overrides: opts.style,
+    extraClauses,
     size: opts.size ?? plat?.size,
     quality: opts.quality,
     format: opts.format,
     background: opts.transparent ? "transparent" : opts.background,
   });
 
-  // Brand palette: anchor colors to what the styleReference assets ACTUALLY contain, unless the
-  // caller wrote an explicit color. Opt out via profile `autoPalette: false` / GPT_IMAGE_NO_AUTOPALETTE=1.
-  let palette: string[] = [];
-  if (opts.styleReference?.length && !opts.style?.color && process.env.GPT_IMAGE_NO_AUTOPALETTE !== "1") {
-    const prof = loadProfile(profileStartDir(opts.outputPath))?.profile;
-    if (prof?.autoPalette !== false) palette = await extractPalette(opts.styleReference).catch(() => []);
-  }
-
   const wantTransparent = composed.background === "transparent";
   const backendName = resolveBackendName(opts.backend);
   // apikey supports native transparency; subscription does not, so render-on-chroma + key it out.
   const nativeTransparent = wantTransparent && backendName === "apikey";
-  // The palette's dominant color doubles as the chroma-key hint (never key out the brand color).
-  const chroma = chromaSetup(wantTransparent, backendName, opts.style?.color ?? palette[0]);
+  // The key must dodge EVERY color the prompt steers the subject toward (style color + palette).
+  const chroma = chromaSetup(wantTransparent, backendName, [opts.style?.color ?? "", ...palette]);
 
   let inputImages: InputImage[] | undefined;
   let prompt = composed.prompt;
-  if (plat) prompt += ` ${plat.clause}`;
-  if (palette.length) prompt += ` Anchor the color palette to the brand colors ${palette.join(", ")}.`;
   if (chroma.promptSuffix) prompt += chroma.promptSuffix;
   if (opts.styleReference?.length) {
     // Skip (with a warning) any reference that can't be read — a typo in a brand profile's
@@ -638,6 +652,9 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
     throw new Error("editImage requires `instruction` (what to change) or a preset/subject/style.");
   }
 
+  // Platform target works on edits too (reframe an existing asset for a story/post).
+  const plat: PlatformTarget | undefined = opts.platform ? getPlatform(opts.platform) : undefined;
+
   // If a style is requested, compose it; otherwise the instruction alone drives the edit.
   const composed = build({
     subject: opts.subject ?? "the result",
@@ -645,7 +662,8 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
     preset: opts.preset,
     modifiers: opts.modifiers,
     overrides: opts.style,
-    size: opts.size ?? sizeForAspect(loaded[0]!.dim),
+    extraClauses: plat ? [plat.clause] : undefined,
+    size: opts.size ?? plat?.size ?? sizeForAspect(loaded[0]!.dim),
     quality: opts.quality,
     format: opts.format,
     background: opts.transparent ? "transparent" : opts.background,
@@ -673,7 +691,7 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
     inputImages,
     maskImage,
   };
-  return runAndSave(input, opts.outputPath, opts.backend, "edit", {
+  const out = await runAndSave(input, opts.outputPath, opts.backend, "edit", {
     prompt,
     preset: composed.presetId,
     modifiers: composed.modifierIds,
@@ -684,6 +702,34 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
     mask: opts.maskPath,
     transform: chroma.transform,
     proof: proofRequest(opts, Boolean(chroma.transform)),
+  });
+  if (plat) {
+    out.platform = plat.id;
+    out.platformNote = plat.note;
+  }
+  return out;
+}
+
+// The cutout instruction is deliberately fidelity-obsessed: use_model REGENERATES the subject
+// (it is not a pixel-preserving keyer), so the prompt pins every attribute it can.
+const CUTOUT_INSTRUCTION =
+  "Reproduce ONLY the main subject of this image, pixel-faithful — identical shape, colors, " +
+  "materials, texture, pose and fine detail; do not restyle or simplify it";
+
+/**
+ * Model-assisted background removal for busy/photographic backgrounds: re-render the subject on a
+ * chroma field via an edit, then the existing keyer cuts it out. NOTE: this is a REGENERATION, not
+ * a pixel-preserving cutout — fine text/logos on the subject may drift; the result note says so.
+ */
+export function modelAssistedCutout(imagePath: string, outputPath?: string, backend?: string): Promise<GenerateOutput> {
+  return editImage({
+    imagePaths: [imagePath],
+    instruction: CUTOUT_INSTRUCTION,
+    transparent: true,
+    format: "png",
+    outputPath,
+    backend,
+    proof: false,
   });
 }
 

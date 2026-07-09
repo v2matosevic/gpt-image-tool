@@ -15,6 +15,8 @@ export interface BuildRequest {
   preset?: string;
   modifiers?: string[];
   overrides?: PromptOverrides;
+  /** Machine-added constraints (platform safe areas, palette anchor) — see compile.ts. */
+  extraClauses?: string[];
   size?: ImageSize;
   quality?: ImageQuality;
   format?: ImageFormat;
@@ -45,6 +47,7 @@ export function build(req: BuildRequest): Composed {
     preset,
     modifiers,
     overrides: req.overrides,
+    extraClauses: req.extraClauses,
     size: req.size,
     quality: req.quality,
     format: req.format,

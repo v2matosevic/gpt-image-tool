@@ -41,6 +41,7 @@ Image-to-image: edit / restyle / variation / inpaint.
 | `mask_path` | string | PNG mask: transparent areas mark the region to regenerate (inpainting). |
 | `preset` / `modifiers` / `style` / `subject` | — | Optional restyle on top of the edit. |
 | `proof` | bool | Vision proof-loop on the result (default: on when `style.text` is set). |
+| `platform` | enum | Reframe for a platform: native size + safe-area constraint (as in `generate_image`). |
 | `count`, `size`, `quality`, `format`, `output_path`, `backend` | — | As above. |
 
 ### `upscale_image`
@@ -76,7 +77,7 @@ Cut out any image → transparent PNG. Local keyer by default; `use_model` for b
 | `image_path` | string | **Required.** |
 | `output_path` | string | Default `<image>-cutout.png`. |
 | `tolerance` | int 0–180 | Local keyer: color tolerance vs the sampled background (default 28). |
-| `use_model` | bool | Busy/photographic background: the model re-renders the subject on a chroma field (one subscription generation), then the keyer cuts that. |
+| `use_model` | bool | Busy/photographic background: the model re-renders the subject on a chroma field (one subscription generation), then the keyer cuts that. ⚠ A REGENERATION, not pixel-preserving — verify fine detail/labels on the subject. |
 
 ### `compose_overlay`
 Composite **exact text** (real installed fonts — spelling exact by construction) and/or the **real

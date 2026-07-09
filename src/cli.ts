@@ -9,7 +9,7 @@
 //   gpt-image --presets [category]        # list the catalog
 //   gpt-image --check                     # validate the session
 
-import { editImage, generateImage, upscaleImage } from "./generate.js";
+import { editImage, generateImage, modelAssistedCutout, upscaleImage } from "./generate.js";
 import { checkSession } from "./auth.js";
 import { catalog } from "./presets/index.js";
 import { exportWebAssets, type WebAssetKind } from "./webassets.js";
@@ -240,16 +240,8 @@ const hasStyle = Object.keys(args.style).length > 0;
 if (args.removeBg) {
   const outPath = args.output ?? cutoutPath(args.removeBg);
   if (args.useModel) {
-    await editImage({
-      imagePaths: [args.removeBg],
-      instruction:
-        "Reproduce ONLY the main subject of this image, pixel-faithful — identical shape, colors, " +
-        "materials, texture, pose and fine detail; do not restyle or simplify it",
-      transparent: true,
-      format: "png",
-      outputPath: outPath,
-      proof: false,
-    });
+    await modelAssistedCutout(args.removeBg, outPath, args.backend);
+    console.error("⚠ model-assisted cutout regenerates the subject — verify fine detail against the original.");
   } else {
     await removeBackgroundFile(args.removeBg, outPath);
   }
@@ -304,6 +296,7 @@ try {
       modifiers: args.modifiers,
       style: hasStyle ? args.style : undefined,
       proof: args.proof,
+      platform: args.platform,
       size: args.size,
       quality: args.quality,
       format: args.format,

@@ -186,10 +186,17 @@ function srgbLuminance(r: number, g: number, b: number): number {
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
+// The two named colors people actually pass; anything else unparseable falls back.
+const NAMED_LUMINANCE: Record<string, number> = { white: 1, black: 0 };
+
 function colorLuminance(css: string | undefined, fallback: number): number {
-  const m = /#([0-9a-f]{6})\b/i.exec(css ?? "");
+  const c = (css ?? "").trim().toLowerCase();
+  if (c in NAMED_LUMINANCE) return NAMED_LUMINANCE[c]!;
+  const m = /#([0-9a-f]{6}|[0-9a-f]{3})\b/.exec(c);
   if (!m) return fallback;
-  const int = parseInt(m[1]!, 16);
+  let hex = m[1]!;
+  if (hex.length === 3) hex = [...hex].map((ch) => ch + ch).join("");
+  const int = parseInt(hex, 16);
   return srgbLuminance(int >> 16, (int >> 8) & 0xff, int & 0xff);
 }
 
@@ -217,7 +224,9 @@ function accentTspans(line: string, accentWord: string | undefined, accentColor:
   if (!accentWord || !accentColor) return escapeXml(line);
   const target = (uppercase ? accentWord.toUpperCase() : accentWord).trim();
   if (!target) return escapeXml(line);
-  const parts = line.split(new RegExp(`(${target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "i"));
+  // Whole-word match only — 'art' must not ink the tail of 'SMART'.
+  const esc = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = line.split(new RegExp(`(?<![\\p{L}\\p{N}])(${esc})(?![\\p{L}\\p{N}])`, "iu"));
   return parts
     .map((p) => (p.toLowerCase() === target.toLowerCase() ? `<tspan fill="${escapeXml(accentColor)}">${escapeXml(p)}</tspan>` : escapeXml(p)))
     .join("");
@@ -256,6 +265,12 @@ function blockSvg(b: TextBlock, l: BlockLayout, withScrim: boolean, canvasW: num
   );
 }
 
+/** SVG from precomputed layouts — the layout pass runs ONCE (scrim decisions reuse the same). */
+function svgFromLayouts(blocks: TextBlock[], layouts: BlockLayout[], canvasW: number, canvasH: number, scrims?: boolean[]): string {
+  const inner = blocks.map((b, i) => blockSvg(b, layouts[i]!, scrims?.[i] ?? false, canvasW, canvasH)).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}">${inner}</svg>`;
+}
+
 /** Full-canvas SVG containing every text block. `scrims[i]` forces/suppresses each block's scrim. */
 export function buildOverlaySvg(
   blocks: TextBlock[],
@@ -264,10 +279,8 @@ export function buildOverlaySvg(
   insets: SafeInsets,
   scrims?: boolean[],
 ): string {
-  const inner = blocks
-    .map((b, i) => blockSvg(b, layoutBlock(b, canvasW, canvasH, i, insets), scrims?.[i] ?? false, canvasW, canvasH))
-    .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}">${inner}</svg>`;
+  const layouts = blocks.map((b, i) => layoutBlock(b, canvasW, canvasH, i, insets));
+  return svgFromLayouts(blocks, layouts, canvasW, canvasH, scrims);
 }
 
 /** Composite `src` over `dst` at (ox,oy), straight source-over. */
@@ -302,6 +315,14 @@ function overlayOutPath(src: string): string {
   return src.slice(0, src.length - extname(src).length) + "-final.png";
 }
 
+/** Output format from a file extension — recognizes jpg/jpeg/webp, defaults to png. */
+export function formatFromPath(p: string): OutFormat {
+  const e = extname(p).toLowerCase();
+  if (e === ".jpg" || e === ".jpeg") return "jpeg";
+  if (e === ".webp") return "webp";
+  return "png";
+}
+
 /**
  * Composite exact text (and optionally the real logo asset) onto an image. This is the
  * deterministic half of the social pipeline: generate a plate with the model, set the type here.
@@ -319,11 +340,11 @@ export async function composeOverlay(input: ComposeOverlayInput): Promise<Compos
     if (!sharp) {
       throw new Error("compose_overlay text needs `sharp` installed (`npm i sharp`) to rasterize SVG type.");
     }
-    // Legibility guard: measure contrast under each block on the ORIGINAL plate, decide scrims.
+    // Legibility guard: one layout pass; measure contrast under each block, decide scrims, render.
+    const layouts = blocks.map((b, i) => layoutBlock(b, base.width, base.height, i, insets));
     const scrims = blocks.map((b, i) => {
       if (b.scrim != null) return b.scrim;
-      const l = layoutBlock(b, base.width, base.height, i, insets);
-      const contrast = regionContrast(base, blockBox(l, base.width, base.height), colorLuminance(b.color, 0.05));
+      const contrast = regionContrast(base, blockBox(layouts[i]!, base.width, base.height), colorLuminance(b.color, 0.05));
       if (contrast < MIN_DISPLAY_CONTRAST) {
         notes.push(
           `Block "${b.text.slice(0, 24)}…" contrast ${contrast.toFixed(1)}:1 < ${MIN_DISPLAY_CONTRAST}:1 — auto-scrim added (override with scrim:false).`,
@@ -332,7 +353,7 @@ export async function composeOverlay(input: ComposeOverlayInput): Promise<Compos
       }
       return false;
     });
-    const svg = buildOverlaySvg(blocks, base.width, base.height, insets, scrims);
+    const svg = svgFromLayouts(blocks, layouts, base.width, base.height, scrims);
     const { data, info } = await sharp(Buffer.from(svg), { density: 72 })
       .ensureAlpha()
       .raw()
@@ -360,7 +381,7 @@ export async function composeOverlay(input: ComposeOverlayInput): Promise<Compos
   if (input.platform) notes.push(`Overlays kept inside ${input.platform} safe areas.`);
 
   const outPath = input.outputPath ?? overlayOutPath(input.imagePath);
-  const format: OutFormat = input.format ?? (extname(outPath).toLowerCase() === ".jpg" || extname(outPath).toLowerCase() === ".jpeg" ? "jpeg" : "png");
+  const format: OutFormat = input.format ?? formatFromPath(outPath);
   await saveImage(base, outPath, format);
   return { path: outPath, width: base.width, height: base.height, notes };
 }

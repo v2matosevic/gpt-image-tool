@@ -2,14 +2,13 @@
 // authenticated with the ChatGPT OAuth token from ~/.codex/auth.json. Billed to the ChatGPT/Codex
 // usage bucket, not the paid API. The request shape mirrors the proven `chatgpt-imagegen` payload.
 
-import { randomUUID } from "node:crypto";
-import { getValidCreds, refreshAfter401, codexVersionHeader, userAgent, reloginHint } from "../auth.js";
+import { getValidCreds, refreshAfter401, codexVersionHeader, reloginHint } from "../auth.js";
+import { codexResponsesRequest } from "../codexhttp.js";
 import type { SubscriptionCreds as Creds } from "../auth.js";
 import { parseSse } from "../sse.js";
 import { MAX_RETRIES, backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "../retry.js";
 import type { GenerateInput, GenerateResult, ImageProvider } from "./types.js";
 
-const ENDPOINT = "https://chatgpt.com/backend-api/codex/responses";
 const DEFAULT_MODEL = process.env.GPT_IMAGE_MODEL?.trim() || "gpt-5.5";
 const TOTAL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_TIMEOUT_MS) || 300_000;
 const STALL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_STALL_MS) || 120_000;
@@ -62,26 +61,8 @@ function buildBody(input: GenerateInput, model: string): unknown {
   };
 }
 
-async function doRequest(
-  creds: Creds,
-  version: string,
-  body: unknown,
-  signal: AbortSignal,
-): Promise<Response> {
-  const uuid = randomUUID();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${creds.accessToken}`,
-    Accept: "text/event-stream",
-    Connection: "Keep-Alive",
-    version,
-    session_id: uuid,
-    "x-client-request-id": uuid,
-    "User-Agent": userAgent(version),
-    originator: "codex_cli_rs",
-  };
-  if (creds.accountId) headers["chatgpt-account-id"] = creds.accountId;
-  return fetch(ENDPOINT, { method: "POST", headers, body: JSON.stringify(body), signal });
+function doRequest(creds: Creds, version: string, body: unknown, signal: AbortSignal): Promise<Response> {
+  return codexResponsesRequest(creds, version, body, signal);
 }
 
 async function consumeStream(

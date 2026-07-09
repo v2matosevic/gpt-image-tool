@@ -20,6 +20,9 @@ export interface ComposeInput {
   preset?: Preset;
   modifiers?: Modifier[];
   overrides?: PromptOverrides;
+  /** Machine-added constraints (platform safe areas, brand-palette anchor). Emitted after the
+   *  dimensional body, BEFORE the text directive and negatives — also applied to raw prompts. */
+  extraClauses?: string[];
   size?: ImageSize;
   quality?: ImageQuality;
   format?: ImageFormat;
@@ -104,6 +107,8 @@ export function compose(input: ComposeInput): Composed {
   }
 
   if (!/[.!?]$/.test(prompt.trim())) prompt = prompt.trim() + ".";
+  const extras = (input.extraClauses ?? []).map(clause).filter((c): c is string => Boolean(c));
+  if (extras.length) prompt += " " + extras.map((e) => `${cap(e)}.`).join(" ");
   // Text: OpenAI's guide recommends quoting the literal string and demanding verbatim rendering.
   if (text) prompt += ` Render the text "${text}" exactly and verbatim with no extra characters, clearly legible.`;
   // Negatives: an imperative directive tests stronger than a bare "Avoid:" label on gpt-image.

@@ -14,20 +14,18 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { editImage, generateImage, upscaleImage, type GenerateOutput } from "./generate.js";
+import { editImage, generateImage, modelAssistedCutout, upscaleImage, type GenerateOutput } from "./generate.js";
 import { catalog, MODIFIER_IDS, PRESET_IDS } from "./presets/index.js";
 import { exportWebAssets } from "./webassets.js";
-import { cutoutPath, removeBackgroundFile } from "./imageops.js";
+import { cutoutPath, mimeForFormat, removeBackgroundFile } from "./imageops.js";
 import { PLATFORM_IDS, PLATFORMS } from "./platforms.js";
+
+// Static projection for the catalog tool — computed once, PLATFORMS never changes at runtime.
+const PLATFORM_CATALOG = PLATFORMS.map(({ id, title, size, note }) => ({ id, title, size, note }));
 import { composeOverlay } from "./typeset.js";
 import { createSocialCard } from "./socialcard.js";
-import type { ImageFormat } from "./providers/types.js";
 
 const INLINE = process.env.GPT_IMAGE_INLINE === "1";
-
-function mimeFor(f: ImageFormat): string {
-  return f === "jpeg" ? "image/jpeg" : f === "webp" ? "image/webp" : "image/png";
-}
 
 const sizeSchema = z.enum([
   "auto",
@@ -83,15 +81,17 @@ function ok(out: GenerateOutput, verb: string) {
         `\nConsider compose_overlay (deterministic type) or a different preset.`;
     }
   }
-  // Proof gate — every source stresses: even at high accuracy, verify before publishing.
+  // Proof gate — even at high accuracy, verify before publishing. The accent heuristic defers to
+  // the proof-loop: when the model verifiably read the text back correctly, don't second-guess it.
+  const textVerified = Boolean(out.proof && out.proof.pass && !out.proof.unverified);
   const proof =
     verdictLine +
     `\n\n--- Verify before publishing ---\n` +
     `• Text: every word spelled right, verbatim, no duplicated/stray text.  • Single-accent rule held.\n` +
-    `• Logo/wordmark integrity (the model can't reproduce a real logo — composite the real asset).\n` +
+    `• Logo/wordmark integrity (the model can't reproduce a real logo — place the real asset with compose_overlay).\n` +
     `• Kerning + the platform safe area (preview on a phone: top ~10% / bottom ~12% get covered by UI).` +
-    (ACCENTED_RE.test(out.prompt)
-      ? `\n⚠ Accented text (e.g. Croatian č/ć/ž/š/đ) detected — check EVERY mark. If any is wrong after 1–2 tries, set the type in a deterministic compositor (Remotion) instead.`
+    (!textVerified && ACCENTED_RE.test(out.prompt)
+      ? `\n⚠ Accented text (e.g. Croatian č/ć/ž/š/đ) detected — check EVERY mark. If any is wrong after 1–2 tries, switch to create_social_card / compose_overlay (deterministic type, exact by construction).`
       : ``);
   const text =
     `Image ${verb} via the ${out.backend} backend and ${pathLine}\n\n` +
@@ -103,7 +103,7 @@ function ok(out: GenerateOutput, verb: string) {
     (out.revisedPrompt ? `\nModel-revised prompt: ${out.revisedPrompt}` : "") +
     proof;
   const content: Array<Record<string, unknown>> = [{ type: "text", text }];
-  if (INLINE) content.push({ type: "image", data: out.base64, mimeType: mimeFor(out.format) });
+  if (INLINE) content.push({ type: "image", data: out.base64, mimeType: mimeForFormat(out.format) });
   return { content } as any;
 }
 
@@ -226,6 +226,10 @@ server.registerTool(
         .boolean()
         .optional()
         .describe("Vision proof-loop on the edited result (see generate_image.proof). Default: ON when style.text is set."),
+      platform: z
+        .enum(PLATFORM_IDS as [string, ...string[]])
+        .optional()
+        .describe("Reframe for a platform: native size + safe-area composition constraint (as in generate_image)."),
       size: sizeSchema.optional(),
       quality: qualitySchema.optional(),
       format: formatSchema.optional(),
@@ -245,6 +249,7 @@ server.registerTool(
         style: a.style,
         subject: a.subject,
         proof: a.proof,
+        platform: a.platform,
         size: a.size,
         quality: a.quality,
         format: a.format,
@@ -375,17 +380,12 @@ server.registerTool(
     try {
       const out = a.output_path ?? cutoutPath(a.image_path);
       if (a.use_model) {
-        const res = await editImage({
-          imagePaths: [a.image_path],
-          instruction:
-            "Reproduce ONLY the main subject of this image, pixel-faithful — identical shape, colors, " +
-            "materials, texture, pose and fine detail; do not restyle or simplify it",
-          transparent: true,
-          format: "png",
-          outputPath: out,
-          proof: false,
-        });
-        return ok(res, "cut out (model-assisted)");
+        const res = await modelAssistedCutout(a.image_path, out);
+        const result = ok(res, "cut out (model-assisted)");
+        result.content[0].text +=
+          "\n⚠ Model-assisted cutout REGENERATES the subject (it is not pixel-preserving) — " +
+          "verify fine details, labels and any text on the subject against the original before publishing.";
+        return result;
       }
       await removeBackgroundFile(a.image_path, out, a.tolerance != null ? { tolerance: a.tolerance } : undefined);
       return { content: [{ type: "text", text: `Background removed → ${out} (transparent PNG).` }] } as any;
@@ -406,6 +406,18 @@ const positionSchema = z.enum([
   "bottom-center",
   "bottom-right",
 ]);
+
+// One logo shape, one mapper — used by compose_overlay AND create_social_card.
+const logoSchema = z.object({
+  path: z.string().describe("The REAL logo asset (png; svg not supported here)."),
+  position: positionSchema.optional().describe("Default bottom-center."),
+  width_ratio: z.number().optional().describe("Logo width as a fraction of canvas width. Default 0.14."),
+  opacity: z.number().min(0).max(1).optional(),
+});
+
+function toLogoOverlay(logo: z.infer<typeof logoSchema> | undefined) {
+  return logo ? { path: logo.path, position: logo.position, widthRatio: logo.width_ratio, opacity: logo.opacity } : undefined;
+}
 
 server.registerTool(
   "compose_overlay",
@@ -439,14 +451,7 @@ server.registerTool(
         )
         .optional()
         .describe("Text blocks to set. Spelling is exact by construction — no proofing needed."),
-      logo: z
-        .object({
-          path: z.string().describe("The REAL logo asset (png; svg not supported here)."),
-          position: positionSchema.optional().describe("Default bottom-center."),
-          width_ratio: z.number().optional().describe("Logo width as a fraction of canvas width. Default 0.14."),
-          opacity: z.number().min(0).max(1).optional(),
-        })
-        .optional(),
+      logo: logoSchema.optional(),
       platform: z
         .enum(PLATFORM_IDS as [string, ...string[]])
         .optional()
@@ -474,9 +479,7 @@ server.registerTool(
           maxWidthRatio: b.max_width_ratio,
           uppercase: b.uppercase,
         })),
-        logo: a.logo
-          ? { path: a.logo.path, position: a.logo.position, widthRatio: a.logo.width_ratio, opacity: a.logo.opacity }
-          : undefined,
+        logo: toLogoOverlay(a.logo),
         platform: a.platform,
         outputPath: a.output_path,
         format: a.format,
@@ -512,15 +515,7 @@ server.registerTool(
       headline_color: z.string().optional().describe("Default near-black #1c1917."),
       subline_color: z.string().optional().describe("Default = accent color."),
       uppercase: z.boolean().optional().describe("Uppercase the headline (default true)."),
-      logo: z
-        .object({
-          path: z.string(),
-          position: positionSchema.optional().describe("Default bottom-center."),
-          width_ratio: z.number().optional(),
-          opacity: z.number().min(0).max(1).optional(),
-        })
-        .optional()
-        .describe("The real logo asset to place."),
+      logo: logoSchema.optional().describe("The real logo asset to place."),
       platform: z.enum(PLATFORM_IDS as [string, ...string[]]).optional().describe("Default instagram-feed."),
       plate_subject: z.string().optional().describe("What the plate depicts. Default: a quiet premium material study."),
       plate_preset: z
@@ -546,7 +541,7 @@ server.registerTool(
         headlineColor: a.headline_color,
         sublineColor: a.subline_color,
         uppercase: a.uppercase,
-        logo: a.logo ? { path: a.logo.path, position: a.logo.position, widthRatio: a.logo.width_ratio, opacity: a.logo.opacity } : undefined,
+        logo: toLogoOverlay(a.logo),
         platform: a.platform,
         plateSubject: a.plate_subject,
         platePreset: a.plate_preset,
@@ -585,8 +580,7 @@ server.registerTool(
   },
   async (a) => {
     const cat = catalog(a.category);
-    const withPlatforms = { ...cat, platforms: PLATFORMS.map(({ id, title, size, note }) => ({ id, title, size, note })) };
-    return { content: [{ type: "text", text: JSON.stringify(withPlatforms, null, 2) }] } as any;
+    return { content: [{ type: "text", text: JSON.stringify({ ...cat, platforms: PLATFORM_CATALOG }, null, 2) }] } as any;
   },
 );
 

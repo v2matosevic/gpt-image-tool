@@ -64,11 +64,20 @@ function widestChannel(pixels: Pixel[]): { channel: 0 | 1 | 2; range: number } {
 function medianCut(pixels: Pixel[], n: number): Box[] {
   const boxes: Box[] = [{ pixels }];
   while (boxes.length < n) {
-    // Split the most-populated splittable box.
+    // Split the most-populated splittable box (compute each box's widest channel exactly once).
     boxes.sort((a, b) => b.pixels.length - a.pixels.length);
-    const box = boxes.find((b) => b.pixels.length > 1 && widestChannel(b.pixels).range > 0);
+    let box: Box | undefined;
+    let channel: 0 | 1 | 2 = 0;
+    for (const b of boxes) {
+      if (b.pixels.length < 2) continue;
+      const w = widestChannel(b.pixels);
+      if (w.range > 0) {
+        box = b;
+        channel = w.channel;
+        break;
+      }
+    }
     if (!box) break;
-    const { channel } = widestChannel(box.pixels);
     box.pixels.sort((a, b) => a[channel]! - b[channel]!);
     const mid = box.pixels.length >> 1;
     const right = box.pixels.splice(mid);

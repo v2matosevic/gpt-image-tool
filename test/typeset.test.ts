@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { blockBox, buildOverlaySvg, escapeXml, layoutBlock, regionContrast, wrapText } from "../dist/typeset.js";
+import { blockBox, buildOverlaySvg, escapeXml, formatFromPath, layoutBlock, regionContrast, wrapText } from "../dist/typeset.js";
 
 const NO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 };
 
@@ -45,6 +45,36 @@ test("accent word gets its own colored tspan, case-insensitively, uppercase-awar
   );
   assert.match(svg, /<tspan fill="#c2261f">OD<\/tspan>/);
   assert.match(svg, /VIŠE /); // rest of the line intact around the accent
+});
+
+test("accent word matches whole words only — never substrings of larger words", () => {
+  const svg = buildOverlaySvg(
+    [{ text: "GET SMART ART", accentWord: "art", accentColor: "#c2261f" }],
+    4000,
+    4000,
+    NO_INSETS,
+  );
+  assert.match(svg, /<tspan fill="#c2261f">ART<\/tspan>/); // the standalone word IS inked
+  assert.match(svg, /SMART/); // ...but SMART survives un-split
+  assert.doesNotMatch(svg, /SM<tspan/);
+});
+
+test("formatFromPath recognizes webp and jpg, defaults to png", () => {
+  assert.equal(formatFromPath("card.webp"), "webp"); // regression: used to silently write PNG bytes
+  assert.equal(formatFromPath("card.JPG"), "jpeg");
+  assert.equal(formatFromPath("card.jpeg"), "jpeg");
+  assert.equal(formatFromPath("card.png"), "png");
+  assert.equal(formatFromPath("card"), "png");
+});
+
+test("scrim color choice respects named/short-hex text colors", () => {
+  // White text (named) forced-scrim must use a DARK plate, not white-on-white.
+  const named = buildOverlaySvg([{ text: "HI", color: "white", fontSize: 100 }], 1000, 1000, NO_INSETS, [true]);
+  assert.match(named, /rgba\(0,0,0/);
+  const shortHex = buildOverlaySvg([{ text: "HI", color: "#fff", fontSize: 100 }], 1000, 1000, NO_INSETS, [true]);
+  assert.match(shortHex, /rgba\(0,0,0/);
+  const dark = buildOverlaySvg([{ text: "HI", color: "#111111", fontSize: 100 }], 1000, 1000, NO_INSETS, [true]);
+  assert.match(dark, /rgba\(255,255,255/);
 });
 
 test("forced scrim draws a rounded rect sized to the block box", () => {
