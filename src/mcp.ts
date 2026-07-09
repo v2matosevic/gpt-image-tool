@@ -14,6 +14,8 @@ import { editImage, generateImage, upscaleImage, type GenerateOutput } from "./g
 import { catalog, MODIFIER_IDS, PRESET_IDS } from "./presets/index.js";
 import { exportWebAssets } from "./webassets.js";
 import { cutoutPath, removeBackgroundFile } from "./imageops.js";
+import { PLATFORM_IDS, PLATFORMS } from "./platforms.js";
+import { composeOverlay } from "./typeset.js";
 import type { ImageFormat } from "./providers/types.js";
 
 const INLINE = process.env.GPT_IMAGE_INLINE === "1";
@@ -54,15 +56,47 @@ const styleSchema = z
   })
   .partial();
 
+// Diacritics the model is least reliable at rendering verbatim (Croatian + common Latin-ext).
+const ACCENTED_RE = /[čćžšđČĆŽŠĐáàâäãåéèêëíìîïóòôöõúùûüñçА-я]/;
+
 function ok(out: GenerateOutput, verb: string) {
   const allPaths = [out.path, ...(out.variants ?? [])];
   const pathLine = allPaths.length > 1 ? `${allPaths.length} images saved to:\n${allPaths.join("\n")}` : `saved to:\n${out.path}`;
+  // Vision proof-loop verdict (when it ran) — the model proofread its own output.
+  let verdictLine = "";
+  if (out.proof) {
+    if (out.proof.unverified) {
+      verdictLine = `\n\n⚠ Auto-proofread could NOT run — the image is unverified. Inspect it yourself before publishing.`;
+    } else if (out.proof.pass) {
+      verdictLine =
+        `\n\n✓ Auto-proofread PASSED (${out.proof.attempts ?? 1} attempt${(out.proof.attempts ?? 1) > 1 ? "s" : ""})` +
+        (out.proof.textRead ? ` — text read back: "${out.proof.textRead}"` : "");
+    } else {
+      verdictLine =
+        `\n\n✗ Auto-proofread FAILED after ${out.proof.attempts} attempts — DO NOT publish without fixing:\n` +
+        out.proof.issues.map((i) => `  • ${i}`).join("\n") +
+        `\nConsider compose_overlay (deterministic type) or a different preset.`;
+    }
+  }
+  // Proof gate — every source stresses: even at high accuracy, verify before publishing.
+  const proof =
+    verdictLine +
+    `\n\n--- Verify before publishing ---\n` +
+    `• Text: every word spelled right, verbatim, no duplicated/stray text.  • Single-accent rule held.\n` +
+    `• Logo/wordmark integrity (the model can't reproduce a real logo — composite the real asset).\n` +
+    `• Kerning + the platform safe area (preview on a phone: top ~10% / bottom ~12% get covered by UI).` +
+    (ACCENTED_RE.test(out.prompt)
+      ? `\n⚠ Accented text (e.g. Croatian č/ć/ž/š/đ) detected — check EVERY mark. If any is wrong after 1–2 tries, set the type in a deterministic compositor (Remotion) instead.`
+      : ``);
   const text =
     `Image ${verb} via the ${out.backend} backend and ${pathLine}\n\n` +
     `Open/view to see (${out.bytes} bytes, ${out.format}${out.background === "transparent" ? ", transparent" : ""}).` +
     (out.preset ? `\nPreset: ${out.preset}${out.modifiers.length ? ` + [${out.modifiers.join(", ")}]` : ""}` : "") +
+    (out.platform ? `\nPlatform: ${out.platform} — ${out.platformNote}` : "") +
+    (out.palette?.length ? `\nBrand palette (auto-extracted from style refs): ${out.palette.join(", ")}` : "") +
     `\nCompiled prompt: ${out.prompt}` +
-    (out.revisedPrompt ? `\nModel-revised prompt: ${out.revisedPrompt}` : "");
+    (out.revisedPrompt ? `\nModel-revised prompt: ${out.revisedPrompt}` : "") +
+    proof;
   const content: Array<Record<string, unknown>> = [{ type: "text", text }];
   if (INLINE) content.push({ type: "image", data: out.base64, mimeType: mimeFor(out.format) });
   return { content } as any;
@@ -102,6 +136,14 @@ server.registerTool(
         .array(z.string())
         .optional()
         .describe("Path(s) to reference image(s) used ONLY for style/brand aesthetics (palette, treatment), not content. Great for on-brand assets."),
+      platform: z
+        .enum(PLATFORM_IDS as [string, ...string[]])
+        .optional()
+        .describe("Target platform: picks the native size AND constrains composition to the platform's safe areas (story UI bars, TikTok action rail, OG crop…). Explicit `size` still wins."),
+      proof: z
+        .boolean()
+        .optional()
+        .describe("Vision proof-loop: the model proofreads its own render (verbatim text, diacritics, artifacts) and auto-regenerates with feedback up to 3 attempts. Default: ON when style.text is set. Set false to skip, true to force for text-free images."),
       count: z.number().int().min(1).max(10).optional().describe("Produce N INDEPENDENT variations of the same brief (1–10). All paths are returned."),
       series: z
         .number()
@@ -136,6 +178,8 @@ server.registerTool(
         transparent: a.transparent,
         background: a.background,
         styleReference: a.style_reference,
+        platform: a.platform,
+        proof: a.proof,
         count: a.count,
         series: a.series,
         fromImage: a.from_image,
@@ -173,6 +217,10 @@ server.registerTool(
       modifiers: z.array(z.enum(MODIFIER_IDS as [string, ...string[]])).optional(),
       style: styleSchema.optional(),
       subject: z.string().optional().describe("Optional: describe the intended subject of the result."),
+      proof: z
+        .boolean()
+        .optional()
+        .describe("Vision proof-loop on the edited result (see generate_image.proof). Default: ON when style.text is set."),
       size: sizeSchema.optional(),
       quality: qualitySchema.optional(),
       format: formatSchema.optional(),
@@ -191,6 +239,7 @@ server.registerTool(
         modifiers: a.modifiers,
         style: a.style,
         subject: a.subject,
+        proof: a.proof,
         size: a.size,
         quality: a.quality,
         format: a.format,
@@ -302,21 +351,129 @@ server.registerTool(
   {
     title: "Remove image background (cutout → transparent PNG)",
     description:
-      "Cut out the background of ANY image and save a transparent PNG. Works best on a clean/solid " +
-      "background — it samples the corner color and flood-fills from the edges (a keyer, not AI " +
-      "matting), so busy/photographic backgrounds won't cut cleanly. PNG input is dependency-free; " +
-      "jpeg/webp input needs `sharp` installed.",
+      "Cut out the background of ANY image and save a transparent PNG. The default local keyer " +
+      "samples the corner color and flood-fills from the edges — fast, free, best on clean/solid " +
+      "backgrounds. For busy/photographic backgrounds set `use_model: true`: the model re-renders " +
+      "the subject on a chroma field (one subscription generation) and the keyer cuts that — real " +
+      "matting quality at zero API cost. PNG input is dependency-free; jpeg/webp input needs `sharp`.",
     inputSchema: {
       image_path: z.string().describe("Image to cut out."),
       output_path: z.string().optional().describe("Where to save (default: <image>-cutout.png)."),
-      tolerance: z.number().int().min(0).max(180).optional().describe("Color tolerance vs the sampled background (default 28). Raise for soft/anti-aliased edges."),
+      tolerance: z.number().int().min(0).max(180).optional().describe("Local keyer only: color tolerance vs the sampled background (default 28). Raise for soft/anti-aliased edges."),
+      use_model: z
+        .boolean()
+        .optional()
+        .describe("Busy/photographic background: re-render the subject on a chroma field via the model, then key. Slower (one generation) but works where the local keyer can't."),
     },
   },
   async (a) => {
     try {
       const out = a.output_path ?? cutoutPath(a.image_path);
+      if (a.use_model) {
+        const res = await editImage({
+          imagePaths: [a.image_path],
+          instruction:
+            "Reproduce ONLY the main subject of this image, pixel-faithful — identical shape, colors, " +
+            "materials, texture, pose and fine detail; do not restyle or simplify it",
+          transparent: true,
+          format: "png",
+          outputPath: out,
+          proof: false,
+        });
+        return ok(res, "cut out (model-assisted)");
+      }
       await removeBackgroundFile(a.image_path, out, a.tolerance != null ? { tolerance: a.tolerance } : undefined);
       return { content: [{ type: "text", text: `Background removed → ${out} (transparent PNG).` }] } as any;
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+const positionSchema = z.enum([
+  "top-left",
+  "top-center",
+  "top-right",
+  "center-left",
+  "center",
+  "center-right",
+  "bottom-left",
+  "bottom-center",
+  "bottom-right",
+]);
+
+server.registerTool(
+  "compose_overlay",
+  {
+    title: "Composite exact text / real logo onto an image (deterministic, no AI)",
+    description:
+      "Set type and place a logo onto an existing image DETERMINISTICALLY — real installed fonts, " +
+      "exact spelling and brand hex by construction, the real logo asset (never model-drawn). " +
+      "This is the premium social workflow: generate a text-free plate (preset social-bg-plate or " +
+      "concept-hero), then set the headline here. Needs `sharp` for text rasterization. " +
+      "Pass `platform` to keep overlays inside its UI safe areas.",
+    inputSchema: {
+      image_path: z.string().describe("The plate/background image to composite onto."),
+      blocks: z
+        .array(
+          z.object({
+            text: z.string().describe("Literal copy — rendered exactly as given."),
+            position: positionSchema.optional().describe("Default: first block center, later blocks bottom-center."),
+            font_family: z.string().optional().describe("Installed font family, e.g. 'Inter', 'Playfair Display'. Falls back to system sans."),
+            font_size: z.number().int().optional().describe("Px. Default: canvasWidth/9 for the first block, /22 after."),
+            font_weight: z.union([z.number(), z.string()]).optional().describe("Default 700."),
+            color: z.string().optional().describe("CSS color / hex. Default #111111."),
+            letter_spacing: z.number().optional().describe("Extra px between glyphs (e.g. 2 for airy caps)."),
+            line_height: z.number().optional().describe("Multiple of font size. Default 1.12."),
+            max_width_ratio: z.number().optional().describe("Wrap width as a fraction of canvas width. Default 0.86."),
+            uppercase: z.boolean().optional(),
+          }),
+        )
+        .optional()
+        .describe("Text blocks to set. Spelling is exact by construction — no proofing needed."),
+      logo: z
+        .object({
+          path: z.string().describe("The REAL logo asset (png; svg not supported here)."),
+          position: positionSchema.optional().describe("Default bottom-center."),
+          width_ratio: z.number().optional().describe("Logo width as a fraction of canvas width. Default 0.14."),
+          opacity: z.number().min(0).max(1).optional(),
+        })
+        .optional(),
+      platform: z
+        .enum(PLATFORM_IDS as [string, ...string[]])
+        .optional()
+        .describe("Keep overlays inside this platform's UI safe areas."),
+      output_path: z.string().optional().describe("Default: <image>-final.png."),
+      format: z.enum(["png", "jpeg", "webp"]).optional(),
+    },
+  },
+  async (a) => {
+    try {
+      const res = await composeOverlay({
+        imagePath: a.image_path,
+        blocks: a.blocks?.map((b) => ({
+          text: b.text,
+          position: b.position,
+          fontFamily: b.font_family,
+          fontSize: b.font_size,
+          fontWeight: b.font_weight,
+          color: b.color,
+          letterSpacing: b.letter_spacing,
+          lineHeight: b.line_height,
+          maxWidthRatio: b.max_width_ratio,
+          uppercase: b.uppercase,
+        })),
+        logo: a.logo
+          ? { path: a.logo.path, position: a.logo.position, widthRatio: a.logo.width_ratio, opacity: a.logo.opacity }
+          : undefined,
+        platform: a.platform,
+        outputPath: a.output_path,
+        format: a.format,
+      });
+      const text =
+        `Overlay composited → ${res.path} (${res.width}x${res.height})` +
+        (res.notes.length ? `\n${res.notes.map((n) => `• ${n}`).join("\n")}` : "");
+      return { content: [{ type: "text", text }] } as any;
     } catch (e) {
       return fail(e);
     }
@@ -333,14 +490,15 @@ server.registerTool(
       "Optionally filter by category.",
     inputSchema: {
       category: z
-        .enum(["photography", "illustration", "design", "render3d", "specialized", "webdev"])
+        .enum(["photography", "illustration", "design", "render3d", "specialized", "webdev", "social"])
         .optional()
-        .describe("Filter presets to one category (webdev = hero 3D / icons / mockups / gradients for web & app dev)."),
+        .describe("Filter presets to one category (webdev = hero 3D / icons / mockups / gradients for web & app dev; social = premium social-media cards & plates)."),
     },
   },
   async (a) => {
     const cat = catalog(a.category);
-    return { content: [{ type: "text", text: JSON.stringify(cat, null, 2) }] } as any;
+    const withPlatforms = { ...cat, platforms: PLATFORMS.map(({ id, title, size, note }) => ({ id, title, size, note })) };
+    return { content: [{ type: "text", text: JSON.stringify(withPlatforms, null, 2) }] } as any;
   },
 );
 

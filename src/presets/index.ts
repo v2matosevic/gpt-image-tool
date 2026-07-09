@@ -70,7 +70,9 @@ const PLAYBOOK = [
   "Consistency: drop a .gptimage.json brand profile at the project root (preset, brand color/style, styleReference to a logo/hero image, outputDir) — every generation inherits it. Or pass style_reference per call to match an existing image. Use `series: N` for a coherent set (vs `count: N` for independent variations).",
   "Web deliverables: use export_web_assets({ image_path | <generate>, kind }) to slice one image into favicons (16-512 + .ico), OG/social cards (1200x630…), responsive hero widths, or app-icon sets — correctly sized & cropped. Generate the source at high quality first (2K), then export.",
   "Edit/iterate: edit_image to change an existing image (instruction; add mask_path for inpainting a region). upscale_image to enhance to ~2K. remove_background to cut out any image (best on clean backgrounds). from_image reloads a prior image's settings to reproduce or tweak it.",
-  "Quality: prefer specific direction over generic words (the presets already do this). For text in an image use the `style.text` field (quoted, rendered verbatim). Set GPT_IMAGE_INLINE=1 to also receive the image inline so you can see and judge it.",
+  "Quality: prefer specific direction over generic words (the presets already do this). For text in an image use the `style.text` field (quoted, rendered verbatim) — the vision proof-loop then auto-verifies spelling/diacritics and regenerates with feedback; read the ✓/✗ verdict in the result. Set GPT_IMAGE_INLINE=1 to also receive the image inline so you can see and judge it.",
+  "Platform posts: pass `platform` (instagram-feed/-story, tiktok, x-post, linkedin-post, og-card, youtube-thumbnail, pinterest-pin) instead of size — native resolution + composition kept out of the platform's UI safe areas.",
+  "Text that must be EXACT (long copy, logos, heavy diacritics): generate a text-free plate (social-bg-plate or concept-hero preset), then compose_overlay sets the headline in a real font and places the real logo file — correct by construction, no proofing needed.",
 ];
 
 /** The structured catalog for `list_image_presets`: presets grouped + the modifier list. */

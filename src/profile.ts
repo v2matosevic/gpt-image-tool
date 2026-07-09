@@ -28,6 +28,12 @@ export interface BrandProfile {
   style?: ProfileStyle;
   /** Path(s) to a logo/hero/brand image; every generation matches its look (strongest anchor). */
   styleReference?: string[];
+  /** Default platform target (e.g. "instagram-feed") — native size + safe-area constraint. */
+  platform?: string;
+  /** Auto-extract a brand palette from styleReference and anchor colors to it (default true). */
+  autoPalette?: boolean;
+  /** Vision proof-loop default (per-call `proof` still wins). Default: on when text is rendered. */
+  proof?: boolean;
   size?: ImageSize;
   quality?: ImageQuality;
   format?: ImageFormat;

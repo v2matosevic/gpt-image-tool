@@ -10,6 +10,9 @@ import { build, type PromptOverrides } from "./presets/index.js";
 import { imageSize, looksLikeImage, sizeForAspect, upscaleSizeForAspect } from "./imageinfo.js";
 import { removeBackground } from "./bgremove.js";
 import { loadProfile, type BrandProfile } from "./profile.js";
+import { getPlatform, type PlatformTarget } from "./platforms.js";
+import { extractPalette } from "./palette.js";
+import { proofImage, type ProofRequest, type ProofVerdict } from "./proof.js";
 
 const SIDECARS = process.env.GPT_IMAGE_NO_SIDECAR !== "1";
 
@@ -50,6 +53,8 @@ export function overlay(base: StyleInput, top: StyleInput): StyleInput {
     transparent: top.transparent ?? base.transparent,
     background: top.background ?? base.background,
     styleReference: top.styleReference ?? base.styleReference,
+    platform: top.platform ?? base.platform,
+    proof: top.proof ?? base.proof,
     size: top.size ?? base.size,
     quality: top.quality ?? base.quality,
     format: top.format ?? base.format,
@@ -68,6 +73,8 @@ function profileAsBase(p: BrandProfile, baseDir: string): StyleInput {
     modifiers: p.modifiers,
     style: p.style,
     styleReference: p.styleReference?.map(rel),
+    platform: p.platform,
+    proof: p.proof,
     size: p.size,
     quality: p.quality,
     format: p.format,
@@ -85,6 +92,7 @@ interface Sidecar {
   prompt?: string;
   preset?: string;
   modifiers?: string[];
+  platform?: string;
   style?: PromptOverrides;
   size?: ImageSize;
   quality?: ImageQuality;
@@ -108,6 +116,8 @@ interface SaveMeta {
   opts: StyleInput;
   refs?: string[];
   mask?: string;
+  /** Vision proof-loop: verify each render, regenerate with feedback up to maxAttempts. */
+  proof?: ProofRequest & { maxAttempts: number };
 }
 
 function sidecarFromOpts(op: Sidecar["operation"], opts: StyleInput, meta: SaveMeta): Sidecar {
@@ -118,6 +128,7 @@ function sidecarFromOpts(op: Sidecar["operation"], opts: StyleInput, meta: SaveM
     prompt: opts.prompt,
     preset: meta.preset,
     modifiers: meta.modifiers,
+    platform: opts.platform,
     style: opts.style,
     size: opts.size,
     quality: opts.quality,
@@ -143,6 +154,7 @@ async function sidecarAsBase(imagePath: string): Promise<StyleInput> {
     prompt: s.prompt,
     preset: s.preset,
     modifiers: s.modifiers,
+    platform: s.platform,
     style: s.style,
     size: s.size,
     quality: s.quality,
@@ -186,6 +198,12 @@ export interface StyleInput {
   transparent?: boolean;
   /** Reference image path(s) used ONLY for style/aesthetic, not content (brand matching). */
   styleReference?: string[];
+  /** Target platform (e.g. "instagram-story"): picks the native size and appends a safe-area
+   *  composition constraint so critical content isn't hidden under platform UI. */
+  platform?: string;
+  /** Vision proof-loop: verify the render (text verbatim, no artifacts) and auto-regenerate with
+   *  feedback on failure. Defaults to ON when style.text is set; set false to skip. */
+  proof?: boolean;
   /** Produce N independent variations of the same brief (1–10). Returned in `variants`. */
   count?: number;
   /** Produce a CONSISTENT set of N: the first image is reused as a style reference for the rest. */
@@ -209,6 +227,14 @@ export interface GenerateOutput {
   base64: string;
   /** Extra output paths when count > 1 (the primary is `path`). */
   variants?: string[];
+  /** Platform target that shaped this image (size + safe-area constraint). */
+  platform?: string;
+  /** Publishing note for the platform (what UI covers what). */
+  platformNote?: string;
+  /** Brand colors auto-extracted from styleReference and anchored in the prompt. */
+  palette?: string[];
+  /** Vision proofread verdict for the primary image (when the proof-loop ran). */
+  proof?: ProofVerdict;
 }
 
 function defaultOutputDir(): string {
@@ -297,9 +323,28 @@ async function runAndSave(
   const basePath = resolveOutputPath(outputPath, input.format, prefix);
   await mkdir(dirname(basePath), { recursive: true });
 
-  const saved: { path: string; result: Awaited<ReturnType<ImageProvider["generate"]>> }[] = [];
+  const saved: { path: string; result: Awaited<ReturnType<ImageProvider["generate"]>>; verdict?: ProofVerdict }[] = [];
   for (let i = 0; i < count; i++) {
-    const result = await generateWithRetry(provider, input); // validated to be an image
+    let result = await generateWithRetry(provider, input); // validated to be an image
+    let verdict: ProofVerdict | undefined;
+    if (meta.proof) {
+      // Proof-loop: proofread the render; on concrete failures, regenerate with that feedback.
+      const mime = input.format === "jpeg" ? "image/jpeg" : input.format === "webp" ? "image/webp" : "image/png";
+      for (let attempt = 1; ; attempt++) {
+        verdict = { ...(await proofImage(result.bytes, mime, meta.proof)), attempts: attempt };
+        if (verdict.pass || verdict.unverified || attempt >= meta.proof.maxAttempts) break;
+        console.error(
+          `[gpt-image] proofread failed (attempt ${attempt}/${meta.proof.maxAttempts}): ${verdict.issues.join("; ")} — regenerating with feedback.`,
+        );
+        result = await generateWithRetry(provider, {
+          ...input,
+          prompt:
+            input.prompt +
+            ` IMPORTANT — a previous attempt failed proofreading with these exact problems: ${verdict.issues.join("; ")}.` +
+            ` Fix ALL of them. Render every word of text perfectly, verbatim, correctly spelled with correct diacritics.`,
+        });
+      }
+    }
     if (meta.transform) {
       // A keying/post-process failure must not lose the image — fall back to the original bytes.
       try {
@@ -318,7 +363,7 @@ async function runAndSave(
       sc.backend = provider.name;
       await writeFile(`${outPath}.json`, JSON.stringify(sc, null, 2)).catch(() => {});
     }
-    saved.push({ path: outPath, result });
+    saved.push({ path: outPath, result, verdict });
   }
 
   const primary = saved[0]!;
@@ -334,6 +379,7 @@ async function runAndSave(
     revisedPrompt: primary.result.revisedPrompt,
     base64: primary.result.bytes.toString("base64"),
     variants: saved.length > 1 ? saved.slice(1).map((s) => s.path) : undefined,
+    proof: primary.verdict,
   };
 }
 
@@ -428,11 +474,31 @@ function resolveBackendName(backend: string | undefined): string {
   return (backend || process.env.GPT_IMAGE_BACKEND || "subscription").toLowerCase();
 }
 
+/**
+ * Resolve the proof-loop request for a call: explicit `proof` wins, otherwise it runs whenever the
+ * image renders literal text (the model's weakest, most-publishable failure mode).
+ */
+function proofRequest(opts: StyleInput, chromaActive: boolean): SaveMeta["proof"] {
+  const expectedText = opts.style?.text?.trim() || undefined;
+  const wanted = opts.proof ?? Boolean(expectedText);
+  if (!wanted) return undefined;
+  return {
+    expectedText,
+    context: chromaActive
+      ? "the subject is intentionally rendered on a solid uniform chroma-key background that will be removed afterwards"
+      : undefined,
+    maxAttempts: Math.max(1, Math.min(5, Number(process.env.GPT_IMAGE_PROOF_ATTEMPTS) || 3)),
+  };
+}
+
 /** Text-to-image. Compose from subject + preset (+ modifiers + style overrides), or a raw prompt. */
 export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput> {
   const opts = await resolveOpts(rawOpts); // apply project profile / --from sidecar beneath the call
   const series = Math.max(1, Math.min(10, opts.series ?? 1));
   if (series > 1) return generateSeries(opts, series);
+
+  // Platform target: native size (explicit size still wins) + a safe-area composition constraint.
+  const plat: PlatformTarget | undefined = opts.platform ? getPlatform(opts.platform) : undefined;
 
   const composed = build({
     subject: opts.subject,
@@ -440,20 +506,31 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
     preset: opts.preset,
     modifiers: opts.modifiers,
     overrides: opts.style,
-    size: opts.size,
+    size: opts.size ?? plat?.size,
     quality: opts.quality,
     format: opts.format,
     background: opts.transparent ? "transparent" : opts.background,
   });
 
+  // Brand palette: anchor colors to what the styleReference assets ACTUALLY contain, unless the
+  // caller wrote an explicit color. Opt out via profile `autoPalette: false` / GPT_IMAGE_NO_AUTOPALETTE=1.
+  let palette: string[] = [];
+  if (opts.styleReference?.length && !opts.style?.color && process.env.GPT_IMAGE_NO_AUTOPALETTE !== "1") {
+    const prof = loadProfile(profileStartDir(opts.outputPath))?.profile;
+    if (prof?.autoPalette !== false) palette = await extractPalette(opts.styleReference).catch(() => []);
+  }
+
   const wantTransparent = composed.background === "transparent";
   const backendName = resolveBackendName(opts.backend);
   // apikey supports native transparency; subscription does not, so render-on-chroma + key it out.
   const nativeTransparent = wantTransparent && backendName === "apikey";
-  const chroma = chromaSetup(wantTransparent, backendName, opts.style?.color);
+  // The palette's dominant color doubles as the chroma-key hint (never key out the brand color).
+  const chroma = chromaSetup(wantTransparent, backendName, opts.style?.color ?? palette[0]);
 
   let inputImages: InputImage[] | undefined;
   let prompt = composed.prompt;
+  if (plat) prompt += ` ${plat.clause}`;
+  if (palette.length) prompt += ` Anchor the color palette to the brand colors ${palette.join(", ")}.`;
   if (chroma.promptSuffix) prompt += chroma.promptSuffix;
   if (opts.styleReference?.length) {
     // Skip (with a warning) any reference that can't be read — a typo in a brand profile's
@@ -480,7 +557,7 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
     background: nativeTransparent ? "transparent" : "auto",
     inputImages,
   };
-  return runAndSave(input, opts.outputPath, opts.backend, "img", {
+  const out = await runAndSave(input, opts.outputPath, opts.backend, "img", {
     prompt,
     preset: composed.presetId,
     modifiers: composed.modifierIds,
@@ -489,7 +566,14 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
     opts,
     refs: opts.styleReference,
     transform: chroma.transform,
+    proof: proofRequest(opts, Boolean(chroma.transform)),
   });
+  if (plat) {
+    out.platform = plat.id;
+    out.platformNote = plat.note;
+  }
+  if (palette.length) out.palette = palette;
+  return out;
 }
 
 /**
@@ -593,6 +677,7 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
     refs: opts.imagePaths,
     mask: opts.maskPath,
     transform: chroma.transform,
+    proof: proofRequest(opts, Boolean(chroma.transform)),
   });
 }
 

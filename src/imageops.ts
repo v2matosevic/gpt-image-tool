@@ -17,7 +17,7 @@ export type Fit = "cover" | "contain" | "stretch";
 export type OutFormat = "png" | "jpeg" | "webp";
 
 let sharpCache: any;
-async function loadSharp(): Promise<any> {
+export async function loadSharp(): Promise<any> {
   if (sharpCache !== undefined) return sharpCache;
   try {
     // @ts-ignore - optional dependency, not installed by default

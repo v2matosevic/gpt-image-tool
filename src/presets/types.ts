@@ -10,7 +10,8 @@ export type PresetCategory =
   | "design"
   | "render3d"
   | "specialized"
-  | "webdev";
+  | "webdev"
+  | "social";
 
 /**
  * Orthogonal dimensions of an image brief, composed in a fixed optimal order. Every field is a

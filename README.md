@@ -12,11 +12,18 @@ metered against your ChatGPT/Codex usage, not API credits.
 **The agent doesn't write raw prompts.** It declares *intent* — a `subject` plus a curated **style
 preset** (e.g. `product-studio`, `watercolor`, `app-icon`, `hero-3d`) and optional `modifiers`
 (lighting, mood, color, angle) — and a built-in **prompt compiler** assembles the professional,
-natural-language prompt the gpt-image model responds to best. **66 presets across 6 categories**, 23
+natural-language prompt the gpt-image model responds to best. **70 presets across 7 categories**, 23
 composable modifiers, every dimension overridable. Edit and upscale work image-to-image (restyle,
 swap backgrounds, mask **inpainting**, enhance to **2K**). Plus **transparency** (logos/stickers),
 **variations** + consistent **series**, **brand profiles**, **web-asset export** (favicons/OG/hero/
 app-icons), and **background cutout** — all free, all on the subscription.
+
+Quality is closed-loop: a **vision proof-loop** sends every text-bearing render back through the
+same free endpoint to proofread it (verbatim text, diacritics, artifacts) and auto-regenerates with
+concrete feedback; **platform targets** (`instagram-story`, `tiktok`, `og-card`, …) pick the native
+size and keep composition out of platform UI safe areas; a **brand palette** is auto-extracted from
+your style references and anchored in the prompt; and **compose_overlay** sets headlines and the
+real logo deterministically (real fonts — exact spelling by construction) on model-generated plates.
 
 ## Documentation
 
@@ -44,7 +51,7 @@ agent ──MCP──▶ generate_image / edit_image / upscale_image
               ──▶ save image to disk ──▶ return absolute path
 
 MCP tools:  generate_image · edit_image · upscale_image · export_web_assets
-            remove_background · list_image_presets
+            remove_background · compose_overlay · list_image_presets
 ```
 
 The tool **saves the image to disk and returns its path**. That's the only return shape that works
@@ -104,8 +111,10 @@ Categories: **photography** (product, food, portrait, automotive, macro, golden-
 **illustration** (flat-vector, watercolor, oil, comic, ukiyo-e, children's-book…), **design**
 (app-icon, logo-mark, ui-mockup, hero-banner, OG-card, sticker, seamless-pattern…), **render3d**
 (isometric, clay, low-poly, CGI product, glass, voxel), **specialized** (pixel-art, blueprint,
-infographic, tattoo-flash, cyberpunk, synthwave, trading-card…), and **webdev** (hero-3d, icon-3d,
-glyph-icon, spot-illustration, mesh-gradient, device-mockup, avatar, mascot, wireframe).
+infographic, tattoo-flash, cyberpunk, synthwave, trading-card…), **webdev** (hero-3d, icon-3d,
+glyph-icon, spot-illustration, mesh-gradient, device-mockup, avatar, mascot, wireframe), and
+**social** (type-led editorial card, image-led campaign card, textless concept hero, background
+plate for type composited on top).
 
 Full catalog: [docs/PRESETS.md](docs/PRESETS.md), or `node dist/cli.js --presets` / the
 `list_image_presets` MCP tool. Adding a style is just dropping an entry into `src/presets/lib/*.ts` —

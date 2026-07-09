@@ -1,6 +1,6 @@
 # Preset & modifier catalog
 
-_Auto-generated from `src/presets/lib/*.ts` — 66 presets, 23 modifiers. Regenerate with `npm run docs:presets`._
+_Auto-generated from `src/presets/lib/*.ts` — 70 presets, 23 modifiers. Regenerate with `npm run docs:presets`._
 
 Call `generate_image({ subject, preset })` with any `id` below. Recommended size/quality/format are applied unless you override them. `T` = defaults to a transparent background.
 
@@ -99,6 +99,15 @@ Call `generate_image({ subject, preset })` with any `id` below. Recommended size
 | `avatar` | Avatar illustration (transparent) | A stylized profile avatar for users/testimonials. Transparent, consistent style. | 1024x1024 · high · png · **T** |
 | `mascot` | Brand mascot (transparent) | A single friendly brand mascot character for a product/site. Transparent. | 1024x1024 · high · png · **T** |
 | `wireframe` | Lo-fi UI wireframe | A greyscale low-fidelity wireframe of an app/web screen. For planning & specs. | 1024x1536 · high · png |
+
+## social (4)
+
+| id | title | description | recommended |
+|---|---|---|---|
+| `social-type-led` | Type-led editorial / letterpress card | Bold oversized typography letterpress-debossed into real material. Editorial, tactile, expensive. The caller passes the headline + which word is the accent. Proof the spelling. For a coherent carousel, pass the cover as style_reference on later slides. | 1024x1536 · high · png |
+| `social-image-led` | Image-led campaign card | Campaign-grade art-directed photography carries the slide; a restrained bold type lockup sits in the negative space. Perfume/spirits-ad quality. The caller supplies the hero metaphor + headline. | 1024x1536 · high · png |
+| `concept-hero` | Editorial concept hero (textless metaphor) | A single art-directed real-photography hero object as a metaphor, with empty space for an optional overlay. gpt-image's sweet spot: no brand assets, no risky text. | 1024x1536 · high · png |
+| `social-bg-plate` | Social card BACKGROUND plate (no text) | A premium text-free background plate to sit UNDER type composited elsewhere (e.g. Remotion). Restrained art confined to one zone, the rest clean for a headline overlay. | 1024x1536 · high · png |
 
 ## Modifiers (23)
 

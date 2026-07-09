@@ -28,15 +28,25 @@ it directly without a separate read.
 | To change part of an existing image | `edit_image` + `instruction` (+ `mask_path` to confine it) |
 | A bigger, sharper version | `upscale_image` |
 | Favicons / OG cards / hero / app icons | `export_web_assets` |
-| To cut out a background | `remove_background` |
+| To cut out a background | `remove_background` (busy background → `use_model: true`) |
 | To reproduce/tweak a past image | `from_image` |
+| A social post for a specific platform | `generate_image` + `platform` (native size + safe areas) |
+| A headline/logo that must be EXACT | plate preset (`social-bg-plate`/`concept-hero`) → `compose_overlay` |
 
 ## Quality tips
 
 - **Be specific in `subject`** — the preset supplies the *style*; you supply *what*. "a matte black
   ceramic mug with a thin gold rim" beats "a mug".
 - **Text in an image:** put it in `style.text` (rendered verbatim, quoted). Keep it short; the model
-  is most reliable on a few words.
+  is most reliable on a few words. The **vision proof-loop runs automatically** whenever `style.text`
+  is set: the render is proofread (spelling, diacritics, artifacts) and regenerated with feedback up
+  to 3 attempts — read the ✓/✗ verdict in the result before publishing. If it still fails (long copy,
+  heavy diacritics), switch strategy: generate a text-free plate and set the type with
+  `compose_overlay` — that path is exact by construction and can place the real logo file too.
+- **Platform posts:** pass `platform` instead of `size` — it picks the native resolution AND keeps
+  composition out of the platform's UI overlays (story bars, TikTok rail, OG crop).
+- **Brand color fidelity:** with `style_reference` set, the dominant brand colors are auto-extracted
+  and anchored in the prompt (and reported back as `Brand palette:` in the result).
 - **Don't over-stack** conflicting modifiers (e.g. `photoreal` on a `flat-vector` preset) — pick a
   coherent direction.
 - **Web assets:** generate the source at high quality first (the tool auto-picks 2K for hero/og),

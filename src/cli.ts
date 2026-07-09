@@ -28,6 +28,7 @@ interface CliArgs {
   web?: string;
   image?: string;
   removeBg?: string;
+  useModel?: boolean;
   instruction?: string;
   guidance?: string;
   mask?: string;
@@ -36,6 +37,8 @@ interface CliArgs {
   series?: number;
   from?: string;
   styleRef: string[];
+  platform?: string;
+  proof?: boolean;
   size?: ImageSize;
   quality?: ImageQuality;
   format?: ImageFormat;
@@ -70,12 +73,15 @@ function printHelp(): void {
       "  --from <image>         Reproduce/tweak a prior image from its sidecar (then override with args)",
       "  --mask <path>          Mask PNG for --edit inpainting (transparent = regenerate here)",
       "  --style-ref <path>     Style/brand reference image (repeatable; aesthetics only)",
+      "  --platform <id>        Target platform (instagram-feed|instagram-story|tiktok|x-post|linkedin-post|og-card|youtube-thumbnail|pinterest-pin): native size + safe-area composition",
+      "  --proof / --no-proof   Vision proof-loop: model proofreads its render + auto-retries (default: on when --style.text is set)",
       "  --upscale <path>       Enhance/upscale an existing image",
       "  --edit <path>          Edit an existing image (with --instruction)",
       "  --web <kind>           Export web assets: favicon | og | hero | appicon",
       "                           source = --image <path>, or generate from --subject/--preset",
       "  --image <path>         Source image for --web (instead of generating)",
       "  --remove-bg <path>     Cut out background → transparent PNG (clean backgrounds only)",
+      "  --use-model            With --remove-bg: model re-renders the subject on chroma for busy backgrounds",
       "  --instruction <text>   What to change (for --edit)",
       "  --guidance <text>      Extra guidance (for --upscale)",
       "  --presets [category]   Print the preset + modifier catalog (JSON)",
@@ -136,6 +142,9 @@ function parseArgs(argv: string[]): CliArgs {
       case "--remove-bg":
         args.removeBg = argv[++i];
         break;
+      case "--use-model":
+        args.useModel = true;
+        break;
       case "--instruction":
         args.instruction = argv[++i];
         break;
@@ -160,6 +169,15 @@ function parseArgs(argv: string[]): CliArgs {
         break;
       case "--style-ref":
         { const v = argv[++i]; if (v) args.styleRef.push(v); }
+        break;
+      case "--platform":
+        args.platform = argv[++i];
+        break;
+      case "--proof":
+        args.proof = true;
+        break;
+      case "--no-proof":
+        args.proof = false;
         break;
       case "--presets":
         args.presets = true;
@@ -221,7 +239,20 @@ const hasStyle = Object.keys(args.style).length > 0;
 // Local-only operations (no generation) handled up front.
 if (args.removeBg) {
   const outPath = args.output ?? cutoutPath(args.removeBg);
-  await removeBackgroundFile(args.removeBg, outPath);
+  if (args.useModel) {
+    await editImage({
+      imagePaths: [args.removeBg],
+      instruction:
+        "Reproduce ONLY the main subject of this image, pixel-faithful — identical shape, colors, " +
+        "materials, texture, pose and fine detail; do not restyle or simplify it",
+      transparent: true,
+      format: "png",
+      outputPath: outPath,
+      proof: false,
+    });
+  } else {
+    await removeBackgroundFile(args.removeBg, outPath);
+  }
   console.log(outPath);
   console.error(`✓ background removed → ${outPath}`);
   process.exit(0);
@@ -272,6 +303,7 @@ try {
       preset: args.preset,
       modifiers: args.modifiers,
       style: hasStyle ? args.style : undefined,
+      proof: args.proof,
       size: args.size,
       quality: args.quality,
       format: args.format,
@@ -294,6 +326,8 @@ try {
       series: args.series,
       fromImage: args.from,
       styleReference: args.styleRef.length ? args.styleRef : undefined,
+      platform: args.platform,
+      proof: args.proof,
       size: args.size,
       quality: args.quality,
       format: args.format,
@@ -306,6 +340,14 @@ try {
     `✓ ${out.backend} · ${out.bytes} bytes · ${out.format}${out.background === "transparent" ? " · transparent" : ""}` +
       (out.variants?.length ? ` · ${out.variants.length + 1} variants` : "") +
       (out.preset ? ` · preset ${out.preset}${out.modifiers.length ? ` +[${out.modifiers.join(",")}]` : ""}` : "") +
+      (out.palette?.length ? `\n  palette: ${out.palette.join(", ")}` : "") +
+      (out.proof
+        ? out.proof.unverified
+          ? "\n  proof: ⚠ could not run — image unverified"
+          : out.proof.pass
+            ? `\n  proof: ✓ passed (${out.proof.attempts ?? 1} attempt(s))`
+            : `\n  proof: ✗ FAILED — ${out.proof.issues.join("; ")}`
+        : "") +
       (out.revisedPrompt ? `\n  revised: ${out.revisedPrompt}` : ""),
   );
 } catch (e) {
