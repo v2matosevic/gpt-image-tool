@@ -5,7 +5,7 @@ catalog and [ARCHITECTURE.md](./ARCHITECTURE.md) for internals.
 
 ## MCP tools
 
-The server exposes eight tools. All image-producing tools **save to disk and return the path(s)**.
+The server exposes nine tools. All image-producing tools **save to disk and return the path(s)**.
 
 ### `generate_image`
 Text-to-image via the preset compiler (or a raw prompt).
@@ -111,6 +111,17 @@ reusable plate path.
 | `plate_subject` / `plate_preset` | — | Default: "a quiet premium material study" on `social-bg-plate`; try `concept-hero` for a photographic hero object. |
 | `style_reference` | string[] | Brand anchor for the plate + auto-palette. |
 | `quality` / `output_path` / `backend` | — | As above. |
+
+### `create_social_carousel`
+N `create_social_card` slides that read as **one campaign**: slide 1's plate is generated first and
+reused as a style reference for every later plate. Each slide's copy is exact by construction.
+Costs N sequential generations.
+
+| param | type | notes |
+|---|---|---|
+| `slides` | object[] | `{ headline, accent_word?, subline? }` per slide (1–10). **Required.** |
+| shared type/logo/platform/plate params | — | As in `create_social_card`, applied to every slide. |
+| `output_dir` / `base_name` | string | Slides land as `<base_name>-1.png`, `-2.png`, … |
 
 ### `list_image_presets`
 Returns the catalog (`presets`, `modifiers`, `categories`), a `usage` line, and a `playbook` for

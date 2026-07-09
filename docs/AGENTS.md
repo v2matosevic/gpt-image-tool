@@ -32,6 +32,7 @@ it directly without a separate read.
 | To reproduce/tweak a past image | `from_image` |
 | A social post for a specific platform | `generate_image` + `platform` (native size + safe areas) |
 | A headline/logo that must be EXACT | `create_social_card` (one call: plate + exact type + logo) — or plate preset → `compose_overlay` for full control |
+| A coherent multi-slide carousel | `create_social_carousel` (slide 1's plate anchors the set) |
 
 ## Quality tips
 

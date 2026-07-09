@@ -46,7 +46,7 @@ export interface SocialCardResult {
   notes: string[];
 }
 
-const DEFAULT_ACCENT = "#8b0f24"; // wine ink — matches the social presets' art direction
+export const DEFAULT_ACCENT = "#8b0f24"; // wine ink — matches the social presets' art direction
 
 /** Split a position keyword into vertical/horizontal halves ("center" → center/center). */
 function splitPos(pos: OverlayPosition): [string, string] {
@@ -144,5 +144,72 @@ export async function createSocialCard(input: SocialCardInput): Promise<SocialCa
     height: composed.height,
     palette: plate.palette,
     notes: composed.notes,
+  };
+}
+
+export interface CarouselSlide {
+  headline: string;
+  accentWord?: string;
+  subline?: string;
+}
+
+export interface SocialCarouselInput extends Omit<SocialCardInput, "headline" | "accentWord" | "subline" | "outputPath"> {
+  /** The slides, in order (2–10). Copy is set deterministically on every slide. */
+  slides: CarouselSlide[];
+  /** Directory for the slide files (default: the tool's default output dir). */
+  outputDir?: string;
+  /** Filename stem — slides land as `<baseName>-1.png`, `<baseName>-2.png`, … */
+  baseName?: string;
+}
+
+export interface SocialCarouselResult {
+  slides: SocialCardResult[];
+  notes: string[];
+}
+
+/** Slide file path inside the carousel's output dir. Exported for tests. */
+export function slidePath(outputDir: string | undefined, baseName: string, index: number): string | undefined {
+  if (!outputDir) return undefined; // default output dir + timestamped names
+  const dir = /[\\/]$/.test(outputDir) ? outputDir : `${outputDir}/`;
+  return `${dir}${baseName}-${index + 1}.png`;
+}
+
+/**
+ * A coherent multi-slide carousel: slide 1's plate is generated first, then reused as a style
+ * reference for every later plate (the series trick) so the whole set reads as ONE campaign.
+ * Slides generate sequentially on purpose — they share the ChatGPT quota.
+ */
+export async function createSocialCarousel(input: SocialCarouselInput): Promise<SocialCarouselResult> {
+  if (!input.slides?.length) throw new Error("createSocialCarousel needs at least one slide.");
+  if (input.slides.length > 10) throw new Error("createSocialCarousel supports at most 10 slides.");
+  const baseName = input.baseName ?? "carousel";
+  const { slides: _slides, outputDir: _dir, baseName: _base, ...cardOpts } = input;
+
+  const slides: SocialCardResult[] = [];
+  // The accent is resolved ONCE (explicit → slide 1's brand palette → default) and pinned for the
+  // whole set. Without this, later slides would re-derive it from the anchor PLATE's palette —
+  // i.e. the paper tone — and render a near-invisible accent word.
+  let accent = input.accentColor;
+  for (const [i, slide] of input.slides.entries()) {
+    const anchor = slides[0]?.platePath;
+    const card = await createSocialCard({
+      ...cardOpts,
+      headline: slide.headline,
+      accentWord: slide.accentWord,
+      subline: slide.subline,
+      accentColor: accent,
+      // Later plates anchor to slide 1's plate ON TOP of any brand refs — coherence without drift.
+      styleReference: anchor ? [...(cardOpts.styleReference ?? []), anchor] : cardOpts.styleReference,
+      outputPath: slidePath(input.outputDir, baseName, i),
+    });
+    slides.push(card);
+    if (i === 0) accent = accent ?? card.palette?.[0] ?? DEFAULT_ACCENT;
+  }
+  return {
+    slides,
+    notes: [
+      `Slide 1's plate anchored the ${slides.length > 1 ? "remaining plates" : "set"} — the carousel shares one visual system.`,
+      "All copy set deterministically; check kerning/wrap per slide before publishing.",
+    ],
   };
 }

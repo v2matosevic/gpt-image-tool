@@ -54,7 +54,8 @@ agent ──MCP──▶ generate_image / edit_image / upscale_image
               ──▶ save image to disk ──▶ return absolute path
 
 MCP tools:  generate_image · edit_image · upscale_image · export_web_assets
-            remove_background · compose_overlay · create_social_card · list_image_presets
+            remove_background · compose_overlay · create_social_card
+            create_social_carousel · list_image_presets
 ```
 
 The tool **saves the image to disk and returns its path**. That's the only return shape that works

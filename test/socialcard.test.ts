@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { platePathFor, sublinePosFor } from "../dist/socialcard.js";
+import { platePathFor, slidePath, sublinePosFor } from "../dist/socialcard.js";
 
 test("subline lands opposite the headline for EVERY position, including center family", () => {
   assert.equal(sublinePosFor("top-left"), "bottom-left");
@@ -19,4 +19,10 @@ test("plate path derivation handles file, extensionless, and directory outputPat
   assert.equal(platePathFor("out/"), "out/");
   assert.equal(platePathFor("out\\"), "out\\");
   assert.equal(platePathFor(undefined), undefined);
+});
+
+test("carousel slide paths are 1-indexed inside the output dir", () => {
+  assert.equal(slidePath("out", "launch", 0), "out/launch-1.png");
+  assert.equal(slidePath("out/", "launch", 2), "out/launch-3.png");
+  assert.equal(slidePath(undefined, "launch", 0), undefined); // default dir + timestamped
 });

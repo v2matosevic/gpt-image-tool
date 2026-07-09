@@ -23,7 +23,7 @@ import { PLATFORM_IDS, PLATFORMS } from "./platforms.js";
 // Static projection for the catalog tool — computed once, PLATFORMS never changes at runtime.
 const PLATFORM_CATALOG = PLATFORMS.map(({ id, title, size, note }) => ({ id, title, size, note }));
 import { composeOverlay } from "./typeset.js";
-import { createSocialCard } from "./socialcard.js";
+import { createSocialCard, createSocialCarousel } from "./socialcard.js";
 
 const INLINE = process.env.GPT_IMAGE_INLINE === "1";
 
@@ -556,6 +556,78 @@ server.registerTool(
         (res.palette?.length ? `\nBrand palette: ${res.palette.join(", ")}` : "") +
         (res.notes.length ? `\n${res.notes.map((n) => `• ${n}`).join("\n")}` : "") +
         `\nText is exact by construction — no proofread needed. Check kerning/wrap visually before publishing.`;
+      return { content: [{ type: "text", text }] } as any;
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "create_social_carousel",
+  {
+    title: "Create a coherent multi-slide social carousel",
+    description:
+      "N premium slides in one call: slide 1's text-free plate anchors every later plate (style " +
+      "reference), so the whole carousel reads as ONE campaign; each slide's headline/subline/logo " +
+      "is set deterministically (exact copy, real fonts). Slides generate sequentially — an " +
+      "N-slide carousel costs N generations of the shared ChatGPT quota. Needs `sharp`.",
+    inputSchema: {
+      slides: z
+        .array(
+          z.object({
+            headline: z.string(),
+            accent_word: z.string().optional(),
+            subline: z.string().optional(),
+          }),
+        )
+        .min(1)
+        .max(10)
+        .describe("The slides in order (1–10). Copy is exact by construction."),
+      accent_color: z.string().optional().describe("Shared accent hex (default: brand palette dominant, else wine #8b0f24)."),
+      headline_position: positionSchema.optional().describe("Shared layout; default top-left."),
+      headline_font: z.string().optional(),
+      subline_font: z.string().optional(),
+      headline_color: z.string().optional(),
+      subline_color: z.string().optional(),
+      uppercase: z.boolean().optional(),
+      logo: logoSchema.optional().describe("Placed on every slide."),
+      platform: z.enum(PLATFORM_IDS as [string, ...string[]]).optional().describe("Default instagram-feed."),
+      plate_subject: z.string().optional(),
+      plate_preset: z.enum(PRESET_IDS as [string, ...string[]]).optional(),
+      style_reference: z.array(z.string()).optional(),
+      quality: qualitySchema.optional(),
+      output_dir: z.string().optional().describe("Directory for the slides (files land as <base_name>-1.png, -2.png, …)."),
+      base_name: z.string().optional().describe("Filename stem (default 'carousel')."),
+      backend: backendSchema.optional(),
+    },
+  },
+  async (a) => {
+    try {
+      const res = await createSocialCarousel({
+        slides: a.slides.map((s) => ({ headline: s.headline, accentWord: s.accent_word, subline: s.subline })),
+        accentColor: a.accent_color,
+        headlinePosition: a.headline_position,
+        headlineFont: a.headline_font,
+        sublineFont: a.subline_font,
+        headlineColor: a.headline_color,
+        sublineColor: a.subline_color,
+        uppercase: a.uppercase,
+        logo: toLogoOverlay(a.logo),
+        platform: a.platform,
+        plateSubject: a.plate_subject,
+        platePreset: a.plate_preset,
+        styleReference: a.style_reference,
+        quality: a.quality,
+        outputDir: a.output_dir,
+        baseName: a.base_name,
+        backend: a.backend,
+      });
+      const list = res.slides.map((s, i) => `  ${i + 1}. ${s.path}  (plate: ${s.platePath})`).join("\n");
+      const text =
+        `Carousel created — ${res.slides.length} slide(s):\n${list}` +
+        (res.slides[0]?.palette?.length ? `\nBrand palette: ${res.slides[0].palette.join(", ")}` : "") +
+        `\n${res.notes.map((n) => `• ${n}`).join("\n")}`;
       return { content: [{ type: "text", text }] } as any;
     } catch (e) {
       return fail(e);
