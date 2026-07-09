@@ -6,6 +6,7 @@
 //   remove_background   local chroma keyer, or model-assisted cutout (use_model)
 //   compose_overlay     deterministic type + real-logo compositing (exact by construction)
 //   create_social_card  one call: text-free plate + exact type + logo
+//   create_social_carousel  N coherent slides (slide 1's plate anchors the set)
 //   list_image_presets  the catalog of presets + modifiers + platforms so the agent chooses well
 //
 // All return the saved file path as text (works everywhere); GPT_IMAGE_INLINE=1 also attaches the
