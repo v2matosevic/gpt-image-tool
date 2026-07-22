@@ -14,8 +14,12 @@ import { loadProfile, type BrandProfile } from "./profile.js";
 import { getPlatform, type PlatformTarget } from "./platforms.js";
 import { extractPalette } from "./palette.js";
 import { proofImage, type ProofRequest, type ProofVerdict } from "./proof.js";
+import { stripImageMetadata } from "./metastrip.js";
 
 const SIDECARS = process.env.GPT_IMAGE_NO_SIDECAR !== "1";
+// Every saved image is scrubbed of provenance metadata (EXIF/XMP/C2PA) by default — opt out to
+// keep the model's original container bytes (e.g. if you WANT content credentials preserved).
+const STRIP_METADATA = process.env.GPT_IMAGE_KEEP_METADATA !== "1";
 
 /** The directory to discover a `.gptimage.json` profile from, given where an asset is being written.
  *  A trailing-separator path IS the target directory; otherwise use the file's directory. */
@@ -361,6 +365,14 @@ async function runAndSave(
         result.bytes = meta.transform(result.bytes);
       } catch (e) {
         console.error(`[gpt-image] background key-out failed (${e instanceof Error ? e.message : e}); saving without transparency.`);
+      }
+    }
+    if (STRIP_METADATA) {
+      // A stripping failure must never lose the image — keep the original container bytes.
+      try {
+        result.bytes = stripImageMetadata(result.bytes);
+      } catch (e) {
+        console.error(`[gpt-image] metadata strip failed (${e instanceof Error ? e.message : e}); saving original bytes.`);
       }
     }
     const outPath = count > 1 ? indexedPath(basePath, i + 1) : basePath;

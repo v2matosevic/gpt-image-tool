@@ -9,7 +9,7 @@ import { parseSse } from "../sse.js";
 import { MAX_RETRIES, backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "../retry.js";
 import type { GenerateInput, GenerateResult, ImageProvider } from "./types.js";
 
-const DEFAULT_MODEL = process.env.GPT_IMAGE_MODEL?.trim() || "gpt-5.5";
+const DEFAULT_MODEL = process.env.GPT_IMAGE_MODEL?.trim() || "gpt-5.6-terra";
 const TOTAL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_TIMEOUT_MS) || 300_000;
 const STALL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_STALL_MS) || 120_000;
 
@@ -144,7 +144,7 @@ export class SubscriptionProvider implements ImageProvider {
           const detail = await safeText(res);
           throw new Error(
             `subscription image request failed: HTTP ${res.status}${detail ? ` — ${detail}` : ""}` +
-              (res.status === 400 ? " (a 400 / 'newer version of Codex' usually means the model is gated — try GPT_IMAGE_MODEL=gpt-5.4-mini)" : "") +
+              (res.status === 400 ? " (a 400 / 'newer version of Codex' usually means the model is gated — try GPT_IMAGE_MODEL=gpt-5.5 or gpt-5.4-mini)" : "") +
               (res.status === 429 ? ` (rate limited — your ChatGPT/Codex quota; retried ${MAX_RETRIES}×, still throttled. Wait a few minutes)` : ""),
           );
         }

@@ -49,13 +49,13 @@ agent ──MCP──▶ generate_image / edit_image / upscale_image
               SubscriptionProvider
                 ├─ read ~/.codex/auth.json (refresh token if expired)
                 ├─ POST https://chatgpt.com/backend-api/codex/responses
-                │     model gpt-5.5, tools:[{type:image_generation}], + input_image for edit/upscale
+                │     model gpt-5.6-terra, tools:[{type:image_generation}], + input_image for edit/upscale
                 └─ parse SSE → image_generation_call.result (base64)
               ──▶ save image to disk ──▶ return absolute path
 
 MCP tools:  generate_image · edit_image · upscale_image · export_web_assets
             remove_background · compose_overlay · create_social_card
-            create_social_carousel · list_image_presets
+            create_social_carousel · strip_image_metadata · list_image_presets
 ```
 
 The tool **saves the image to disk and returns its path**. That's the only return shape that works
@@ -169,7 +169,7 @@ client: run `node B:/Coding/gpt-image-tool/dist/mcp.js` as a stdio server.
 
 Everything is optional for the subscription backend. The full table of environment variables, the
 `.gptimage.json` profile schema, and every tool/flag are in **[docs/TOOLS.md](docs/TOOLS.md)**
-(see also `.env.example`). Notable: `GPT_IMAGE_MODEL` (default `gpt-5.5`), `GPT_IMAGE_OUTPUT_DIR`,
+(see also `.env.example`). Notable: `GPT_IMAGE_MODEL` (default `gpt-5.6-terra`), `GPT_IMAGE_OUTPUT_DIR`,
 `GPT_IMAGE_INLINE`, `GPT_IMAGE_PROFILE`, `GPT_IMAGE_MAX_RETRIES`.
 
 ## Web-ready assets (favicons, OG, hero, app icons)
@@ -267,8 +267,8 @@ so transparency is produced by rendering on a chroma field and keying it out loc
 ## Caveats (read once)
 
 - **Undocumented endpoint.** `backend-api/codex/responses` is an internal API; OpenAI may change or
-  restrict it, and the routing model id churns (a stale Codex `version` header gets `gpt-5.5` rejected
-  with a 400 — this tool floors the header at `0.130.0` to avoid that). If the subscription path
+  restrict it, and the routing model id churns (a stale Codex `version` header gets the model rejected
+  with a 400 — this tool floors the header at `0.143.0` to avoid that). If the subscription path
   breaks, switch to `--backend apikey` while it's updated. The model is a one-line config const.
 - **Terms of service.** Using this endpoint outside the official Codex client is unsanctioned. Fine
   for personal/dev use (it's the identical call Codex makes); do **not** point it at a public or

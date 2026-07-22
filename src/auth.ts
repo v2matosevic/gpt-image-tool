@@ -11,7 +11,7 @@ import { sleep } from "./retry.js";
 const OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"; // Codex CLI's published public client id
 const REFRESH_SCOPE = "openid profile email";
-const VERSION_FLOOR = "0.130.0"; // never claim an older Codex version (gpt-5.5 is gated on this)
+const VERSION_FLOOR = "0.143.0"; // never claim an older Codex version (gpt-5.6 tiers gate on newer builds)
 
 export function codexHome(): string {
   const env = process.env.CODEX_HOME?.trim();

@@ -9,7 +9,7 @@ import { codexResponsesRequest } from "./codexhttp.js";
 import { parseSse } from "./sse.js";
 import { backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "./retry.js";
 
-const PROOF_MODEL = process.env.GPT_IMAGE_PROOF_MODEL?.trim() || "gpt-5.5";
+const PROOF_MODEL = process.env.GPT_IMAGE_PROOF_MODEL?.trim() || "gpt-5.6-terra";
 const PROOF_RETRIES = 2; // proofing is cheap but rides the same throttled quota as generation
 const PROOF_TIMEOUT_MS = Number(process.env.GPT_IMAGE_PROOF_TIMEOUT_MS) || 120_000;
 

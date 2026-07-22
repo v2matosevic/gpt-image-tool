@@ -35,6 +35,7 @@ inline copy too.
 | `presets/` | The preset library (`lib/*.ts`), the **compiler** (`compile.ts`), the registry + catalog. |
 | `generate.ts` | Orchestration: generate / edit / upscale, profile + sidecar overlay, series, transparency, save. |
 | `bgremove.ts` | Dependency-free PNG codec + background keyer (chroma/edge flood-fill). |
+| `metastrip.ts` | Lossless EXIF/XMP/IPTC/C2PA metadata stripper (PNG/JPEG/WebP container rewrite) — applied to every saved image by default. |
 | `imageops.ts` | Resize / fit / `.ico` / save (+ optional `sharp`); background-cutout helper. |
 | `webassets.ts` | Web-asset recipes (favicon / og / hero / appicon). |
 | `profile.ts` | Discover + load the `.gptimage.json` brand profile. |
@@ -50,7 +51,7 @@ login. Per call it reads the file fresh; if the access token is near expiry it r
 
 The request goes to `https://chatgpt.com/backend-api/codex/responses` — the same internal Responses
 endpoint Codex's own `$imagegen` uses — with `tools: [{ type: "image_generation" }]` and a `version`
-header (floored at `0.130.0` so the routing model isn't rejected as "old Codex"). The response is an
+header (floored at `0.143.0` so the routing model isn't rejected as "old Codex"). The response is an
 SSE stream; we read `response.output_item.done` / `response.completed` events and pull the base64 out
 of the `image_generation_call.result`. Image-to-image adds `input_image` content parts (and
 `input_image_mask` for inpainting) to the user message.

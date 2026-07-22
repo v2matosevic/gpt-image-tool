@@ -28,6 +28,7 @@ interface CliArgs {
   web?: string;
   image?: string;
   removeBg?: string;
+  stripMeta?: string;
   useModel?: boolean;
   instruction?: string;
   guidance?: string;
@@ -81,6 +82,7 @@ function printHelp(): void {
       "                           source = --image <path>, or generate from --subject/--preset",
       "  --image <path>         Source image for --web (instead of generating)",
       "  --remove-bg <path>     Cut out background → transparent PNG (clean backgrounds only)",
+      "  --strip-metadata <p>   Scrub EXIF/XMP/C2PA provenance from an image, lossless (default: in place)",
       "  --use-model            With --remove-bg: model re-renders the subject on chroma for busy backgrounds",
       "  --instruction <text>   What to change (for --edit)",
       "  --guidance <text>      Extra guidance (for --upscale)",
@@ -141,6 +143,9 @@ function parseArgs(argv: string[]): CliArgs {
         break;
       case "--remove-bg":
         args.removeBg = argv[++i];
+        break;
+      case "--strip-metadata":
+        args.stripMeta = argv[++i];
         break;
       case "--use-model":
         args.useModel = true;
@@ -237,6 +242,18 @@ if (args.presets) {
 const hasStyle = Object.keys(args.style).length > 0;
 
 // Local-only operations (no generation) handled up front.
+if (args.stripMeta) {
+  const { stripImageMetadata } = await import("./metastrip.js");
+  const { readFile, writeFile } = await import("node:fs/promises");
+  const buf = await readFile(args.stripMeta);
+  const clean = stripImageMetadata(buf);
+  const outPath = args.output ?? args.stripMeta;
+  await writeFile(outPath, clean);
+  console.log(outPath);
+  console.error(`✓ metadata stripped → ${outPath} (${buf.length - clean.length} bytes removed)`);
+  process.exit(0);
+}
+
 if (args.removeBg) {
   const outPath = args.output ?? cutoutPath(args.removeBg);
   if (args.useModel) {
