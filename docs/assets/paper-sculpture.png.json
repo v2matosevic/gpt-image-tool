@@ -1,0 +1,27 @@
+{
+  "tool": "gpt-image-tool",
+  "operation": "generate",
+  "subject": "An architectural ribbon sculpture made from folded orange paper, one continuous strip curling into a loose impossible arch, resting on a warm ivory studio floor. A tangible editorial object for a developer tool that turns ideas into image assets.",
+  "preset": "product-studio",
+  "modifiers": [],
+  "style": {
+    "medium": "studio still-life photograph of a handcrafted paper sculpture",
+    "composition": "single sculpture centered, full object visible, generous empty margin on every side",
+    "lighting": "large soft daylight source from upper left, realistic contact shadows",
+    "color": "burnt orange #ed6636, warm ivory #f5f1e8, subtle graphite shadow",
+    "avoid": [
+      "text",
+      "letters",
+      "logos",
+      "watermarks",
+      "glossy plastic",
+      "extra objects"
+    ]
+  },
+  "size": "1024x1024",
+  "quality": "high",
+  "background": "opaque",
+  "backend": "subscription",
+  "compiledPrompt": "Studio still-life photograph of a handcrafted paper sculpture of An architectural ribbon sculpture made from folded orange paper, one continuous strip curling into a loose impossible arch, resting on a warm ivory studio floor. A tangible editorial object for a developer tool that turns ideas into image assets.. Single sculpture centered, full object visible, generous empty margin on every side. Seamless light-grey sweep backdrop fading top-to-bottom, with a soft natural contact shadow grounding the product. Large soft daylight source from upper left, realistic contact shadows. 100mm macro lens at f/8, tack-sharp from the front face through to the back, no perspective distortion. Burnt orange #ed6636, warm ivory #f5f1e8, subtle graphite shadow. Premium, clean, considered commercial polish. Crisp material micro-texture, clean specular highlights, no noise or compression artifacts. Do not include: busy background, harsh clipped shadows, watermark, text overlay, extra props unless requested, text, letters, logos, watermarks, glossy plastic, extra objects.",
+  "revisedPrompt": "Studio still-life product photograph, square 1024x1024 composition: a single handcrafted architectural ribbon sculpture made from one continuous folded strip of burnt orange paper (#ed6636), curling into a loose impossible arch. Full sculpture visible, centered with generous empty margin on all sides, resting on a warm ivory studio floor (#f5f1e8). Seamless light-grey sweep backdrop with gentle top-to-bottom fade. Large soft daylight source from upper left, realistic subtle graphite-toned contact shadow grounding the paper object. 100mm macro lens, f/8, tack-sharp front through back, orthographic-feeling no perspective distortion. Premium clean considered commercial editorial polish; visible crisp paper micro-texture and clean restrained specular highlights. No busy background, harsh clipped shadows, watermark, text, letters, logos, overlay, props, plastic/glossy material, extra objects, noise, or compression artifacts. PNG output."
+}

@@ -6,7 +6,6 @@
     "mood": "confident, modern",
     "avoid": ["watermark", "stock-photo look", "lens flare"]
   },
-  "styleReference": ["./brand/logo.png"],
   "size": "1536x1024",
   "format": "png",
   "background": "auto",

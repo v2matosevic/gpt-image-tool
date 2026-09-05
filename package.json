@@ -3,17 +3,20 @@
   "version": "0.3.0",
   "private": true,
   "type": "module",
-  "description": "Generate images via your ChatGPT/Codex subscription (no API cost), exposed as an MCP tool + CLI for any LLM agent (Claude Code, Codex, Cursor, ...).",
+  "description": "Image generation, editing, and web assets for coding agents. Local MCP server and CLI with experimental ChatGPT subscription access and an explicit OpenAI API backend.",
   "bin": {
     "gpt-image": "dist/cli.js"
   },
   "files": [
     "dist",
     "README.md",
-    ".env.example"
+    "LICENSE",
+    ".env.example",
+    "docs/SETUP.md",
+    "docs/TOOLS.md"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22.18.0"
   },
   "repository": {
     "type": "git",
@@ -27,7 +30,10 @@
     "docs:presets": "node scripts/gen-presets-doc.mjs",
     "bench": "npm run build && node scripts/bench.mjs",
     "test": "npm run build && node --experimental-strip-types --test test/*.test.ts",
-    "dev:cli": "node --experimental-strip-types src/cli.ts"
+    "dev:cli": "node --experimental-strip-types src/cli.ts",
+    "smoke:mcp": "node scripts/smoke-mcp.mjs",
+    "audit:publication": "node scripts/audit-publication.mjs",
+    "assets:launch": "node scripts/launch-assets.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.18.0",
@@ -37,5 +43,19 @@
     "@types/node": "^22.9.0",
     "sharp": "^0.35.3",
     "typescript": "^5.6.3"
-  }
+  },
+  "license": "MIT",
+  "author": "Marko Matosevic",
+  "homepage": "https://github.com/v2matosevic/gpt-image-tool#readme",
+  "bugs": {
+    "url": "https://github.com/v2matosevic/gpt-image-tool/issues"
+  },
+  "keywords": [
+    "mcp",
+    "image-generation",
+    "claude-code",
+    "cursor",
+    "codex",
+    "developer-tools"
+  ]
 }
