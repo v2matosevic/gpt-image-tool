@@ -1,0 +1,27 @@
+{
+  "tool": "gpt-image-tool",
+  "operation": "generate",
+  "subject": "A small friendly fox mascot sitting upright, rounded body, simple expressive face, one curled oversized tail. Made from folded burnt orange paper with warm ivory cheek patches. One character, no accessories.",
+  "preset": "mascot",
+  "modifiers": [],
+  "style": {
+    "medium": "tactile folded-paper character illustration",
+    "composition": "centered full body, ample margin, clean readable silhouette",
+    "color": "burnt orange #ed6636 and warm ivory #f5f1e8",
+    "avoid": [
+      "text",
+      "letters",
+      "logos",
+      "watermarks",
+      "extra limbs",
+      "plastic",
+      "fur texture"
+    ]
+  },
+  "size": "1024x1024",
+  "quality": "high",
+  "background": "transparent",
+  "backend": "subscription",
+  "compiledPrompt": "Tactile folded-paper character illustration of A small friendly fox mascot sitting upright, rounded body, simple expressive face, one curled oversized tail. Made from folded burnt orange paper with warm ivory cheek patches. One character, no accessories.. Centered full body, ample margin, clean readable silhouette. Burnt orange #ed6636 and warm ivory #f5f1e8. Friendly, memorable, brandable. Appealing modern character design with an expressive face, simple rounded shapes, consistent proportions and a repeatable model-sheet style, crisp clean edges with no halos, fringing or green spill. Do not include: background scenery or props, photorealism, inconsistent or off-model design, green color spill, halos or fringing, muddy palette, watermark, text, letters, logos, watermarks, extra limbs, plastic, fur texture. Render the subject fully isolated and centered on a completely solid, uniform chroma-key blue (#1E5AFF) background — no shadows, no gradient, no reflections, no other elements, and do not use that blue anywhere in the subject itself.",
+  "revisedPrompt": "1024x1024 PNG. A tactile folded-paper character illustration: one small friendly fox mascot sitting upright, centered full body with ample margin. Rounded body, simple expressive face, warm ivory cheek patches, and one curled oversized tail. Constructed entirely from crisp folded burnt orange paper, with visible geometric paper folds and clean sharp edges; burnt orange #ed6636 and warm ivory #f5f1e8 only on the character. Modern brandable repeatable model-sheet character design, consistently proportioned, clean readable silhouette, appealing friendly expression. No accessories, no extra limbs, no fur texture, no plastic, no photorealism. Fully isolated on a completely uniform solid chroma-key blue background #1E5AFF. Absolutely no shadows, gradient, reflections, scenery, props, text, logos, watermark, halos, fringing, green spill, or any blue within the subject."
+}

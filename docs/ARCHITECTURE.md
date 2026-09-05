@@ -28,7 +28,7 @@ inline copy too.
 | File | Responsibility |
 |---|---|
 | `auth.ts` | Read/refresh the ChatGPT OAuth token from `~/.codex/auth.json`; **single-flight refresh lock**; `--check` session validation. |
-| `providers/subscription.ts` | The free backend: builds the Responses request, streams SSE, retries; reactive 401 refresh. |
+| `providers/subscription.ts` | Experimental subscription backend: builds the Responses request, streams SSE, retries; reactive 401 refresh. |
 | `providers/apikey.ts` | Paid fallback: `/v1/images/generations` + `/v1/images/edits` (multipart), with retry. |
 | `sse.ts` | Minimal SSE parser (event kind inferred from the JSON `type`). |
 | `retry.ts` | Bounded backoff helpers (429/5xx/network), `Retry-After` aware. |
@@ -58,12 +58,12 @@ of the `image_generation_call.result`. Image-to-image adds `input_image` content
 
 ### Single-flight refresh (important)
 
-The OAuth refresh token **rotates** on every use, and OpenAI invalidates the *entire session* if a
-rotated token is reused (it reads as token theft). So two parallel image jobs refreshing at the same
-instant would kill the session. `withRefreshLock` (in `auth.ts`) takes a cross-process `O_EXCL` lock
-file next to `auth.json`; the reactive-401 path re-reads the token under the lock and **skips the
-refresh if a peer already did it**. Stale locks self-heal after 60s. This is why batches are safe —
-and why you should still prefer sequential generation.
+`withRefreshLock` (in `auth.ts`) takes a cross-process `O_EXCL` lock next to `auth.json` to
+serialize this tool's refresh attempts. The reactive-401 path re-reads the token under the lock
+and skips refreshing when another process has already updated it. Stale locks self-heal after
+60s. This reduces competing credential writes between instances of this tool; it does not lock
+the official Codex client. Server-side token rotation and invalidation rules are not a stable
+public contract. Prefer sequential image jobs to limit quota pressure.
 
 ## The preset compiler
 

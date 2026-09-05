@@ -32,9 +32,9 @@ export function reloginHint(reason: string): string {
   return (
     `${reason}. The image account's Codex session is invalid — re-authenticate it:\n` +
     `  PowerShell:  $env:CODEX_HOME="${dir}"; codex login\n` +
-    `then sign in as the account you want images billed to. If it keeps getting invalidated, ` +
-    `that account is being signed into Codex somewhere else (another device or your main \`codex\`) — ` +
-    `dedicate an account to images that you don't log into Codex elsewhere.`
+    `For other shells, set CODEX_HOME to the directory above and run codex login. ` +
+    `Use ChatGPT sign-in with file-based credential storage. If rejection continues, check ` +
+    `account access and the upstream service; this error does not establish the cause.`
   );
 }
 

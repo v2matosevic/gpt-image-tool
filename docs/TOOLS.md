@@ -5,7 +5,7 @@ catalog and [ARCHITECTURE.md](./ARCHITECTURE.md) for internals.
 
 ## MCP tools
 
-The server exposes nine tools. All image-producing tools **save to disk and return the path(s)**.
+The server exposes ten tools. All image-producing tools **save to disk and return the path(s)**.
 
 ### `generate_image`
 Text-to-image via the preset compiler (or a raw prompt).
@@ -21,11 +21,11 @@ Text-to-image via the preset compiler (or a raw prompt).
 | `background` | enum | `auto` \| `transparent` \| `opaque`. |
 | `style_reference` | string[] | Image path(s) used for *style only* (brand match), not content. A **brand palette** is auto-extracted from these and anchored in the prompt (disable: profile `autoPalette: false` / `GPT_IMAGE_NO_AUTOPALETTE=1`). |
 | `platform` | enum | Target platform: `instagram-feed`, `instagram-story`, `tiktok`, `x-post`, `linkedin-post`, `og-card`, `youtube-thumbnail`, `pinterest-pin`. Picks the native size and appends a safe-area composition constraint. Explicit `size` wins. |
-| `proof` | bool | **Vision proof-loop**: the model proofreads its own render (verbatim text, diacritics, artifacts) via the free subscription endpoint and auto-regenerates with feedback (≤3 attempts, `GPT_IMAGE_PROOF_ATTEMPTS`). Default: **on when `style.text` is set**. |
+| `proof` | bool | **Vision proof-loop**: checks text and artifacts via the subscription backend, including for API-generated images. Uses account quota and may regenerate (default ≤3 attempts, `GPT_IMAGE_PROOF_ATTEMPTS`). On when `style.text` is set. Disable for an API-only workflow; an `unverified` verdict means the check did not complete. |
 | `count` | int 1–10 | N **independent** variations. |
 | `series` | int 1–10 | N **consistent** images (first reused as a style ref for the rest). |
 | `from_image` | string | Reload a prior image's sidecar as the base, then apply args on top. |
-| `size` | enum | `auto`, `1024x1024`, `1536x1024`, `1024x1536`, `2048x2048`, `2048x1152`, `1152x2048`. |
+| `size` | enum | `auto`, `1024x1024`, `1536x1024`, `1024x1536`, `1024x1280`, `1280x1024`, `2048x2048`, `2048x1152`, `1152x2048`. Upstream support varies; inspect actual output dimensions. |
 | `quality` | enum | `auto` \| `low` \| `medium` \| `high`. |
 | `format` | enum | `png` \| `jpeg` \| `webp`. |
 | `output_path` | string | File, or a directory ending in `/`. Default `./generated-images/`. |
@@ -210,7 +210,7 @@ with `GPT_IMAGE_NO_SIDECAR=1`.
 
 | var | default | purpose |
 |---|---|---|
-| `GPT_IMAGE_MODEL` | `gpt-5.6-terra` | Subscription routing model id (`gpt-5.6-sol`/`-terra`/`-luna`; `gpt-5.5` still accepted). |
+| `GPT_IMAGE_MODEL` | `gpt-5.6-terra` | Subscription routing model id. Availability depends on the account and upstream endpoint. |
 | `GPT_IMAGE_API_MODEL` | `gpt-image-1` | Model for the `apikey` backend. |
 | `GPT_IMAGE_BACKEND` | `subscription` | Default backend. |
 | `OPENAI_API_KEY` | — | Required only for `--backend apikey`. |

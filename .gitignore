@@ -10,3 +10,27 @@ generated-images/
 .env.local
 *.log
 bench/
+
+# Credentials, local client configuration, and private output sidecars
+.env.*
+!.env.example
+auth.json
+auth.json.*
+*.pem
+*.key
+.codex/
+.claude/
+.mcp.json
+*.png.json
+*.jpg.json
+*.jpeg.json
+*.webp.json
+
+# Deliberately reviewed public artwork and example specifications
+!docs/assets/*.png
+!docs/assets/*.jpg
+!docs/assets/*.webp
+!docs/assets/*.png.json
+!docs/launch/*.png
+!docs/launch/*.jpg
+!docs/launch/*.webp

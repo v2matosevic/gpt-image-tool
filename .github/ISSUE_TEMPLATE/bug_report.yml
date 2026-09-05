@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a reproducible problem without credentials or private images.
+title: "[Bug]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe expected and actual behavior. Remove account details, tokens, and private paths.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Include a safe prompt or command and a redacted error. Never attach auth.json or .env.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: OS, node --version, client/version, git revision, subscription or apikey
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed credentials, account identifiers, and private client content.
+          required: true
