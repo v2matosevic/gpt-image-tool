@@ -1,6 +1,7 @@
 # Working on gpt-image-tool
 
 - Read README.md for the public contract, docs/ARCHITECTURE.md for internals, and docs/TOOLS.md for parameters. docs/AGENTS.md is the image-usage playbook.
+- Public-release pickup: docs/RELEASE-VERIFICATION.md records the exact release, CI evidence, launch assets, remaining owner actions, and limits. docs/launch/README.md carries the social copy.
 - Use Node.js 22.18+. Install: `npm ci`. Build: `npm run build`. Offline checks: `npm test` and `npm run smoke:mcp`.
 - Never log credentials, commit auth files, or put real account data into fixtures. CI must not call image providers.
 - Never silently switch from subscription to the paid API backend. Keep account-dependent behavior explicit in docs.

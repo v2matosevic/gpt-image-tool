@@ -4,6 +4,8 @@ The launch message: **Give your coding agent an image tool.** Lead with a real o
 
 Repository: https://github.com/v2matosevic/gpt-image-tool
 
+Published as [v0.3.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.3.0), with a downloadable ZIP of this kit. [Final release state and verification](../RELEASE-VERIFICATION.md). Social copy below is prepared for manual posting; no posts have been submitted.
+
 ![Overview of the launch artwork.](contact-sheet.png)
 
 ## Ready-to-use files
