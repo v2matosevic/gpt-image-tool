@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0, 2026-09-07
 
 - Default subscription routing and image proofreading to GPT-6 Astra; default the explicit paid Images API backend to GPT Image 2. Preserve environment overrides and keep backend selection explicit.
 - Force the subscription image tool to run, and send the requested output format on API edits.

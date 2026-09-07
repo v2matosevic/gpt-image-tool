@@ -1,6 +1,18 @@
 # Public source release verification
 
-Completed September 5, 2026. This is the canonical release handoff.
+This is the canonical release handoff. The current release documentation is [v0.4.0](releases/v0.4.0.md); the original v0.3.0 evidence is retained below.
+
+## v0.4.0, September 7, 2026
+
+The Astra/Image 2 update is documented in [MODELS.md](MODELS.md), the [changelog](../CHANGELOG.md), and the [upgrade instructions](SETUP.md#upgrade-an-existing-installation). Package, lockfile, and MCP handshake versions are aligned at `0.4.0`. The smoke check verifies that the running MCP server advertises the package version.
+
+The project remains public and MIT licensed, with installation from tagged source and no npm publication. Model overrides remain explicit; an upgrade does not switch a subscription user to paid API billing. The original launch artwork remains a labeled historical sample, not new Astra evidence.
+
+The model implementation passed 90 offline tests, a live Astra subscription generation, visual inspection of the saved image, and live Astra proofreading. API payloads were tested with mocks only. Final clean-install, publication scan, CI and published-tag evidence will be recorded here when completed.
+
+## Historical v0.3.0 verification
+
+Completed September 5, 2026. The sections below describe that release and its original launch kit.
 
 ## Published state
 

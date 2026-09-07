@@ -30,6 +30,22 @@ node --env-file=.env dist/cli.js --backend apikey --subject "a folded paper scul
 
 This backend uses the documented [OpenAI Images API](https://developers.openai.com/api/docs/guides/image-generation). Its default model is `gpt-image-2`; `GPT_IMAGE_API_MODEL` overrides it. Model availability and supported dimensions vary. Changing a model name does not automatically make every feature compatible.
 
+## Upgrade an existing installation
+
+Stop image jobs first. From a clean checkout with no local changes, install the tagged release:
+
+```sh
+git fetch origin --tags
+git switch --detach v0.4.0
+npm ci
+npm run build
+npm run smoke:mcp
+```
+
+Reconnect the MCP server in your coding client so it loads the new build. The server now reports version `0.4.0`. For Codex, use both timeout settings in the configuration below; already running sessions need a reconnect or restart.
+
+Existing `GPT_IMAGE_MODEL`, `GPT_IMAGE_PROOF_MODEL`, and `GPT_IMAGE_API_MODEL` overrides still win. Remove an old override to adopt the new default, or keep it to retain your chosen model. No API key or paid backend is enabled by upgrading. See [model selection and verification](MODELS.md).
+
 ## Claude Code
 
 Run this in your terminal, replacing the checkout path:

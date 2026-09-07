@@ -4,7 +4,7 @@ The launch message: **Give your coding agent an image tool.** Lead with a real o
 
 Repository: https://github.com/v2matosevic/gpt-image-tool
 
-Published as [v0.3.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.3.0), with a downloadable ZIP of this kit. [Final release state and verification](../RELEASE-VERIFICATION.md). Social copy below is prepared for manual posting; no posts have been submitted.
+This artwork and initial launch copy were published with [v0.3.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.3.0), with a downloadable ZIP of the original kit. The current release is [v0.4.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.4.0); use its [release notes](../releases/v0.4.0.md) for the Astra update. [Release verification](../RELEASE-VERIFICATION.md). Social copy below is prepared for manual posting; no posts have been submitted.
 
 ![Overview of the launch artwork.](contact-sheet.png)
 

@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 const transport = new StdioClientTransport({ command: process.execPath, args: [resolve('dist/mcp.js')] });
 const client = new Client({ name: 'gpt-image-smoke', version: '1.0.0' });
 try {
   await client.connect(transport);
+  const packageVersion = JSON.parse(readFileSync(resolve('package.json'), 'utf8')).version;
+  assert.equal(client.getServerVersion()?.version, packageVersion, 'MCP version must match the package release');
   const { tools } = await client.listTools();
   const expected = ['generate_image', 'edit_image', 'upscale_image', 'export_web_assets', 'remove_background', 'compose_overlay', 'create_social_card', 'create_social_carousel', 'strip_image_metadata', 'list_image_presets'];
   assert.deepEqual(tools.map(t => t.name).sort(), expected.sort());

@@ -8,6 +8,8 @@ Ask for a hero image, edit it, then export the sizes your app needs. The tool sa
 
 [Quick start](#quick-start) · [Client setup](docs/SETUP.md) · [Examples](docs/EXAMPLES.md) · [Tool reference](docs/TOOLS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
+[Latest release: v0.4.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.4.0) adds GPT-6 Astra routing and proofreading, GPT Image 2 for the explicit paid API backend, and MCP timeout guidance. [Release notes](docs/releases/v0.4.0.md) · [Upgrade an existing installation](docs/SETUP.md#upgrade-an-existing-installation).
+
 > **Subscription access is experimental.** The default backend reuses your local Codex ChatGPT login through an undocumented endpoint. It consumes account usage and may change or stop working. There is no separate image API bill on this path, but access is neither unlimited nor guaranteed. This is an independent project, not an official OpenAI integration. A separately billed OpenAI API backend is available when explicitly selected.
 
 ## See what it makes
@@ -21,7 +23,7 @@ The sculpture above was generated with this tool. The surrounding layout is an e
 You need **Node.js 22.18 or newer**, npm, Git, and, for the subscription backend, a ChatGPT login saved by Codex CLI in a local `auth.json` file. OS keychain credentials are not read by this tool. [Authentication and API-key setup](docs/SETUP.md).
 
 ```sh
-git clone https://github.com/v2matosevic/gpt-image-tool.git
+git clone --branch v0.4.0 https://github.com/v2matosevic/gpt-image-tool.git
 cd gpt-image-tool
 npm ci
 npm run build
