@@ -8,7 +8,17 @@ The Astra/Image 2 update is documented in [MODELS.md](MODELS.md), the [changelog
 
 The project remains public and MIT licensed, with installation from tagged source and no npm publication. Model overrides remain explicit; an upgrade does not switch a subscription user to paid API billing. The original launch artwork remains a labeled historical sample, not new Astra evidence.
 
-The model implementation passed 90 offline tests, a live Astra subscription generation, visual inspection of the saved image, and live Astra proofreading. API payloads were tested with mocks only. Final clean-install, publication scan, CI and published-tag evidence will be recorded here when completed.
+Published [v0.4.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.4.0) as the latest stable release at 13:25:30 UTC on September 7, 2026. Tag and release target both name `1c992f58edeb806c84d386e8197e2807529ba270`. It is neither a draft nor a prerelease. This later handoff update does not change the released source.
+
+- [CI run 34127181942](https://github.com/v2matosevic/gpt-image-tool/actions/runs/34127181942) passed all four jobs: Node 22 on Windows, macOS and Linux; Node 24 on Linux. Every job completed installation, 90 tests, the version-aware MCP smoke check, and the preset catalog drift check. A duplicate manual run was cancelled after the push-triggered run appeared.
+- A clean extraction of that exact commit on Windows, Node 22.22.0, passed `npm ci`, all 90 tests, and the MCP handshake/version check. Installation reported zero dependency vulnerabilities. Regenerated preset content matched the committed catalog. An initial raw-byte comparison flagged archive line-ending differences; normalized content comparison and all four CI drift checks passed.
+- The publication heuristic scanned 294 blobs across fetched, locally reachable history and found no credential-pattern or sensitive-filename findings. This remains a heuristic, not proof that no secret exists. All 77 relative Markdown file links resolved.
+- The published GitHub source ZIP was downloaded (5,930,606 bytes), extracted, and all 104 file blobs matched the exact tagged commit. Package version is `0.4.0`. GitHub provides the source ZIP and tar archive; no npm package or separate binary distribution was published.
+- The signed-out GitHub release page displayed the correct title and Latest label. Its screenshot was inspected. Repository description and discovery topics now include the current model setup. The README links the release and upgrade instructions.
+
+The model implementation also passed a live Astra subscription generation, visual inspection of the saved image, and live Astra proofreading. API payloads were tested with mocks only. See [MODELS.md](MODELS.md) for account-access and renderer-version limits. Confidence is high for these measured release outcomes.
+
+Local verification files are under `C:/Users/matos/AppData/Local/Temp/gpt-image-release-0.4.0-1c992f5`; the release screenshot is ignored at `release-v0.4.0.png`. No running client was restarted, and no social posts were sent.
 
 ## Historical v0.3.0 verification
 
