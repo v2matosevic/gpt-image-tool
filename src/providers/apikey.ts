@@ -3,10 +3,10 @@
 
 import { MAX_RETRIES, backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "../retry.js";
 import type { GenerateInput, GenerateResult, ImageProvider } from "./types.js";
+import { configuredModels } from "../models.js";
 
 const GEN_ENDPOINT = "https://api.openai.com/v1/images/generations";
 const EDIT_ENDPOINT = "https://api.openai.com/v1/images/edits";
-const DEFAULT_MODEL = process.env.GPT_IMAGE_API_MODEL?.trim() || "gpt-image-1";
 
 function extFor(mime: string): string {
   return mime.includes("jpeg") ? "jpg" : mime.includes("webp") ? "webp" : "png";
@@ -51,7 +51,7 @@ export class ApiKeyProvider implements ImageProvider {
   /** Text-to-image: /v1/images/generations (JSON). */
   private async create(key: string, input: GenerateInput): Promise<GenerateResult> {
     const body: Record<string, unknown> = {
-      model: DEFAULT_MODEL,
+      model: configuredModels().image,
       prompt: input.prompt,
       n: 1,
       output_format: input.format,
@@ -71,14 +71,15 @@ export class ApiKeyProvider implements ImageProvider {
   /** Image-to-image (edit / upscale / variation): /v1/images/edits (multipart). */
   private async edit(key: string, input: GenerateInput): Promise<GenerateResult> {
     const form = new FormData();
-    form.set("model", DEFAULT_MODEL);
+    form.set("model", configuredModels().image);
+    form.set("output_format", input.format);
     form.set("prompt", input.prompt);
     form.set("n", "1");
     if (input.size !== "auto") form.set("size", input.size);
     if (input.quality !== "auto") form.set("quality", input.quality);
     if (input.background && input.background !== "auto" && input.format !== "jpeg") form.set("background", input.background);
     for (const img of input.inputImages ?? []) {
-      // image[] supports multiple references on gpt-image-1.
+      // GPT Image supports multiple reference images.
       form.append("image[]", new Blob([new Uint8Array(img.bytes)], { type: img.mime }), `ref.${extFor(img.mime)}`);
     }
     if (input.maskImage) {

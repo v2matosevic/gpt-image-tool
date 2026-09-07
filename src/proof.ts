@@ -7,9 +7,9 @@
 import { codexVersionHeader, getValidCreds, refreshAfter401 } from "./auth.js";
 import { codexResponsesRequest } from "./codexhttp.js";
 import { parseSse } from "./sse.js";
+import { configuredModels } from "./models.js";
 import { backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "./retry.js";
 
-const PROOF_MODEL = process.env.GPT_IMAGE_PROOF_MODEL?.trim() || "gpt-5.6-terra";
 const PROOF_RETRIES = 2; // proofing is cheap but rides the same throttled quota as generation
 const PROOF_TIMEOUT_MS = Number(process.env.GPT_IMAGE_PROOF_TIMEOUT_MS) || 120_000;
 
@@ -68,7 +68,7 @@ export function parseVerdict(raw: string): ProofVerdict {
 
 function buildBody(imageB64: string, mime: string, question: string): unknown {
   return {
-    model: PROOF_MODEL,
+    model: configuredModels().proof,
     stream: true,
     instructions: "You are a meticulous image proofreader. Answer with the exact JSON requested.",
     input: [

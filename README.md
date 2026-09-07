@@ -85,6 +85,8 @@ Use an absolute `output_path` in MCP calls so the tool can discover the intended
 
 ## Know the limits
 
+The subscription backend uses **GPT-6 Astra** to direct OpenAI's image generation tool and proofread results. OpenAI selects the underlying image renderer on that endpoint. The explicitly selected API backend defaults to **GPT Image 2**. Environment overrides remain available. [Current models and verification](docs/MODELS.md).
+
 - Subscription generation shares your account's usage. Batches and proof retries consume additional requests. The API backend is only used when selected; it has separate billing.
 - This server reads and can refresh a local credential file. Treat it like other software with account access. It is designed for a trusted local agent, not as a public hosted service. [Data flow and security](SECURITY.md).
 - Subscription transparency uses a chroma background and local removal. Fine hair, translucent edges, and matching colors can need cleanup.

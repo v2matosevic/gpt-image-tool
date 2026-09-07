@@ -210,8 +210,8 @@ with `GPT_IMAGE_NO_SIDECAR=1`.
 
 | var | default | purpose |
 |---|---|---|
-| `GPT_IMAGE_MODEL` | `gpt-5.6-terra` | Subscription routing model id. Availability depends on the account and upstream endpoint. |
-| `GPT_IMAGE_API_MODEL` | `gpt-image-1` | Model for the `apikey` backend. |
+| `GPT_IMAGE_MODEL` | `gpt-6-astra` | Subscription routing model id. Availability depends on the account and upstream endpoint. |
+| `GPT_IMAGE_API_MODEL` | `gpt-image-2` | Model for the `apikey` backend. |
 | `GPT_IMAGE_BACKEND` | `subscription` | Default backend. |
 | `OPENAI_API_KEY` | — | Required only for `--backend apikey`. |
 | `GPT_IMAGE_AUTH_FILE` | `~/.codex/auth.json` | Pin to a specific account's token file. |
@@ -223,7 +223,7 @@ with `GPT_IMAGE_NO_SIDECAR=1`.
 | `GPT_IMAGE_TIMEOUT_MS` | `300000` | Total request timeout. |
 | `GPT_IMAGE_STALL_MS` | `120000` | Abort if the stream stalls this long. |
 | `GPT_IMAGE_MAX_RETRIES` | `3` | Auto-retries on 429/5xx/network. |
-| `GPT_IMAGE_PROOF_MODEL` | `gpt-5.6-terra` | Model used by the vision proof-loop. |
+| `GPT_IMAGE_PROOF_MODEL` | `gpt-6-astra` | Model used by the vision proof-loop. |
 | `GPT_IMAGE_PROOF_ATTEMPTS` | `3` | Max generation attempts in the proof-loop (1–5). |
 | `GPT_IMAGE_PROOF_TIMEOUT_MS` | `120000` | Proofread request timeout. |
 | `GPT_IMAGE_NO_AUTOPALETTE` | off | `1` = never auto-extract a brand palette from style refs. |

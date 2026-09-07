@@ -28,7 +28,7 @@ Set `OPENAI_API_KEY` in the environment that launches the client, and set `GPT_I
 node --env-file=.env dist/cli.js --backend apikey --subject "a folded paper sculpture" --preset product-studio -o ./sculpture.png
 ```
 
-This backend uses the documented [OpenAI Images API](https://developers.openai.com/api/docs/guides/image-generation). Its default model is `gpt-image-1`; `GPT_IMAGE_API_MODEL` overrides it. Model availability and supported dimensions vary. Changing a model name does not automatically make every feature compatible.
+This backend uses the documented [OpenAI Images API](https://developers.openai.com/api/docs/guides/image-generation). Its default model is `gpt-image-2`; `GPT_IMAGE_API_MODEL` overrides it. Model availability and supported dimensions vary. Changing a model name does not automatically make every feature compatible.
 
 ## Claude Code
 
@@ -65,6 +65,7 @@ Merge this into `~/.codex/config.toml`:
 [mcp_servers.gpt-image]
 command = "node"
 args = ["/absolute/path/gpt-image-tool/dist/mcp.js"]
+startup_timeout_sec = 120
 tool_timeout_sec = 600
 ```
 

@@ -8,8 +8,8 @@ import type { SubscriptionCreds as Creds } from "../auth.js";
 import { parseSse } from "../sse.js";
 import { MAX_RETRIES, backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "../retry.js";
 import type { GenerateInput, GenerateResult, ImageProvider } from "./types.js";
+import { configuredModels } from "../models.js";
 
-const DEFAULT_MODEL = process.env.GPT_IMAGE_MODEL?.trim() || "gpt-5.6-terra";
 const TOTAL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_TIMEOUT_MS) || 300_000;
 const STALL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_STALL_MS) || 120_000;
 
@@ -25,7 +25,7 @@ function buildUserText(input: GenerateInput): string {
   return t;
 }
 
-function buildBody(input: GenerateInput, model: string): unknown {
+export function buildSubscriptionBody(input: GenerateInput, model = configuredModels().routing) {
   const imageTool: Record<string, unknown> = { type: "image_generation", output_format: input.format };
   if (input.size !== "auto") imageTool.size = input.size;
   if (input.quality !== "auto") imageTool.quality = input.quality; // backend may ignore/downgrade
@@ -52,7 +52,7 @@ function buildBody(input: GenerateInput, model: string): unknown {
     instructions: "You are an image generation assistant.",
     input: [{ type: "message", role: "user", content }],
     tools: [imageTool],
-    tool_choice: "auto",
+    tool_choice: { type: "image_generation" },
     parallel_tool_calls: false,
     store: false,
     reasoning: { effort: "low", summary: "auto" },
@@ -105,7 +105,7 @@ export class SubscriptionProvider implements ImageProvider {
 
   async generate(input: GenerateInput): Promise<GenerateResult> {
     const version = await codexVersionHeader();
-    const body = buildBody(input, DEFAULT_MODEL);
+    const body = buildSubscriptionBody(input);
     let creds = await getValidCreds();
 
     // Retry transient failures (429 rate limit / 5xx / network) with bounded backoff, so a brief
@@ -144,7 +144,7 @@ export class SubscriptionProvider implements ImageProvider {
           const detail = await safeText(res);
           throw new Error(
             `subscription image request failed: HTTP ${res.status}${detail ? ` — ${detail}` : ""}` +
-              (res.status === 400 ? " (a 400 / 'newer version of Codex' usually means the model is gated — try GPT_IMAGE_MODEL=gpt-5.5 or gpt-5.4-mini)" : "") +
+              (res.status === 400 ? ` (check model access and supported parameters; requested routing model: ${body.model}. GPT_IMAGE_MODEL can explicitly select another available model)` : "") +
               (res.status === 429 ? ` (rate limited — your ChatGPT/Codex quota; retried ${MAX_RETRIES}×, still throttled. Wait a few minutes)` : ""),
           );
         }

@@ -83,7 +83,7 @@ that green out locally. `bgremove.ts` is a small dependency-free PNG codec (infl
 scanline filters, re-encode RGBA) plus a keyer. With a *known* key color it removes matching pixels
 **globally** (so chroma trapped inside 3D holes / line-icon interiors goes too) and de-spills green
 edges; with an unknown background it flood-fills from the image edges (preserving bg-colored regions
-enclosed by the subject). The paid `apikey` backend uses `gpt-image-1`'s native transparency instead.
+enclosed by the subject). The paid `apikey` backend uses `gpt-image-2`'s native transparency instead.
 
 ## The web-asset pipeline
 

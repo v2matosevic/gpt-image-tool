@@ -11,6 +11,7 @@
 
 import { editImage, generateImage, modelAssistedCutout, upscaleImage } from "./generate.js";
 import { checkSession } from "./auth.js";
+import { configuredModels } from "./models.js";
 import { catalog } from "./presets/index.js";
 import { exportWebAssets, type WebAssetKind } from "./webassets.js";
 import { cutoutPath, removeBackgroundFile } from "./imageops.js";
@@ -222,12 +223,16 @@ function parseArgs(argv: string[]): CliArgs {
 const args = parseArgs(process.argv.slice(2));
 
 if (args.check) {
+  const models = configuredModels();
+  console.error(`routing   : ${models.routing} (subscription; renderer selected by OpenAI)`);
+  console.error(`proof     : ${models.proof}`);
+  console.error(`API image : ${models.image} (only when apikey backend is selected)`);
   const s = await checkSession();
   console.error(`auth file : ${s.authFile}`);
   console.error(`account   : ${s.email ?? "(unknown)"}`);
   if (s.accessExpiry) console.error(`token exp : ${s.accessExpiry}`);
   if (s.ok) {
-    console.error("session   : ✓ valid — subscription backend is ready");
+    console.error("session   : valid (image access and quota are not tested)");
     process.exit(0);
   }
   console.error(`session   : ✗ invalid\n${s.reason}`);
