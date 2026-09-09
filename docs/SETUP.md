@@ -28,7 +28,7 @@ Set `OPENAI_API_KEY` in the environment that launches the client, and set `GPT_I
 node --env-file=.env dist/cli.js --backend apikey --subject "a folded paper sculpture" --preset product-studio -o ./sculpture.png
 ```
 
-This backend uses the documented [OpenAI Images API](https://developers.openai.com/api/docs/guides/image-generation). The current source defaults to `gpt-image-2.5-sunburst`; `GPT_IMAGE_API_MODEL` overrides it. Select `--image-model flare` or `--image-model sunburst` per CLI call, or `image_model` in MCP. Both require `backend: "apikey"`; the subscription endpoint does not reliably enforce renderer selection. These changes are newer than v0.4.0. Model availability and supported dimensions vary. Changing a model name does not automatically make every feature compatible.
+This backend uses the documented [OpenAI Images API](https://developers.openai.com/api/docs/guides/image-generation). Version 0.5.0 defaults to `gpt-image-2.5-sunburst`; `GPT_IMAGE_API_MODEL` overrides it. Select `--image-model flare` or `--image-model sunburst` per CLI call, or `image_model` in MCP. Both require `backend: "apikey"`; the subscription endpoint does not reliably enforce renderer selection. Model availability and supported dimensions vary. Changing a model name does not automatically make every feature compatible.
 
 ## Upgrade an existing installation
 
@@ -36,13 +36,13 @@ Stop image jobs first. From a clean checkout with no local changes, install the 
 
 ```sh
 git fetch origin --tags
-git switch --detach v0.4.0
+git switch --detach v0.5.0
 npm ci
 npm run build
 npm run smoke:mcp
 ```
 
-Reconnect the MCP server in your coding client so it loads the new build. The server now reports version `0.4.0`. For Codex, use both timeout settings in the configuration below; already running sessions need a reconnect or restart.
+Reconnect the MCP server in your coding client so it loads the new build. The server now reports version `0.5.0`. For Codex, use both timeout settings in the configuration below; already running sessions need a reconnect or restart.
 
 Existing `GPT_IMAGE_MODEL`, `GPT_IMAGE_PROOF_MODEL`, and `GPT_IMAGE_API_MODEL` overrides still win. Remove an old override to adopt the new default, or keep it to retain your chosen model. No API key or paid backend is enabled by upgrading. See [model selection and verification](MODELS.md).
 

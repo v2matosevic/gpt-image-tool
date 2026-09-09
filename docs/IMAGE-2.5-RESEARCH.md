@@ -1,6 +1,6 @@
 # GPT Image 2.5: system analysis and integration
 
-Research checked 2026-09-09 UTC; implementation completed across September 9–10 local time. This document describes the current working source, after released v0.4.0. No new release was published during this task.
+Research checked 2026-09-09 UTC; implementation completed across September 9–10 local time. This analysis underpins v0.5.0. Publication and exact source/CI evidence are tracked separately in [release verification](RELEASE-VERIFICATION.md).
 
 ## Finding and recommendation
 
@@ -97,6 +97,6 @@ The choice propagates through generation, reference edits, upscales, series, soc
 - `npm run smoke:mcp`: real stdio handshake, all ten tools, seven renderer schemas, new quality choices, local catalog call and subscription-selection refusal passed without credentials or provider usage.
 - Three live subscription probes were made; the negative control prevents claiming Image 2.5 live verification.
 - No `OPENAI_API_KEY` was present in the task environment. No paid API generation, paid account access, precise editing comparison or `max` visual-quality benchmark was verified.
-- Local source and `dist` were updated. Existing MCP processes must reconnect to load the changes. No new GitHub release, npm publication or client restart was performed.
+- Local source and `dist` were updated. Existing MCP processes must reconnect to load the changes. This research pass did not publish a release; the subsequent authorized v0.5.0 release is tracked in [release verification](RELEASE-VERIFICATION.md). No npm publication or client restart is part of that release.
 
 The supplied session instructions and repository `CLAUDE.md` were used; root `AGENTS.md` was absent. The pre-existing `.gitignore` edit was preserved.

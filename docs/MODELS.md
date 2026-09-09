@@ -1,6 +1,6 @@
 # Model configuration
 
-Checked against official OpenAI documentation on 2026-09-09 UTC. These Image 2.5 changes are in current source, after released v0.4.0.
+Checked against official OpenAI documentation on 2026-09-09 UTC. These Image 2.5 changes are included in v0.5.0.
 
 | Work | Default | Override |
 | --- | --- | --- |

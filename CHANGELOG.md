@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0, 2026-09-10
 
 - Add GPT Image 2.5 Flare (speed) and Sunburst (editing precision) selection through CLI, MCP, profiles and sidecar replay; default the explicit API backend to Sunburst.
 - Support `xhigh` and `max` quality for Image 2.5 API calls, preserving lower quality and legacy model overrides.

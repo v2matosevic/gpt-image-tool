@@ -120,7 +120,7 @@ function fail(e: unknown) {
   return { isError: true, content: [{ type: "text", text: `Image operation failed: ${msg}` }] } as any;
 }
 
-const server = new McpServer({ name: "gpt-image", version: "0.4.0" });
+const server = new McpServer({ name: "gpt-image", version: "0.5.0" });
 
 server.registerTool(
   "generate_image",

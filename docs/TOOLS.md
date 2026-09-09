@@ -3,7 +3,7 @@
 Complete reference for every tool, flag, and setting. See [PRESETS.md](./PRESETS.md) for the preset
 catalog and [ARCHITECTURE.md](./ARCHITECTURE.md) for internals.
 
-## Model selection (current source, after v0.4.0)
+## Model selection (v0.5.0)
 
 All seven tools that can generate images accept `image_model`: `auto`, `flare`, `sunburst`, `gpt-image-2.5-flare`, or `gpt-image-2.5-sunburst`. For `export_web_assets` this applies only when generating the source; for `remove_background` only with `use_model: true`. Both also accept an explicit `backend`; generated web sources accept `quality`.
 

@@ -1,6 +1,14 @@
 # Public source release verification
 
-This is the canonical release handoff. The current release documentation is [v0.4.0](releases/v0.4.0.md); the original v0.3.0 evidence is retained below.
+This is the canonical release handoff. The v0.5.0 release documentation is [here](releases/v0.5.0.md); prior release evidence is retained below.
+
+## v0.5.0, September 10, 2026
+
+The release candidate adds Flare/Sunburst selection for the explicit paid API backend, Sunburst as its default, and `xhigh`/`max` quality. CLI, MCP, profiles, sidecar replay and generation wrappers preserve the choice. Package, lockfile and MCP versions are aligned at `0.5.0`.
+
+The implementation passed 97 offline tests and the real MCP smoke, including renderer schemas and refusal to switch billing. Subscription accepts an invalid renderer name in a direct negative-control probe, so named subscription selections are refused before provider requests. Paid API payloads are tested with mocks; no API key was available for live API verification. [Research and evidence](IMAGE-2.5-RESEARCH.md).
+
+Release preparation is in progress. The exact source, clean installation, GitHub CI, publication and downloaded archive checks will be recorded here after they complete. This source release does not publish an npm package or restart existing coding clients. The pre-existing local `.gitignore` edit is excluded.
 
 ## v0.4.0, September 7, 2026
 

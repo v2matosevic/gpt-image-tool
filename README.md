@@ -8,7 +8,7 @@ Ask for a hero image, edit it, then export the sizes your app needs. The tool sa
 
 [Quick start](#quick-start) · [Client setup](docs/SETUP.md) · [Examples](docs/EXAMPLES.md) · [Tool reference](docs/TOOLS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
-[Latest release: v0.4.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.4.0) adds GPT-6 Astra routing and proofreading, GPT Image 2 for the explicit paid API backend, and MCP timeout guidance. [Release notes](docs/releases/v0.4.0.md) · [Upgrade an existing installation](docs/SETUP.md#upgrade-an-existing-installation).
+[Latest release: v0.5.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.5.0) adds GPT Image 2.5 Flare and Sunburst selection for the explicit paid API backend, plus `xhigh` and `max` quality. [Release notes](docs/releases/v0.5.0.md) · [Upgrade an existing installation](docs/SETUP.md#upgrade-an-existing-installation).
 
 > **Subscription access is experimental.** The default backend reuses your local Codex ChatGPT login through an undocumented endpoint. It consumes account usage and may change or stop working. There is no separate image API bill on this path, but access is neither unlimited nor guaranteed. This is an independent project, not an official OpenAI integration. A separately billed OpenAI API backend is available when explicitly selected.
 
@@ -23,7 +23,7 @@ The sculpture above was generated with this tool. The surrounding layout is an e
 You need **Node.js 22.18 or newer**, npm, Git, and, for the subscription backend, a ChatGPT login saved by Codex CLI in a local `auth.json` file. OS keychain credentials are not read by this tool. [Authentication and API-key setup](docs/SETUP.md).
 
 ```sh
-git clone --branch v0.4.0 https://github.com/v2matosevic/gpt-image-tool.git
+git clone --branch v0.5.0 https://github.com/v2matosevic/gpt-image-tool.git
 cd gpt-image-tool
 npm ci
 npm run build
@@ -68,7 +68,7 @@ Installation is from source. There is no official npm release of this project ye
 
 The ten MCP tools are `generate_image`, `edit_image`, `upscale_image`, `export_web_assets`, `remove_background`, `compose_overlay`, `create_social_card`, `create_social_carousel`, `strip_image_metadata`, and `list_image_presets`. [Every parameter →](docs/TOOLS.md)
 
-## Choose an Image 2.5 model (current source)
+## Choose an Image 2.5 model
 
 Use `flare` for speed or `sunburst` for editing precision. Both require the explicitly selected, separately billed API backend and `OPENAI_API_KEY`:
 
@@ -79,7 +79,7 @@ node dist/cli.js --edit draft.png --instruction "make the paper blue" --backend 
 
 For MCP, pass `backend: "apikey"` and `image_model: "flare"` or `"sunburst"`. Quality can be `low`, `medium`, `high`, `xhigh`, `max`, or `auto`. The subscription backend still uses its server-selected renderer; explicit Image 2.5 choices fail before making a request. [Research, evidence and limits](docs/IMAGE-2.5-RESEARCH.md).
 
-These choices are in the current source, not the v0.4.0 release linked above. Rebuild and reconnect MCP after upgrading your checkout.
+Available in v0.5.0. Rebuild and reconnect MCP after upgrading your checkout.
 
 ## Keep a project's style consistent
 
