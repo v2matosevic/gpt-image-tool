@@ -4,11 +4,21 @@ This is the canonical release handoff. The v0.5.0 release documentation is [here
 
 ## v0.5.0, September 10, 2026
 
-The release candidate adds Flare/Sunburst selection for the explicit paid API backend, Sunburst as its default, and `xhigh`/`max` quality. CLI, MCP, profiles, sidecar replay and generation wrappers preserve the choice. Package, lockfile and MCP versions are aligned at `0.5.0`.
+The release adds Flare/Sunburst selection for the explicit paid API backend, Sunburst as its default, and `xhigh`/`max` quality. CLI, MCP, profiles, sidecar replay and generation wrappers preserve the choice. Package, lockfile and MCP versions are aligned at `0.5.0`.
 
 The implementation passed 97 offline tests and the real MCP smoke, including renderer schemas and refusal to switch billing. Subscription accepts an invalid renderer name in a direct negative-control probe, so named subscription selections are refused before provider requests. Paid API payloads are tested with mocks; no API key was available for live API verification. [Research and evidence](IMAGE-2.5-RESEARCH.md).
 
-Release preparation is in progress. The exact source, clean installation, GitHub CI, publication and downloaded archive checks will be recorded here after they complete. This source release does not publish an npm package or restart existing coding clients. The pre-existing local `.gitignore` edit is excluded.
+Published [v0.5.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.5.0) as Latest at 22:13:13 UTC on September 9 (00:13 local, September 10). It is neither a draft nor a prerelease. The annotated tag resolves to `7b1f7cc34f4ab6891f53eddef2d105bffc9496d4`; release target metadata names that exact commit. Later documentation commits do not change the tagged source.
+
+- [CI run 34410973428](https://github.com/v2matosevic/gpt-image-tool/actions/runs/34410973428) passed all four jobs: Node 22 on Windows, macOS and Linux, plus Node 24 on Linux. Each installed dependencies, ran 97 tests, checked the real MCP handshake/version/schema and verified preset catalog consistency.
+- A separate clean Windows extraction of the exact tagged source passed `npm ci`, all 97 tests, the MCP check and normalized preset catalog comparison. Installation reported zero vulnerabilities. During preparation, an earlier candidate exposed the high-severity `sharp` advisory GHSA-rgj7-g3m4-5g8c; the release updates `sharp` to 0.35.4 and repeats verification. [Upstream patch](https://github.com/lovell/sharp/releases/tag/v0.35.4).
+- The publication heuristic scanned 333 blobs across fetched, locally reachable refs and reported no findings. It is a heuristic, not proof of absence of every secret. All 83 relative Markdown file links resolved.
+- GitHub's source ZIP was downloaded: 5,941,667 bytes. All 107 file blobs matched the tag exactly. Downloaded ZIP SHA-256: `2ff21a516dd41a0fc9674f68b5366162d3b68c124e56b5736ba5a27cc4938cf2`.
+- The signed-out public README and release page were opened in a real browser. The release title, Latest label, exact commit, installation examples and API/subscription boundary were visible. Release screenshot inspected. The GitHub description now names Image 2.5 and the explicit API path.
+
+Confidence is high for these measured publication outcomes. Paid API live access remains unverified; the release does not claim selectable subscription renderers.
+
+Local verification artifacts are under `C:/Users/matos/AppData/Local/Temp/gpt-image-release-0.5.0-7b1f7cc`; release screenshot: ignored `gpt-image-v0.5.0-release.png`. The repository remains public and MIT licensed. GitHub supplies source ZIP/tar archives; no npm package or separate binary distribution was published. Local `dist` was rebuilt at 0.5.0, but existing clients were not restarted. The pre-existing `.gitignore` edit was excluded. No social posts or direct messages were sent.
 
 ## v0.4.0, September 7, 2026
 
