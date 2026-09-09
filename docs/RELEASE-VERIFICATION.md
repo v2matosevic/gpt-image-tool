@@ -20,6 +20,29 @@ Confidence is high for these measured publication outcomes. Paid API live access
 
 Local verification artifacts are under `C:/Users/matos/AppData/Local/Temp/gpt-image-release-0.5.0-7b1f7cc`; release screenshot: ignored `gpt-image-v0.5.0-release.png`. The repository remains public and MIT licensed. GitHub supplies source ZIP/tar archives; no npm package or separate binary distribution was published. Local `dist` was rebuilt at 0.5.0, but existing clients were not restarted. The pre-existing `.gitignore` edit was excluded. No social posts or direct messages were sent.
 
+### End-of-day wrap, September 10, 2026
+
+Marko accepted the published result and requested the final documentation wrap. The requested analysis, implementation and GitHub source release are complete. No further feature, release or installation work remains in this session.
+
+| Source | Purpose |
+| --- | --- |
+| `a6a57fa` | Flare/Sunburst API choices, quality controls, tests and research |
+| `83248f2` | Version 0.5.0 and installation/release documentation |
+| `7b1f7cc` | Sharp security patch; exact immutable v0.5.0 release source |
+| `6778f73` | Published release, CI and downloaded-archive evidence on main |
+
+Start a later session with this document, then [Image 2.5 research](IMAGE-2.5-RESEARCH.md), [model configuration](MODELS.md) and [upgrade instructions](SETUP.md#upgrade-an-existing-installation). The tagged code and release evidence above are the baseline; historical v0.4.0 and v0.3.0 sections do not describe today's defaults.
+
+Preserve these boundaries:
+
+- Flare/Sunburst selection works through the explicit paid API integration. Its request handling is tested; live paid account access, relative speed and editing quality are not verified. The successful subscription probes cannot establish either renderer's identity because an invalid name also returned an image.
+- Keep subscription routing automatic and keep billing selection explicit. The user did not authorize new paid test requests, npm publication or social announcements during this documentation wrap.
+- Local `dist` is built at 0.5.0. Existing client processes were not restarted; reconnect MCP when loading the new code into those clients. No global settings were changed in this release.
+- All image jobs, clean-install checks and browser verification from this lane have finished. No dev server or test process was left running. Verification artifacts are retained at the paths above; no cleanup of unrelated files was performed.
+- The only remaining working-tree modification at wrap start was the pre-existing `.gitignore` edit. It is outside this work and remains preserved, uncommitted and excluded from the tag.
+
+This wrap changes documentation and project memory only. It does not repeat completed test suites, spend image quota, move the release tag or create another release.
+
 ## v0.4.0, September 7, 2026
 
 The Astra/Image 2 update is documented in [MODELS.md](MODELS.md), the [changelog](../CHANGELOG.md), and the [upgrade instructions](SETUP.md#upgrade-an-existing-installation). Package, lockfile, and MCP handshake versions are aligned at `0.4.0`. The smoke check verifies that the running MCP server advertises the package version.
