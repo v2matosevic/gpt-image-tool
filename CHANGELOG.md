@@ -2,6 +2,8 @@
 
 ## 0.5.0, 2026-09-10
 
+- Update `sharp` to 0.35.4 or newer within its compatible patch range, addressing its bundled libheif security advisory (GHSA-rgj7-g3m4-5g8c).
+
 - Add GPT Image 2.5 Flare (speed) and Sunburst (editing precision) selection through CLI, MCP, profiles and sidecar replay; default the explicit API backend to Sunburst.
 - Support `xhigh` and `max` quality for Image 2.5 API calls, preserving lower quality and legacy model overrides.
 - Carry model/backend choices through edits, upscales, series, social plates, cutouts and generated web sources.
