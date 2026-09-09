@@ -16,6 +16,10 @@ returned in the `playbook` field of `list_image_presets`.
 Set `GPT_IMAGE_INLINE=1` (env, at registration) if you want the image returned inline so you can see
 it directly without a separate read.
 
+## Choosing the image model
+
+For the explicit `apikey` backend, use `image_model: "flare"` for faster drafts or `image_model: "sunburst"` for precise edits. Both are GPT Image 2.5; the API default is Sunburst. Keep model choice separate from quality: use `low` for drafts, compare `high`, `xhigh` or `max` for final assets. Do not switch a subscription user to paid API billing without their authorization. Subscription renderer selection is unverified and named selections are refused, even though direct experimental requests can return images.
+
 ## Choosing the right call
 
 | You want… | Use |

@@ -46,6 +46,7 @@ interface CliArgs {
   format?: ImageFormat;
   output?: string;
   backend?: string;
+  imageModel?: string;
   check?: boolean;
   presets?: boolean;
   presetsCategory?: string;
@@ -92,8 +93,9 @@ function printHelp(): void {
       "Options:",
       "  -o, --out <path>       Output file or directory (default ./generated-images/)",
       "  --size <size>          auto | 1024x1024 | 1536x1024 | 1024x1536 | 1024x1280 (4:5) | 1280x1024 (5:4) | 2048x2048 | 2048x1152 | 1152x2048",
-      "  -q, --quality <q>      auto | low | medium | high",
+      "  -q, --quality <q>      auto | low | medium | high | xhigh | max",
       "  -f, --format <fmt>     png | jpeg | webp",
+      "  --image-model <name>   flare (fast) | sunburst (precise) | auto | full ID; requires --backend apikey",
       "  -b, --backend <name>   subscription | apikey",
       "      --check            Validate the subscription session (no image quota spent) and exit",
       "  -h, --help             Show this help",
@@ -205,6 +207,10 @@ function parseArgs(argv: string[]): CliArgs {
       case "--backend":
         args.backend = argv[++i];
         break;
+      case "--image-model":
+        args.imageModel = argv[++i];
+        if (!args.imageModel || args.imageModel.startsWith("--")) throw new Error("--image-model requires flare, sunburst, auto, or a full model ID.");
+        break;
       case "--check":
         args.check = true;
         break;
@@ -227,6 +233,7 @@ if (args.check) {
   console.error(`routing   : ${models.routing} (subscription; renderer selected by OpenAI)`);
   console.error(`proof     : ${models.proof}`);
   console.error(`API image : ${models.image} (only when apikey backend is selected)`);
+  console.error("API choices: flare (fast) | sunburst (editing precision); --image-model selects per call");
   const s = await checkSession();
   console.error(`auth file : ${s.authFile}`);
   console.error(`account   : ${s.email ?? "(unknown)"}`);
@@ -262,7 +269,7 @@ if (args.stripMeta) {
 if (args.removeBg) {
   const outPath = args.output ?? cutoutPath(args.removeBg);
   if (args.useModel) {
-    await modelAssistedCutout(args.removeBg, outPath, args.backend);
+    await modelAssistedCutout(args.removeBg, outPath, args.backend, args.imageModel);
     console.error("⚠ model-assisted cutout regenerates the subject — verify fine detail against the original.");
   } else {
     await removeBackgroundFile(args.removeBg, outPath);
@@ -283,6 +290,9 @@ if (args.web) {
     const g = await generateImage({
       subject: args.subject,
       preset: args.preset,
+      backend: args.backend,
+      imageModel: args.imageModel,
+      quality: args.quality,
       transparent: args.transparent ?? (kind === "favicon" || kind === "appicon"),
       size: kind === "og" ? "1536x1024" : kind === "hero" ? "2048x1152" : "1024x1024",
     });
@@ -306,6 +316,7 @@ try {
       format: args.format,
       outputPath: args.output,
       backend: args.backend,
+      imageModel: args.imageModel,
     });
   } else if (args.edit) {
     out = await editImage({
@@ -324,6 +335,7 @@ try {
       format: args.format,
       outputPath: args.output,
       backend: args.backend,
+      imageModel: args.imageModel,
     });
   } else {
     if (!args.prompt && !args.subject && !args.from) {
@@ -348,6 +360,7 @@ try {
       format: args.format,
       outputPath: args.output,
       backend: args.backend,
+      imageModel: args.imageModel,
     });
   }
   for (const p of [out.path, ...(out.variants ?? [])]) console.log(p);

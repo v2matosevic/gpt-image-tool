@@ -17,6 +17,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { IMAGE_MODEL_CHOICES } from "./models.js";
 import { editImage, generateImage, modelAssistedCutout, upscaleImage, type GenerateOutput } from "./generate.js";
 import { catalog, MODIFIER_IDS, PRESET_IDS } from "./presets/index.js";
 import { exportWebAssets } from "./webassets.js";
@@ -42,8 +43,9 @@ const sizeSchema = z.enum([
   "2048x1152",
   "1152x2048",
 ]);
-const qualitySchema = z.enum(["auto", "low", "medium", "high"]);
+const qualitySchema = z.enum(["auto", "low", "medium", "high", "xhigh", "max"]);
 const formatSchema = z.enum(["png", "jpeg", "webp"]);
+const imageModelSchema = z.enum(IMAGE_MODEL_CHOICES).describe("API image renderer: flare for speed, sunburst for editing precision. Requires explicit backend apikey (separate billing); subscription only supports auto. Separate from Astra routing.");
 const backendSchema = z.enum(["subscription", "apikey"]);
 
 // Per-dimension overrides. Any field left out falls back to the preset's value.
@@ -100,6 +102,8 @@ function ok(out: GenerateOutput, verb: string) {
   const text =
     `Image ${verb} via the ${out.backend} backend and ${pathLine}\n\n` +
     `Open/view to see (${out.bytes} bytes, ${out.format}${out.background === "transparent" ? ", transparent" : ""}).` +
+    (out.imageModel ? `\nRequested image model: ${out.imageModel}` : "") +
+    (out.reportedImageModel ? `\nProvider-reported image model: ${out.reportedImageModel}` : "") +
     (out.preset ? `\nPreset: ${out.preset}${out.modifiers.length ? ` + [${out.modifiers.join(", ")}]` : ""}` : "") +
     (out.platform ? `\nPlatform: ${out.platform} — ${out.platformNote}` : "") +
     (out.palette?.length ? `\nBrand palette (auto-extracted from style refs): ${out.palette.join(", ")}` : "") +
@@ -171,6 +175,7 @@ server.registerTool(
       background: z.enum(["auto", "transparent", "opaque"]).optional().describe("Alpha handling. 'transparent' forces png."),
       output_path: z.string().optional().describe("Absolute file path (or a directory ending in /) to save to. Defaults to ./generated-images/."),
       backend: backendSchema.optional(),
+      image_model: imageModelSchema.optional(),
     },
   },
   async (a) => {
@@ -197,6 +202,7 @@ server.registerTool(
         format: a.format,
         outputPath: a.output_path,
         backend: a.backend,
+        imageModel: a.image_model,
       });
       return ok(out, "generated");
     } catch (e) {
@@ -239,6 +245,7 @@ server.registerTool(
       format: formatSchema.optional(),
       output_path: z.string().optional(),
       backend: backendSchema.optional(),
+      image_model: imageModelSchema.optional(),
     },
   },
   async (a) => {
@@ -259,6 +266,7 @@ server.registerTool(
         format: a.format,
         outputPath: a.output_path,
         backend: a.backend,
+        imageModel: a.image_model,
       });
       return ok(out, "edited");
     } catch (e) {
@@ -285,6 +293,7 @@ server.registerTool(
       format: formatSchema.optional().describe("Default png."),
       output_path: z.string().optional(),
       backend: backendSchema.optional(),
+      image_model: imageModelSchema.optional(),
     },
   },
   async (a) => {
@@ -297,6 +306,7 @@ server.registerTool(
         format: a.format,
         outputPath: a.output_path,
         backend: a.backend,
+        imageModel: a.image_model,
       });
       return ok(out, "upscaled");
     } catch (e) {
@@ -317,6 +327,9 @@ server.registerTool(
       "passing `subject` (+ optional preset/transparent). PNG output is dependency-free; jpeg/webp " +
       "for og/hero need `sharp` installed (falls back to PNG otherwise).",
     inputSchema: {
+      backend: backendSchema.optional(),
+      image_model: imageModelSchema.optional(),
+      quality: qualitySchema.optional(),
       kind: z.enum(["favicon", "og", "hero", "appicon"]).describe("Which deliverable set to produce."),
       image_path: z.string().optional().describe("Existing source image to slice. Omit to generate one from `subject`."),
       subject: z.string().optional().describe("If no image_path: what to depict for the generated source."),
@@ -334,6 +347,9 @@ server.registerTool(
       if (!sourcePath) {
         if (!a.subject?.trim()) throw new Error("Provide either `image_path` or `subject` to generate the source.");
         const gen = await generateImage({
+          backend: a.backend,
+          imageModel: a.image_model,
+          quality: a.quality,
           subject: a.subject,
           preset: a.preset,
           transparent: a.transparent ?? (a.kind === "favicon" || a.kind === "appicon"),
@@ -368,12 +384,13 @@ server.registerTool(
       "Cut out the background of ANY image and save a transparent PNG. The default local keyer " +
       "samples the corner color and flood-fills from the edges — fast, free, best on clean/solid " +
       "backgrounds. For busy/photographic backgrounds set `use_model: true`: the model re-renders " +
-      "the subject on a chroma field (one subscription generation) and the keyer cuts that — real " +
-      "matting quality at zero API cost. PNG input is dependency-free; jpeg/webp input needs `sharp`.",
+      "the subject (one generation; uses the selected backend and its billing). PNG input is dependency-free; jpeg/webp input needs `sharp`.",
     inputSchema: {
       image_path: z.string().describe("Image to cut out."),
       output_path: z.string().optional().describe("Where to save (default: <image>-cutout.png)."),
       tolerance: z.number().int().min(0).max(180).optional().describe("Local keyer only: color tolerance vs the sampled background (default 28). Raise for soft/anti-aliased edges."),
+      backend: backendSchema.optional(),
+      image_model: imageModelSchema.optional(),
       use_model: z
         .boolean()
         .optional()
@@ -384,7 +401,7 @@ server.registerTool(
     try {
       const out = a.output_path ?? cutoutPath(a.image_path);
       if (a.use_model) {
-        const res = await modelAssistedCutout(a.image_path, out);
+        const res = await modelAssistedCutout(a.image_path, out, a.backend, a.image_model);
         const result = ok(res, "cut out (model-assisted)");
         result.content[0].text +=
           "\n⚠ Model-assisted cutout REGENERATES the subject (it is not pixel-preserving) — " +
@@ -530,6 +547,7 @@ server.registerTool(
       quality: qualitySchema.optional().describe("Plate quality (default high)."),
       output_path: z.string().optional(),
       backend: backendSchema.optional(),
+      image_model: imageModelSchema.optional(),
     },
   },
   async (a) => {
@@ -553,6 +571,7 @@ server.registerTool(
         quality: a.quality,
         outputPath: a.output_path,
         backend: a.backend,
+        imageModel: a.image_model,
       });
       const text =
         `Social card created → ${res.path} (${res.width}x${res.height})\n` +
@@ -604,6 +623,7 @@ server.registerTool(
       output_dir: z.string().optional().describe("Directory for the slides (files land as <base_name>-1.png, -2.png, …)."),
       base_name: z.string().optional().describe("Filename stem (default 'carousel')."),
       backend: backendSchema.optional(),
+      image_model: imageModelSchema.optional(),
     },
   },
   async (a) => {
@@ -626,6 +646,7 @@ server.registerTool(
         outputDir: a.output_dir,
         baseName: a.base_name,
         backend: a.backend,
+        imageModel: a.image_model,
       });
       const list = res.slides.map((s, i) => `  ${i + 1}. ${s.path}  (plate: ${s.platePath})`).join("\n");
       const text =

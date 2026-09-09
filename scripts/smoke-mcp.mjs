@@ -13,6 +13,15 @@ try {
   const { tools } = await client.listTools();
   const expected = ['generate_image', 'edit_image', 'upscale_image', 'export_web_assets', 'remove_background', 'compose_overlay', 'create_social_card', 'create_social_carousel', 'strip_image_metadata', 'list_image_presets'];
   assert.deepEqual(tools.map(t => t.name).sort(), expected.sort());
+  for (const name of ["generate_image", "edit_image", "upscale_image", "export_web_assets", "remove_background", "create_social_card", "create_social_carousel"]) {
+    const schema = tools.find(t => t.name === name).inputSchema.properties;
+    assert.ok(schema.image_model.enum.includes("flare"), `${name} exposes Flare`);
+    assert.ok(schema.image_model.enum.includes("sunburst"), `${name} exposes Sunburst`);
+    if (schema.quality) assert.ok(schema.quality.enum.includes("max"), `${name} exposes max quality`);
+  }
+  const refused = await client.callTool({ name: "generate_image", arguments: { prompt: "offline selection check", image_model: "flare", backend: "subscription" } });
+  assert.ok(refused.isError);
+  assert.match(refused.content[0].text, /does not reliably enforce/);
   const result = await client.callTool({ name: 'list_image_presets', arguments: { category: 'webdev' } });
   assert.ok(!result.isError);
   const catalog = JSON.parse(result.content.find(c => c.type === 'text').text);

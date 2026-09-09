@@ -3,6 +3,16 @@
 Complete reference for every tool, flag, and setting. See [PRESETS.md](./PRESETS.md) for the preset
 catalog and [ARCHITECTURE.md](./ARCHITECTURE.md) for internals.
 
+## Model selection (current source, after v0.4.0)
+
+All seven tools that can generate images accept `image_model`: `auto`, `flare`, `sunburst`, `gpt-image-2.5-flare`, or `gpt-image-2.5-sunburst`. For `export_web_assets` this applies only when generating the source; for `remove_background` only with `use_model: true`. Both also accept an explicit `backend`; generated web sources accept `quality`.
+
+Use `backend: "apikey"` to select a renderer, with separate API billing and `OPENAI_API_KEY`. Flare prioritizes speed; Sunburst prioritizes editing precision. Subscription only supports `auto`; a named renderer is rejected before requests. No fallback switches billing. `auto` uses the built-in API default (Sunburst) or the subscription server's selection; omitting the field inherits project/sidecar/environment defaults.
+
+CLI equivalents: `--backend apikey --image-model flare` or `--image-model sunburst`. CLI/profile/environment values also accept full IDs, including dated snapshots. Profiles use camelCase `imageModel`. Explicit call values win. Sidecars store the resolved requested ID for replay. `GPT_IMAGE_MODEL` still selects the subscription's mainline director; never put an Image model ID there.
+
+`xhigh` and `max` are available for GPT Image 2.5 API calls. Older known GPT Image models and unselected subscription renderers reject these quality levels locally. Existing size choices remain unchanged.
+
 ## MCP tools
 
 The server exposes ten tools. All image-producing tools **save to disk and return the path(s)**.
@@ -26,7 +36,7 @@ Text-to-image via the preset compiler (or a raw prompt).
 | `series` | int 1–10 | N **consistent** images (first reused as a style ref for the rest). |
 | `from_image` | string | Reload a prior image's sidecar as the base, then apply args on top. |
 | `size` | enum | `auto`, `1024x1024`, `1536x1024`, `1024x1536`, `1024x1280`, `1280x1024`, `2048x2048`, `2048x1152`, `1152x2048`. Upstream support varies; inspect actual output dimensions. |
-| `quality` | enum | `auto` \| `low` \| `medium` \| `high`. |
+| `quality` | enum | `auto` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` (last two: Image 2.5 API). |
 | `format` | enum | `png` \| `jpeg` \| `webp`. |
 | `output_path` | string | File, or a directory ending in `/`. Default `./generated-images/`. |
 | `backend` | enum | `subscription` (default) \| `apikey`. |
@@ -211,7 +221,7 @@ with `GPT_IMAGE_NO_SIDECAR=1`.
 | var | default | purpose |
 |---|---|---|
 | `GPT_IMAGE_MODEL` | `gpt-6-astra` | Subscription routing model id. Availability depends on the account and upstream endpoint. |
-| `GPT_IMAGE_API_MODEL` | `gpt-image-2` | Model for the `apikey` backend. |
+| `GPT_IMAGE_API_MODEL` | `gpt-image-2.5-sunburst` | API renderer; `flare` / `sunburst` aliases or a full model ID. Explicit `image_model` wins. |
 | `GPT_IMAGE_BACKEND` | `subscription` | Default backend. |
 | `OPENAI_API_KEY` | — | Required only for `--backend apikey`. |
 | `GPT_IMAGE_AUTH_FILE` | `~/.codex/auth.json` | Pin to a specific account's token file. |

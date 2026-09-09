@@ -41,6 +41,7 @@ export interface BrandProfile {
   /** Default directory to drop generated assets into. */
   outputDir?: string;
   backend?: string;
+  imageModel?: string;
 }
 
 function findUp(filename: string, start: string): string | null {

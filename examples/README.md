@@ -4,7 +4,7 @@ Drop a `.gptimage.json` at a project's root and **every** `generate_image` in
 that project inherits it as defaults — brand preset, palette, a logo anchor,
 output dir, size/format. Agents then only pass `subject`; assets stay on-brand
 without re-specifying the look each call. Per-call args always override the
-profile. (Edits/upscales inherit only `outputDir` + `backend`.)
+profile. (Edits/upscales inherit only `outputDir` + `backend` + `imageModel`.)
 
 ## Use it
 
@@ -29,10 +29,11 @@ right project's profile automatically. Override with `GPT_IMAGE_PROFILE=<path>`.
 | `style` | `{ "color": "...", "mood": "..." }` | Default style dimensions: `medium, composition, subjectDetail, setting, lighting, camera, color, mood, detail`, plus `avoid: string[]` and `text`. |
 | `styleReference` | `["./brand/logo.png"]` | **Strongest anchor** — every generation matches this image's look. Path resolves relative to the profile file. |
 | `size` | `"1536x1024"` | Default canvas (`auto`, `1024x1024`, `1536x1024`, `1024x1536`, `2048x2048`, `2048x1152`, `1152x2048`). |
-| `quality` | `"high"` | `auto` \| `low` \| `medium` \| `high`. |
+| `quality` | `"high"` | `auto` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` (last two: Image 2.5 API). |
 | `format` | `"png"` | `png` \| `jpeg` \| `webp`. |
 | `background` | `"auto"` | `auto` \| `transparent` \| `opaque`. |
 | `outputDir` | `"./public/img"` | Where generated assets land. |
+| `imageModel` | `"flare"` | `flare` for speed, `sunburst` for editing precision, `auto`, or full API model ID. Named models require `backend: "apikey"` and separate API billing. |
 | `backend` | `"subscription"` | `subscription` (Codex quota, default) \| `apikey`. |
 
 Full reference: [../docs/TOOLS.md](../docs/TOOLS.md) · preset catalog:

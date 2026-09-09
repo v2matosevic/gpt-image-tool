@@ -1,20 +1,20 @@
 # Model configuration
 
-Checked against official OpenAI documentation on 2026-09-07.
+Checked against official OpenAI documentation on 2026-09-09 UTC. These Image 2.5 changes are in current source, after released v0.4.0.
 
 | Work | Default | Override |
 | --- | --- | --- |
 | Subscription image tool routing | `gpt-6-astra` | `GPT_IMAGE_MODEL` |
 | Subscription vision proofreading | `gpt-6-astra` | `GPT_IMAGE_PROOF_MODEL` |
-| Explicit paid Images API generation and edits | `gpt-image-2` | `GPT_IMAGE_API_MODEL` |
+| Explicit paid Images API generation and edits | `gpt-image-2.5-sunburst` | `GPT_IMAGE_API_MODEL`, profile `imageModel`, per-call `image_model` / `--image-model` |
 
-Astra directs the subscription image tool. The undocumented subscription endpoint selects its underlying image renderer; this project cannot certify or pin that renderer's version. Selecting Astra is not evidence of a particular GPT Image version. API billing is used only when the caller explicitly selects `apikey`.
+Use `flare` (`gpt-image-2.5-flare`) for speed and `sunburst` (`gpt-image-2.5-sunburst`) for editing precision. Both support quality through `xhigh` and `max`. [Official Flare page](https://developers.openai.com/api/docs/models/gpt-image-2.5-flare) · [Official Sunburst page](https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst).
 
-The [official image guide](https://developers.openai.com/api/docs/guides/image-generation) names GPT Image 2 as the latest image model and uses Astra in Responses API examples. The [Astra model page](https://developers.openai.com/api/docs/models/gpt-6-astra) lists image generation tool support. No official GPT Image 2.5 model was established by this check, so no guessed ID is sent.
+Both selections require the explicit `apikey` backend and separate API billing. Subscription keeps its server-selected renderer. A live subscription negative control returned an image for a nonexistent tool model, so a successful request cannot certify renderer selection. Named subscription selections are refused before requests, with no automatic billing change. Astra's name does not identify the renderer. [Full analysis, live evidence and implementation verification](IMAGE-2.5-RESEARCH.md).
 
-GPT Image 2 supports transparent backgrounds in preview on the documented API, using PNG or WebP. Subscription transparency retains the existing local chroma workflow, whose behavior has been tested on that separate endpoint. API edits now explicitly send `output_format`, matching generation requests.
+The API uses native PNG/WebP transparency; subscription keeps the existing chroma workflow. API edits send the requested output format. Explicit legacy API model overrides are preserved; `xhigh`/`max` are rejected for known older GPT Image models and unknown subscription renderers.
 
-Run `node dist/cli.js --check` to see the effective configuration and validate the local session. It does not generate an image or prove access to the selected model. Explicit model overrides are preserved; errors do not silently downgrade the model or switch billing backends.
+Run `node dist/cli.js --check` to see configured models and validate the subscription session. It does not generate an image or establish access to either API model. Current verification: 97 offline tests and the real MCP smoke passed; paid API generation has not been run. Rebuild and reconnect existing MCP processes to load the changes.
 
 ## MCP startup
 
@@ -22,7 +22,7 @@ Use `startup_timeout_sec = 120` and `tool_timeout_sec = 600` in the Codex image 
 
 On Olympus, the reported startup failures affected both `gpt-image` and `agent-coord`. Direct checks succeeded before the configuration change: image handshake/catalog in roughly 2 seconds overall, coordination handshake in 8.6 seconds. This establishes that both entry points work, but does not establish the cause of the earlier 30-second failures. Shared-disk contention is a plausible contributor, not a proven cause. Both local server startup limits were raised to 120 seconds; the image call limit was raised from 180 to 600 seconds. New connections are required to load these settings.
 
-## Verification
+## Historical verification, 2026-09-07 (v0.4.0)
 
 - `npm test`: 90 tests passed, including model overrides, forced subscription tool selection, reference/mask preservation, and API create/edit model and format payloads.
 - `npm run smoke:mcp`: real stdio handshake, ten tools listed, preset catalog called successfully without credentials.

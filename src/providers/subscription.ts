@@ -8,7 +8,7 @@ import type { SubscriptionCreds as Creds } from "../auth.js";
 import { parseSse } from "../sse.js";
 import { MAX_RETRIES, backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "../retry.js";
 import type { GenerateInput, GenerateResult, ImageProvider } from "./types.js";
-import { configuredModels } from "../models.js";
+import { configuredModels, resolveImageModel, validateImageQuality } from "../models.js";
 
 const TOTAL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_TIMEOUT_MS) || 300_000;
 const STALL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_STALL_MS) || 120_000;
@@ -26,6 +26,8 @@ function buildUserText(input: GenerateInput): string {
 }
 
 export function buildSubscriptionBody(input: GenerateInput, model = configuredModels().routing) {
+  const renderer = resolveImageModel(input.imageModel, "subscription");
+  validateImageQuality(input.quality, renderer);
   const imageTool: Record<string, unknown> = { type: "image_generation", output_format: input.format };
   if (input.size !== "auto") imageTool.size = input.size;
   if (input.quality !== "auto") imageTool.quality = input.quality; // backend may ignore/downgrade
@@ -68,12 +70,14 @@ function doRequest(creds: Creds, version: string, body: unknown, signal: AbortSi
 async function consumeStream(
   body: ReadableStream<Uint8Array>,
   onChunk: () => void,
-): Promise<{ b64: string | null; revisedPrompt?: string }> {
+): Promise<{ b64: string | null; revisedPrompt?: string; reportedImageModel?: string }> {
   let b64: string | null = null;
   let revisedPrompt: string | undefined;
+  let reportedImageModel: string | undefined;
   const harvest = (item: any) => {
     if (item?.type === "image_generation_call" && typeof item.result === "string") {
       b64 ??= item.result;
+      if (typeof item.model === "string") reportedImageModel ??= item.model;
       if (!revisedPrompt && typeof item.revised_prompt === "string") revisedPrompt = item.revised_prompt;
     }
   };
@@ -89,7 +93,7 @@ async function consumeStream(
       throw new Error(`subscription backend stream error: ${msg}`);
     }
   }
-  return { b64, revisedPrompt };
+  return { b64, revisedPrompt, reportedImageModel };
 }
 
 async function safeText(res: Response): Promise<string> {
@@ -144,19 +148,19 @@ export class SubscriptionProvider implements ImageProvider {
           const detail = await safeText(res);
           throw new Error(
             `subscription image request failed: HTTP ${res.status}${detail ? ` — ${detail}` : ""}` +
-              (res.status === 400 ? ` (check model access and supported parameters; requested routing model: ${body.model}. GPT_IMAGE_MODEL can explicitly select another available model)` : "") +
+              (res.status === 400 ? ` (check model access and supported parameters; requested routing model: ${body.model}, image model: ${body.tools[0].model ?? "auto"}. GPT_IMAGE_MODEL can explicitly select another available model)` : "") +
               (res.status === 429 ? ` (rate limited — your ChatGPT/Codex quota; retried ${MAX_RETRIES}×, still throttled. Wait a few minutes)` : ""),
           );
         }
         resetStall();
         streaming = true;
-        const { b64, revisedPrompt } = await consumeStream(res.body, resetStall);
+        const { b64, revisedPrompt, reportedImageModel } = await consumeStream(res.body, resetStall);
         if (!b64) {
           throw new Error(
             "subscription backend returned no image (the model may have replied with text). Try a more explicit prompt.",
           );
         }
-        return { bytes: Buffer.from(b64, "base64"), format: input.format, revisedPrompt };
+        return { bytes: Buffer.from(b64, "base64"), format: input.format, revisedPrompt, reportedImageModel };
       } catch (e) {
         if (controller.signal.aborted) {
           lastErr = new Error(

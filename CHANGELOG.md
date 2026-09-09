@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add GPT Image 2.5 Flare (speed) and Sunburst (editing precision) selection through CLI, MCP, profiles and sidecar replay; default the explicit API backend to Sunburst.
+- Support `xhigh` and `max` quality for Image 2.5 API calls, preserving lower quality and legacy model overrides.
+- Carry model/backend choices through edits, upscales, series, social plates, cutouts and generated web sources.
+- Reject named subscription renderer selections before requests: a live negative control accepted a nonexistent model, so returned images cannot establish model selection. Preserve automatic subscription routing and never switch billing backends.
+
 ## 0.4.0, 2026-09-07
 
 - Default subscription routing and image proofreading to GPT-6 Astra; default the explicit paid Images API backend to GPT Image 2. Preserve environment overrides and keep backend selection explicit.

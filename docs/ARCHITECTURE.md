@@ -42,6 +42,14 @@ inline copy too.
 | `imageinfo.ts` | Dependency-free PNG/JPEG/WebP dimension reader. |
 | `mcp.ts` / `cli.ts` | The two entry points (MCP stdio server / CLI). |
 
+## Image renderer selection
+
+`src/models.ts` resolves `imageModel` separately from the mainline routing/proof models. CLI `--image-model` and MCP `image_model` flow through project defaults, sidecar replay, generation, editing, upscaling, series, social plates and generated web sources. The API provider sends the resolved ID in both generation JSON and edit multipart bodies. Sunburst is its default; Flare is selectable per call or with `GPT_IMAGE_API_MODEL`.
+
+Explicit call values override profile values; replay uses its recorded renderer unless overridden. Edits/upscales inherit the profile renderer as an operational setting, without inheriting generation style. Sidecar `imageModel` is the requested renderer, not independent provider confirmation. Unknown subscription renderers are recorded as `auto`.
+
+A live negative control returned an image even for a nonexistent subscription tool model. Therefore explicit subscription renderer selection is rejected before requests; no backend or model fallback is performed. The documented paid API remains the model-selection path. See [research](IMAGE-2.5-RESEARCH.md).
+
 ## Auth & the subscription backend
 
 `codex login` stores an OAuth access+refresh token at `~/.codex/auth.json`. This tool **reuses that
@@ -83,7 +91,7 @@ that green out locally. `bgremove.ts` is a small dependency-free PNG codec (infl
 scanline filters, re-encode RGBA) plus a keyer. With a *known* key color it removes matching pixels
 **globally** (so chroma trapped inside 3D holes / line-icon interiors goes too) and de-spills green
 edges; with an unknown background it flood-fills from the image edges (preserving bg-colored regions
-enclosed by the subject). The paid `apikey` backend uses `gpt-image-2`'s native transparency instead.
+enclosed by the subject). The paid `apikey` backend uses the selected GPT Image 2.5 model's native transparency instead.
 
 ## The web-asset pipeline
 

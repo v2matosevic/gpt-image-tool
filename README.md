@@ -68,6 +68,19 @@ Installation is from source. There is no official npm release of this project ye
 
 The ten MCP tools are `generate_image`, `edit_image`, `upscale_image`, `export_web_assets`, `remove_background`, `compose_overlay`, `create_social_card`, `create_social_carousel`, `strip_image_metadata`, and `list_image_presets`. [Every parameter →](docs/TOOLS.md)
 
+## Choose an Image 2.5 model (current source)
+
+Use `flare` for speed or `sunburst` for editing precision. Both require the explicitly selected, separately billed API backend and `OPENAI_API_KEY`:
+
+```sh
+node dist/cli.js "a folded orange paper bird" --backend apikey --image-model flare -o draft.png
+node dist/cli.js --edit draft.png --instruction "make the paper blue" --backend apikey --image-model sunburst -o final.png
+```
+
+For MCP, pass `backend: "apikey"` and `image_model: "flare"` or `"sunburst"`. Quality can be `low`, `medium`, `high`, `xhigh`, `max`, or `auto`. The subscription backend still uses its server-selected renderer; explicit Image 2.5 choices fail before making a request. [Research, evidence and limits](docs/IMAGE-2.5-RESEARCH.md).
+
+These choices are in the current source, not the v0.4.0 release linked above. Rebuild and reconnect MCP after upgrading your checkout.
+
 ## Keep a project's style consistent
 
 Add a strict-JSON `.gptimage.json` to your project:
@@ -87,7 +100,7 @@ Use an absolute `output_path` in MCP calls so the tool can discover the intended
 
 ## Know the limits
 
-The subscription backend uses **GPT-6 Astra** to direct OpenAI's image generation tool and proofread results. OpenAI selects the underlying image renderer on that endpoint. The explicitly selected API backend defaults to **GPT Image 2**. Environment overrides remain available. [Current models and verification](docs/MODELS.md).
+The subscription backend uses **GPT-6 Astra** to direct OpenAI's image generation tool and proofread results. OpenAI selects the underlying image renderer on that endpoint. The explicitly selected API backend defaults to **GPT Image 2.5 Sunburst**, with **Flare** available for faster generation. Environment overrides remain available. [Current models and verification](docs/MODELS.md).
 
 - Subscription generation shares your account's usage. Batches and proof retries consume additional requests. The API backend is only used when selected; it has separate billing.
 - This server reads and can refresh a local credential file. Treat it like other software with account access. It is designed for a trusted local agent, not as a public hosted service. [Data flow and security](SECURITY.md).

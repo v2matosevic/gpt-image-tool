@@ -4,6 +4,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
+import { resolveImageModel, validateImageQuality } from "./models.js";
 import { getProvider } from "./providers/index.js";
 import type { GenerateInput, ImageBackground, ImageFormat, ImageProvider, ImageQuality, ImageSize, InputImage } from "./providers/types.js";
 import { build, type PromptOverrides } from "./presets/index.js";
@@ -68,6 +69,7 @@ export function overlay(base: StyleInput, top: StyleInput): StyleInput {
     series: top.series ?? base.series,
     outputPath: top.outputPath ?? base.outputPath,
     backend: top.backend ?? base.backend,
+    imageModel: top.imageModel ?? base.imageModel,
   };
 }
 
@@ -87,12 +89,14 @@ function profileAsBase(p: BrandProfile, baseDir: string): StyleInput {
     format: p.format,
     background: p.background,
     backend: p.backend,
+    imageModel: p.imageModel,
     // A directory default — trailing sep makes resolveOutputPath drop a timestamped file in it.
     outputPath: dir ? (dir.endsWith(sep) ? dir : dir + sep) : undefined,
   };
 }
 
 interface Sidecar {
+  reportedImageModel?: string;
   tool: string;
   operation: "generate" | "edit" | "upscale";
   subject?: string;
@@ -106,6 +110,7 @@ interface Sidecar {
   format?: ImageFormat;
   background?: ImageBackground;
   backend?: string;
+  imageModel?: string;
   compiledPrompt: string;
   revisedPrompt?: string;
   styleReference?: string[];
@@ -146,6 +151,7 @@ function sidecarFromOpts(op: Sidecar["operation"], opts: StyleInput, meta: SaveM
     format: opts.format,
     background: opts.background ?? (opts.transparent ? "transparent" : undefined),
     backend: opts.backend,
+    imageModel: opts.imageModel,
     compiledPrompt: meta.prompt,
     styleReference: opts.styleReference,
     palette: meta.palette,
@@ -174,6 +180,7 @@ async function sidecarAsBase(imagePath: string): Promise<StyleInput> {
     background: s.background,
     styleReference: s.styleReference,
     backend: s.backend,
+    imageModel: s.imageModel,
   };
 }
 
@@ -192,7 +199,7 @@ async function resolveOpts(opts: StyleInput, applyProfileStyle = true): Promise<
   const loaded = loadProfile(profileStartDir(opts.outputPath));
   if (!loaded) return opts;
   const full = profileAsBase(loaded.profile, dirname(loaded.path));
-  const base: StyleInput = applyProfileStyle ? full : { outputPath: full.outputPath, backend: full.backend };
+  const base: StyleInput = applyProfileStyle ? full : { outputPath: full.outputPath, backend: full.backend, imageModel: full.imageModel };
   return overlay(base, opts);
 }
 
@@ -226,6 +233,7 @@ export interface StyleInput {
   fromImage?: string;
   outputPath?: string;
   backend?: string;
+  imageModel?: string;
 }
 
 export interface GenerateOutput {
@@ -234,6 +242,8 @@ export interface GenerateOutput {
   format: ImageFormat;
   background: ImageBackground;
   backend: string;
+  imageModel?: string;
+  reportedImageModel?: string;
   prompt: string;
   preset?: string;
   modifiers: string[];
@@ -333,6 +343,8 @@ async function runAndSave(
   meta: SaveMeta,
 ): Promise<GenerateOutput> {
   const provider = getProvider(backend);
+  const requestedModel = resolveImageModel(input.imageModel, provider.name);
+  validateImageQuality(input.quality, requestedModel);
   const count = Math.max(1, Math.min(10, meta.count ?? 1));
   const basePath = resolveOutputPath(outputPath, input.format, prefix);
   await mkdir(dirname(basePath), { recursive: true });
@@ -383,6 +395,8 @@ async function runAndSave(
       if (meta.refs) sc.inputImages = meta.refs;
       if (meta.mask) sc.maskPath = meta.mask;
       sc.backend = provider.name;
+      sc.imageModel = requestedModel ?? "auto";
+      sc.reportedImageModel = result.reportedImageModel;
       await writeFile(`${outPath}.json`, JSON.stringify(sc, null, 2)).catch(() => {});
     }
     saved.push({ path: outPath, result, verdict });
@@ -395,6 +409,8 @@ async function runAndSave(
     format: primary.result.format,
     background: input.background ?? "auto",
     backend: provider.name,
+    imageModel: requestedModel,
+    reportedImageModel: primary.result.reportedImageModel,
     prompt: meta.prompt,
     preset: meta.preset,
     modifiers: meta.modifiers,
@@ -581,6 +597,7 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
   }
 
   const input: GenerateInput = {
+    imageModel: opts.imageModel,
     prompt,
     size: composed.size,
     quality: composed.quality,
@@ -695,6 +712,7 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
   if (chroma.promptSuffix) prompt += chroma.promptSuffix;
 
   const input: GenerateInput = {
+    imageModel: opts.imageModel,
     prompt,
     size: composed.size,
     quality: composed.quality,
@@ -733,7 +751,7 @@ const CUTOUT_INSTRUCTION =
  * chroma field via an edit, then the existing keyer cuts it out. NOTE: this is a REGENERATION, not
  * a pixel-preserving cutout — fine text/logos on the subject may drift; the result note says so.
  */
-export function modelAssistedCutout(imagePath: string, outputPath?: string, backend?: string): Promise<GenerateOutput> {
+export function modelAssistedCutout(imagePath: string, outputPath?: string, backend?: string, imageModel?: string): Promise<GenerateOutput> {
   return editImage({
     imagePaths: [imagePath],
     instruction: CUTOUT_INSTRUCTION,
@@ -741,6 +759,7 @@ export function modelAssistedCutout(imagePath: string, outputPath?: string, back
     format: "png",
     outputPath,
     backend,
+    imageModel,
     proof: false,
   });
 }
@@ -754,6 +773,7 @@ export interface UpscaleInput {
   format?: ImageFormat;
   outputPath?: string;
   backend?: string;
+  imageModel?: string;
 }
 
 const UPSCALE_PROMPT =
@@ -769,10 +789,12 @@ export async function upscaleImage(opts: UpscaleInput): Promise<GenerateOutput> 
   const loaded = loadProfile(profileStartDir(opts.outputPath) ?? dirname(resolve(process.cwd(), opts.imagePath)));
   const outputPath = opts.outputPath ?? (loaded ? profileAsBase(loaded.profile, dirname(loaded.path)).outputPath : undefined);
   const backend = opts.backend ?? loaded?.profile.backend;
+  opts = { ...opts, imageModel: opts.imageModel ?? loaded?.profile.imageModel };
 
   const { image, dim } = await readInputImage(opts.imagePath);
   const prompt = opts.guidance?.trim() ? `${UPSCALE_PROMPT} ${opts.guidance.trim()}` : UPSCALE_PROMPT;
   const input: GenerateInput = {
+    imageModel: opts.imageModel,
     prompt,
     size: opts.size ?? upscaleSizeForAspect(dim),
     quality: opts.quality ?? "high",
@@ -784,7 +806,7 @@ export async function upscaleImage(opts: UpscaleInput): Promise<GenerateOutput> 
     prompt,
     modifiers: [],
     operation: "upscale",
-    opts: { size: opts.size, quality: opts.quality, format: opts.format, backend },
+    opts: { size: opts.size, quality: opts.quality, format: opts.format, backend, imageModel: opts.imageModel },
     refs: [opts.imagePath],
   });
 }

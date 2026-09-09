@@ -9,10 +9,12 @@ export type ImageSize =
   | "2048x1152" // 2K landscape (~16:9)
   | "1152x2048"; // 2K portrait
 export type ImageFormat = "png" | "jpeg" | "webp";
-export type ImageQuality = "auto" | "low" | "medium" | "high";
+export type ImageQuality = "auto" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ImageBackground = "auto" | "transparent" | "opaque";
 
 export interface GenerateInput {
+  /** Image renderer, separate from the mainline routing model. */
+  imageModel?: string;
   prompt: string;
   size: ImageSize;
   format: ImageFormat;
@@ -32,6 +34,8 @@ export interface InputImage {
 }
 
 export interface GenerateResult {
+  /** Only populated when the provider explicitly reports a renderer. */
+  reportedImageModel?: string;
   bytes: Buffer;
   format: ImageFormat;
   revisedPrompt?: string;

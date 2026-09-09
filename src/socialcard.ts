@@ -5,6 +5,7 @@
 
 import { extname } from "node:path";
 import type { GenerateOutput } from "./generate.js";
+import type { ImageQuality } from "./providers/types.js";
 import { generateImage } from "./generate.js";
 import { getPlatform } from "./platforms.js";
 import { composeOverlay, type LogoOverlay, type OverlayPosition, type TextBlock } from "./typeset.js";
@@ -32,9 +33,10 @@ export interface SocialCardInput {
   /** Plate preset (default social-bg-plate; concept-hero for a photographic hero object). */
   platePreset?: string;
   styleReference?: string[];
-  quality?: "auto" | "low" | "medium" | "high";
+  quality?: ImageQuality;
   outputPath?: string;
   backend?: string;
+  imageModel?: string;
 }
 
 export interface SocialCardResult {
@@ -96,6 +98,7 @@ export async function createSocialCard(input: SocialCardInput): Promise<SocialCa
     format: "png",
     proof: false, // the plate is text-free; the type never touches the model
     backend: input.backend,
+    imageModel: input.imageModel,
     // Plate lands next to the final card so both stay inspectable/reusable.
     outputPath: platePathFor(input.outputPath),
   });

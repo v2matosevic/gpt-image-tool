@@ -8,7 +8,7 @@ import type { GenerateInput } from "../src/providers/types.ts";
 const input: GenerateInput = { prompt: "a paper bird", size: "1024x1024", quality: "low", format: "webp" };
 
 test("model defaults distinguish the subscription director from the API renderer and preserve overrides", () => {
-  assert.deepEqual(configuredModels({}), { routing: "gpt-6-astra", image: "gpt-image-2", proof: "gpt-6-astra" });
+  assert.deepEqual(configuredModels({}), { routing: "gpt-6-astra", image: "gpt-image-2.5-sunburst", proof: "gpt-6-astra" });
   assert.deepEqual(configuredModels({ GPT_IMAGE_MODEL: " gpt-5.6-terra ", GPT_IMAGE_API_MODEL: " gpt-image-1.5 ", GPT_IMAGE_PROOF_MODEL: " custom-proof " }),
     { routing: "gpt-5.6-terra", image: "gpt-image-1.5", proof: "custom-proof" });
   assert.equal(configuredModels({ GPT_IMAGE_MODEL: "  " }).routing, "gpt-6-astra");

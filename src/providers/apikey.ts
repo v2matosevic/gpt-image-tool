@@ -3,7 +3,7 @@
 
 import { MAX_RETRIES, backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "../retry.js";
 import type { GenerateInput, GenerateResult, ImageProvider } from "./types.js";
-import { configuredModels } from "../models.js";
+import { resolveImageModel, validateImageQuality } from "../models.js";
 
 const GEN_ENDPOINT = "https://api.openai.com/v1/images/generations";
 const EDIT_ENDPOINT = "https://api.openai.com/v1/images/edits";
@@ -16,6 +16,8 @@ export class ApiKeyProvider implements ImageProvider {
   readonly name = "apikey";
 
   async generate(input: GenerateInput): Promise<GenerateResult> {
+    input = { ...input, imageModel: resolveImageModel(input.imageModel, this.name) };
+    validateImageQuality(input.quality, input.imageModel);
     const key = process.env.OPENAI_API_KEY?.trim();
     if (!key) {
       throw new Error("apikey backend requires OPENAI_API_KEY in the environment (see .env.example).");
@@ -51,7 +53,7 @@ export class ApiKeyProvider implements ImageProvider {
   /** Text-to-image: /v1/images/generations (JSON). */
   private async create(key: string, input: GenerateInput): Promise<GenerateResult> {
     const body: Record<string, unknown> = {
-      model: configuredModels().image,
+      model: input.imageModel,
       prompt: input.prompt,
       n: 1,
       output_format: input.format,
@@ -71,7 +73,7 @@ export class ApiKeyProvider implements ImageProvider {
   /** Image-to-image (edit / upscale / variation): /v1/images/edits (multipart). */
   private async edit(key: string, input: GenerateInput): Promise<GenerateResult> {
     const form = new FormData();
-    form.set("model", configuredModels().image);
+    form.set("model", input.imageModel!);
     form.set("output_format", input.format);
     form.set("prompt", input.prompt);
     form.set("n", "1");

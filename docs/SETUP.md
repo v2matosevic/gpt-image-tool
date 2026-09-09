@@ -28,7 +28,7 @@ Set `OPENAI_API_KEY` in the environment that launches the client, and set `GPT_I
 node --env-file=.env dist/cli.js --backend apikey --subject "a folded paper sculpture" --preset product-studio -o ./sculpture.png
 ```
 
-This backend uses the documented [OpenAI Images API](https://developers.openai.com/api/docs/guides/image-generation). Its default model is `gpt-image-2`; `GPT_IMAGE_API_MODEL` overrides it. Model availability and supported dimensions vary. Changing a model name does not automatically make every feature compatible.
+This backend uses the documented [OpenAI Images API](https://developers.openai.com/api/docs/guides/image-generation). The current source defaults to `gpt-image-2.5-sunburst`; `GPT_IMAGE_API_MODEL` overrides it. Select `--image-model flare` or `--image-model sunburst` per CLI call, or `image_model` in MCP. Both require `backend: "apikey"`; the subscription endpoint does not reliably enforce renderer selection. These changes are newer than v0.4.0. Model availability and supported dimensions vary. Changing a model name does not automatically make every feature compatible.
 
 ## Upgrade an existing installation
 
