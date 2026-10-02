@@ -9,6 +9,7 @@ import { writeFile, mkdir } from "node:fs/promises";
 export type WebAssetKind = "favicon" | "appicon" | "og" | "hero";
 
 export interface ExportOptions {
+  fit?: "cover" | "contain";
   sourcePath: string;
   kind: WebAssetKind;
   outDir?: string;
@@ -69,7 +70,7 @@ export async function exportWebAssets(opts: ExportOptions): Promise<ExportResult
     const sizes = opts.kind === "favicon" ? FAVICON_SIZES : APPICON_SIZES;
     const squares = new Map<number, RGBA>();
     for (const s of sizes) {
-      const img = fitTo(src, s, s, "cover");
+      const img = fitTo(src, s, s, opts.fit ?? "cover");
       squares.set(s, img);
       await emit(img, `${base}-${s}`, "png"); // icons stay png for transparency
     }

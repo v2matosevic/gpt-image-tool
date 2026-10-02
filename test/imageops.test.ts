@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resizeRGBA, fitTo, encodeIco, type RGBA } from "../dist/imageops.js";
+import { resizeRGBA, fitTo, encodeIco, blitOver, compositeMasked, type RGBA } from "../dist/imageops.js";
 
 function make(w: number, h: number, px: (x: number, y: number) => number[]): RGBA {
   const data = Buffer.alloc(w * h * 4);
@@ -43,4 +43,31 @@ test("encodeIco writes a valid ICO header (magic + image count)", () => {
   assert.equal(ico.readUInt16LE(2), 1); // type icon
   assert.equal(ico.readUInt16LE(4), 2); // two images
   assert.equal(ico[6], 16); // first entry width
+});
+
+test("padding semi-transparent ink keeps straight RGB and source-over combines alpha", () => {
+  const src = make(2, 1, () => [240, 20, 30, 128]);
+  const contained = fitTo(src, 2, 3, "contain");
+  assert.deepEqual([...contained.data.subarray(8, 12)], [240, 20, 30, 128]);
+  const dst = make(1, 1, () => [0, 0, 255, 128]);
+  blitOver(dst, make(1, 1, () => [255, 0, 0, 128]), 0, 0);
+  assert.deepEqual([...dst.data], [170, 0, 85, 192]);
+});
+
+test("enlargement interpolates alpha-premultiplied color and clamps border samples", () => {
+  const src = make(2, 1, x => x === 0 ? [255, 0, 0, 255] : [0, 0, 0, 0]);
+  const out = resizeRGBA(src, 8, 1);
+  assert.deepEqual([...out.data.subarray(0, 4)], [255, 0, 0, 255]);
+  for (let i = 0; i < out.data.length; i += 4) if (out.data[i + 3]! > 0) assert.equal(out.data[i], 255, "transparent black must not bleed into the red edge");
+});
+
+test("masked composite preserves every outside byte, including hidden RGB and alpha", () => {
+  const src = make(4, 2, (x, y) => [x * 40, y * 70, 55, x * 60]);
+  const gen = make(8, 4, () => [255, 0, 0, 255]);
+  const mask = make(4, 2, x => [0, 0, 0, x < 2 ? 0 : 255]);
+  const out = compositeMasked(src, gen, mask);
+  for (let y = 0; y < 2; y++) for (let x = 0; x < 4; x++) {
+    const i = (y * 4 + x) * 4;
+    assert.deepEqual([...out.data.subarray(i, i + 4)], x < 2 ? [255, 0, 0, 255] : [...src.data.subarray(i, i + 4)]);
+  }
 });

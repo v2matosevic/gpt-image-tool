@@ -22,7 +22,7 @@ export const design: Preset[] = [
     id: "logo-mark",
     category: "design",
     title: "Logo mark",
-    description: "Minimal vector logo symbol on transparent background. Brand marks, favicons.",
+    description: "Minimal logo-symbol raster concept on transparent background. Export approved artwork with export_logo_kit; vector-like appearance is not SVG.",
     recommended: { size: "1024x1024", quality: "high", format: "png" },
     background: "transparent",
     dims: {

@@ -9,8 +9,18 @@ import type { ImageQuality } from "./providers/types.js";
 import { generateImage } from "./generate.js";
 import { getPlatform } from "./platforms.js";
 import { composeOverlay, type LogoOverlay, type OverlayPosition, type TextBlock } from "./typeset.js";
+import type { ImageReference, CreativeBrief } from "./brief.js";
+import type { BrandIdentity } from "./branding.js";
+import { loadOutlineFont, outlineText } from "./font.js";
+import { brandColor, resolveBrand } from "./branding.js";
+import { dirname } from "node:path";
 
 export interface SocialCardInput {
+  headlineFontFile?: string;
+  sublineFontFile?: string;
+  references?: ImageReference[];
+  brief?: CreativeBrief;
+  brand?: BrandIdentity;
   /** The headline copy — set verbatim by the compositor. */
   headline: string;
   /** One word/phrase of the headline inked in the accent color (the editorial accent). */
@@ -40,6 +50,7 @@ export interface SocialCardInput {
 }
 
 export interface SocialCardResult {
+  accentColor: string;
   path: string;
   platePath: string;
   width: number;
@@ -78,6 +89,7 @@ export function platePathFor(outputPath: string | undefined): string | undefined
 }
 
 export async function createSocialCard(input: SocialCardInput): Promise<SocialCardResult> {
+  input = await prepareSocialText(input);
   const platform = input.platform ?? "instagram-feed";
   getPlatform(platform); // validate BEFORE spending a generation on the plate
   const headlinePos = input.headlinePosition ?? "top-left";
@@ -89,6 +101,9 @@ export async function createSocialCard(input: SocialCardInput): Promise<SocialCa
     preset: input.platePreset ?? "social-bg-plate",
     platform,
     styleReference: input.styleReference,
+    references: input.references,
+    brief: input.brief,
+    brand: input.brand,
     style: {
       composition:
         `restrained art confined to the ${zone} third of the canvas; the ${headlinePos.replace("-", " ")} ` +
@@ -104,12 +119,13 @@ export async function createSocialCard(input: SocialCardInput): Promise<SocialCa
   });
 
   // 2. The type + logo, deterministic.
-  const accent = input.accentColor ?? plate.palette?.[0] ?? DEFAULT_ACCENT;
+  const accent = input.accentColor ?? (input.brand && (input.brand.colors.find(c => c.role === "accent")?.hex ?? input.brand.colors.find(c => c.role === "primary")?.hex)) ?? plate.palette?.[0] ?? DEFAULT_ACCENT;
   const blocks: TextBlock[] = [
     {
       text: input.headline,
       position: headlinePos,
       fontFamily: input.headlineFont,
+      fontFile: input.headlineFontFile,
       fontWeight: 800,
       color: input.headlineColor ?? "#1c1917",
       accentWord: input.accentWord,
@@ -123,6 +139,7 @@ export async function createSocialCard(input: SocialCardInput): Promise<SocialCa
       text: input.subline,
       position: sublinePosFor(headlinePos),
       fontFamily: input.sublineFont ?? input.headlineFont,
+      fontFile: input.sublineFontFile ?? input.headlineFontFile,
       fontWeight: 500,
       color: input.sublineColor ?? accent,
     });
@@ -141,6 +158,7 @@ export async function createSocialCard(input: SocialCardInput): Promise<SocialCa
   });
 
   return {
+    accentColor: accent,
     path: composed.path,
     platePath: plate.path,
     width: composed.width,
@@ -185,6 +203,8 @@ export function slidePath(outputDir: string | undefined, baseName: string, index
 export async function createSocialCarousel(input: SocialCarouselInput): Promise<SocialCarouselResult> {
   if (!input.slides?.length) throw new Error("createSocialCarousel needs at least one slide.");
   if (input.slides.length > 10) throw new Error("createSocialCarousel supports at most 10 slides.");
+  // Validate every slide before the first generation, not partway through an expensive carousel.
+  for (const slide of input.slides) await prepareSocialText({ ...input, ...slide, outputPath: input.outputDir ? `${input.outputDir}/` : undefined });
   const baseName = input.baseName ?? "carousel";
   const { slides: _slides, outputDir: _dir, baseName: _base, ...cardOpts } = input;
 
@@ -206,7 +226,7 @@ export async function createSocialCarousel(input: SocialCarouselInput): Promise<
       outputPath: slidePath(input.outputDir, baseName, i),
     });
     slides.push(card);
-    if (i === 0) accent = accent ?? card.palette?.[0] ?? DEFAULT_ACCENT;
+    if (i === 0) accent = accent ?? card.accentColor;
   }
   return {
     slides,
@@ -215,4 +235,17 @@ export async function createSocialCarousel(input: SocialCarouselInput): Promise<
       "All copy set deterministically; check kerning/wrap per slide before publishing.",
     ],
   };
+}
+
+async function prepareSocialText(input: SocialCardInput): Promise<SocialCardInput> {
+  let brand = input.brand;
+  if (!brand) {
+    try { brand = resolveBrand(undefined, input.outputPath && (/[\\/]$/.test(input.outputPath) ? input.outputPath : dirname(input.outputPath))); }
+    catch (e) { if (!(e instanceof Error && e.message.startsWith("Provide brand settings"))) throw e; }
+  }
+  const headlineFontFile = input.headlineFontFile ?? (!input.headlineFont ? brand?.fonts?.heading.path : undefined);
+  const sublineFontFile = input.sublineFontFile ?? (!input.sublineFont ? brand?.fonts?.body?.path ?? headlineFontFile : undefined);
+  if (headlineFontFile) outlineText(await loadOutlineFont(headlineFontFile), input.uppercase === false ? input.headline : input.headline.toUpperCase());
+  if (input.subline && sublineFontFile) outlineText(await loadOutlineFont(sublineFontFile), input.subline);
+  return { ...input, brand, headlineFontFile, sublineFontFile };
 }

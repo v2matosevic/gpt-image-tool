@@ -9,7 +9,13 @@
 //   gpt-image --presets [category]        # list the catalog
 //   gpt-image --check                     # validate the session
 
-import { editImage, generateImage, modelAssistedCutout, upscaleImage } from "./generate.js";
+import { editImage, generateImage, previewImageRequest, modelAssistedCutout, upscaleImage } from "./generate.js";
+import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { exportLogoKit } from "./logo.js";
+import { createBrandBoard } from "./brandboard.js";
+import { resolveBrandPaths } from "./branding.js";
+import { creativeBriefSchema, referenceSchema, type ImageReference } from "./brief.js";
 import { checkSession } from "./auth.js";
 import { configuredModels } from "./models.js";
 import { catalog } from "./presets/index.js";
@@ -19,6 +25,13 @@ import type { PromptOverrides } from "./presets/index.js";
 import type { ImageFormat, ImageQuality, ImageSize } from "./providers/types.js";
 
 interface CliArgs {
+  preview?: boolean;
+  logoKit?: string;
+  brandBoard?: string;
+  briefFile?: string;
+  contactSheet?: boolean;
+  preserveUnmasked?: boolean;
+  references?: ImageReference[];
   prompt: string;
   subject?: string;
   preset?: string;
@@ -64,8 +77,17 @@ function printHelp(): void {
       "       gpt-image --upscale <path> [options]",
       "       gpt-image --edit <path> --instruction \"<change>\" [options]",
       "       gpt-image --presets [category]",
+      "       gpt-image --logo-kit <spec.json> [-o directory]",
+      "       gpt-image --brand-board <spec.json> [-o directory]",
       "",
       "Modes:",
+      "  --preview              Show the compiled generation request, without credentials or quota",
+      "  --brief <json>         Structured creative brief (paths in the JSON are relative to that file)",
+      "  --reference role:path  Subject/style/photography/texture/composition/palette/logo reference (repeatable)",
+      "  --contact-sheet        Label all concepts in one local review sheet",
+      "  --logo-kit <json>      Export approved logo artwork and outlined wordmarks locally",
+      "  --brand-board <json>   Compose a board, exact type/palette and tokens; generation is opt-in",
+      "  --no-preserve-unmasked Return raw model output from a masked edit (default preserves originals)",
       "  --subject <text>       What to depict (use with --preset for compiled prompts)",
       "  --preset <id>          Curated style preset (see --presets)",
       "  --modifier <id>        Layer a modifier (repeatable)",
@@ -117,6 +139,19 @@ function parseArgs(argv: string[]): CliArgs {
       continue;
     }
     switch (a) {
+      case "--preview":
+      case "--dry-run": args.preview = true; break;
+      case "--logo-kit": args.logoKit = argv[++i]; if (!args.logoKit) throw new Error("--logo-kit requires a JSON file"); break;
+      case "--brand-board": args.brandBoard = argv[++i]; if (!args.brandBoard) throw new Error("--brand-board requires a JSON file"); break;
+      case "--brief": args.briefFile = argv[++i]; if (!args.briefFile) throw new Error("--brief requires a JSON file"); break;
+      case "--contact-sheet": args.contactSheet = true; break;
+      case "--preserve-unmasked": args.preserveUnmasked = true; break;
+      case "--no-preserve-unmasked": args.preserveUnmasked = false; break;
+      case "--reference": {
+        const ref = argv[++i] ?? "", colon = ref.indexOf(":");
+        const value = referenceSchema.parse({ role: ref.slice(0, colon), path: ref.slice(colon + 1) });
+        (args.references ??= []).push(value); break;
+      }
       case "-o":
       case "--out":
       case "--output":
@@ -227,6 +262,9 @@ function parseArgs(argv: string[]): CliArgs {
 }
 
 const args = parseArgs(process.argv.slice(2));
+if (args.preview && (args.edit || args.upscale || args.web || args.logoKit || args.brandBoard || args.removeBg || args.stripMeta || args.check)) {
+  throw new Error("--preview applies to generation only; do not combine it with another operation. No operation was performed.");
+}
 
 if (args.check) {
   const models = configuredModels();
@@ -252,6 +290,31 @@ if (args.presets) {
 }
 
 const hasStyle = Object.keys(args.style).length > 0;
+const brief = args.briefFile ? creativeBriefSchema.parse(JSON.parse(await readFile(args.briefFile, "utf8"))) : undefined;
+
+if (args.logoKit || args.brandBoard) {
+  try {
+    const file = resolve((args.logoKit ?? args.brandBoard)!);
+    const spec = JSON.parse(await readFile(file, "utf8"));
+    const base = dirname(file);
+    if (spec.brand) spec.brand = resolveBrandPaths(spec.brand, base);
+    spec.outDir = args.output ? resolve(args.output) : resolve(base, spec.outDir ?? "brand-output");
+    if (args.logoKit) {
+      for (const key of ["markPath", "wordmarkPath", "fontPath"]) if (spec[key]) spec[key] = resolve(base, spec[key]);
+      const result = await exportLogoKit(spec);
+      console.log(result.manifest); console.log(result.sheet);
+      console.error(`${result.files.length} logo/website assets saved to ${result.outDir}`);
+    } else {
+      if (spec.assets) spec.assets = spec.assets.map((a: any) => ({ ...a, path: resolve(base, a.path) }));
+      if (args.backend) spec.backend = args.backend;
+      if (args.imageModel) spec.imageModel = args.imageModel;
+      if (args.quality) spec.quality = args.quality;
+      const result = await createBrandBoard(spec);
+      console.log(result.path); console.log(result.svgPath); console.log(result.manifest);
+    }
+    process.exit(0);
+  } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1); }
+}
 
 // Local-only operations (no generation) handled up front.
 if (args.stripMeta) {
@@ -323,6 +386,9 @@ try {
       imagePaths: [args.edit],
       instruction: args.instruction ?? (args.prompt || undefined),
       maskPath: args.mask,
+      preserveUnmasked: args.preserveUnmasked,
+      brief,
+      references: args.references,
       count: args.count,
       subject: args.subject,
       preset: args.preset,
@@ -342,7 +408,10 @@ try {
       printHelp();
       process.exit(1);
     }
-    out = await generateImage({
+    const generationOptions = {
+      brief,
+      references: args.references,
+      contactSheet: args.contactSheet,
       prompt: args.prompt || undefined,
       subject: args.subject,
       preset: args.preset,
@@ -361,9 +430,12 @@ try {
       outputPath: args.output,
       backend: args.backend,
       imageModel: args.imageModel,
-    });
+    };
+    if (args.preview) { console.log(JSON.stringify(await previewImageRequest(generationOptions), null, 2)); process.exit(0); }
+    out = await generateImage(generationOptions);
   }
   for (const p of [out.path, ...(out.variants ?? [])]) console.log(p);
+  if (out.contactSheet) console.log(out.contactSheet);
   console.error(
     `✓ ${out.backend} · ${out.bytes} bytes · ${out.format}${out.background === "transparent" ? " · transparent" : ""}` +
       (out.variants?.length ? ` · ${out.variants.length + 1} variants` : "") +

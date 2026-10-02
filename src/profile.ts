@@ -5,6 +5,8 @@
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join, parse as parsePath } from "node:path";
 import type { ImageBackground, ImageFormat, ImageQuality, ImageSize } from "./providers/types.js";
+import { brandSchema, type BrandIdentity } from "./branding.js";
+import { creativeBriefSchema, referenceSchema, type CreativeBrief, type ImageReference } from "./brief.js";
 
 export const PROFILE_FILENAME = ".gptimage.json";
 
@@ -23,6 +25,9 @@ export interface ProfileStyle {
 }
 
 export interface BrandProfile {
+  brand?: BrandIdentity;
+  brief?: CreativeBrief;
+  references?: ImageReference[];
   preset?: string;
   modifiers?: string[];
   style?: ProfileStyle;
@@ -81,13 +86,19 @@ export function findProfilePath(startDir?: string): string | null {
 export function loadProfile(startDir?: string): { path: string; profile: BrandProfile } | null {
   const path = findProfilePath(startDir);
   if (!path) return null;
+  let profile: BrandProfile;
   try {
-    return { path, profile: JSON.parse(readFileSync(path, "utf8")) as BrandProfile };
+    profile = JSON.parse(readFileSync(path, "utf8")) as BrandProfile;
   } catch (e) {
     // Surface to stderr but don't fail generation over a malformed profile.
     console.error(`[gpt-image] ignoring malformed ${PROFILE_FILENAME} at ${path}: ${e instanceof Error ? e.message : e}`);
     return null;
   }
+  // Newly introduced structured fields fail explicitly instead of silently ignoring a brand typo.
+  if (profile.brand !== undefined) profile.brand = brandSchema.parse(profile.brand);
+  if (profile.brief !== undefined) profile.brief = creativeBriefSchema.parse(profile.brief);
+  if (profile.references !== undefined) profile.references = referenceSchema.array().max(32).parse(profile.references);
+  return { path, profile };
 }
 
 /** Kept for test compatibility — there is no longer a cache to reset. */

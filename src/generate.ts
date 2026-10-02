@@ -9,13 +9,18 @@ import { getProvider } from "./providers/index.js";
 import type { GenerateInput, ImageBackground, ImageFormat, ImageProvider, ImageQuality, ImageSize, InputImage } from "./providers/types.js";
 import { build, type PromptOverrides } from "./presets/index.js";
 import { imageSize, looksLikeImage, sizeForAspect, upscaleSizeForAspect } from "./imageinfo.js";
-import { removeBackground } from "./bgremove.js";
-import { mimeForFormat } from "./imageops.js";
+import { removeBackground, encodePng } from "./bgremove.js";
+import { mimeForFormat, decodeRGBA, compositeMasked, resizeRGBA } from "./imageops.js";
 import { loadProfile, type BrandProfile } from "./profile.js";
 import { getPlatform, type PlatformTarget } from "./platforms.js";
 import { extractPalette } from "./palette.js";
 import { proofImage, type ProofRequest, type ProofVerdict } from "./proof.js";
 import { stripImageMetadata } from "./metastrip.js";
+import { briefClauses, referenceClauses, referenceSchema, validateReferenceCount, type CreativeBrief, type ImageReference } from "./brief.js";
+import { resolveBrandPaths, type BrandIdentity } from "./branding.js";
+import { actualFormat, inspectBytes, paletteCheck, edgeCheck, type ImageQA } from "./imageqa.js";
+import { createHash } from "node:crypto";
+import { createContactSheet } from "./contactsheet.js";
 
 const SIDECARS = process.env.GPT_IMAGE_NO_SIDECAR !== "1";
 // Every saved image is scrubbed of provenance metadata (EXIF/XMP/C2PA) by default — opt out to
@@ -70,6 +75,10 @@ export function overlay(base: StyleInput, top: StyleInput): StyleInput {
     outputPath: top.outputPath ?? base.outputPath,
     backend: top.backend ?? base.backend,
     imageModel: top.imageModel ?? base.imageModel,
+    brand: top.brand ?? base.brand,
+    brief: top.brief === undefined ? base.brief : { ...base.brief, ...top.brief },
+    references: top.references ?? base.references,
+    contactSheet: top.contactSheet ?? base.contactSheet,
   };
 }
 
@@ -79,7 +88,7 @@ function profileAsBase(p: BrandProfile, baseDir: string): StyleInput {
   return {
     preset: p.preset,
     modifiers: p.modifiers,
-    style: p.style,
+    style: p.brand?.colors.length && p.style?.color ? { ...p.style, color: undefined } : p.style,
     styleReference: p.styleReference?.map(rel),
     platform: p.platform,
     proof: p.proof,
@@ -90,12 +99,23 @@ function profileAsBase(p: BrandProfile, baseDir: string): StyleInput {
     background: p.background,
     backend: p.backend,
     imageModel: p.imageModel,
+    brand: p.brand && resolveBrandPaths(p.brand, baseDir),
+    brief: p.brief,
+    references: p.references?.map(r => ({ ...r, path: rel(r.path) })),
     // A directory default — trailing sep makes resolveOutputPath drop a timestamped file in it.
     outputPath: dir ? (dir.endsWith(sep) ? dir : dir + sep) : undefined,
   };
 }
 
 interface Sidecar {
+  deliverable?: "concept-raster" | "generated-raster";
+  brand?: BrandIdentity;
+  brandHash?: string;
+  brief?: CreativeBrief;
+  references?: ImageReference[];
+  qa?: ImageQA;
+  proof?: ProofVerdict;
+  preserveUnmasked?: boolean;
   reportedImageModel?: string;
   tool: string;
   operation: "generate" | "edit" | "upscale";
@@ -125,7 +145,10 @@ interface SaveMeta {
   preset?: string;
   modifiers: string[];
   count?: number;
-  transform?: (b: Buffer) => Buffer;
+  transform?: (b: Buffer) => Buffer | Promise<Buffer>;
+  strictTransform?: boolean;
+  warnings?: string[];
+  qa?: Partial<ImageQA>;
   operation: Sidecar["operation"];
   opts: StyleInput;
   refs?: string[];
@@ -139,6 +162,10 @@ interface SaveMeta {
 function sidecarFromOpts(op: Sidecar["operation"], opts: StyleInput, meta: SaveMeta): Sidecar {
   return {
     tool: "gpt-image-tool",
+    deliverable: meta.preset?.startsWith("logo-") ? "concept-raster" : "generated-raster",
+    brand: opts.brand,
+    brief: opts.brief,
+    references: opts.references,
     operation: op,
     subject: opts.subject,
     prompt: opts.prompt,
@@ -181,6 +208,9 @@ async function sidecarAsBase(imagePath: string): Promise<StyleInput> {
     styleReference: s.styleReference,
     backend: s.backend,
     imageModel: s.imageModel,
+    brand: s.brand,
+    brief: s.brief,
+    references: s.references,
   };
 }
 
@@ -204,6 +234,10 @@ async function resolveOpts(opts: StyleInput, applyProfileStyle = true): Promise<
 }
 
 export interface StyleInput {
+  brand?: BrandIdentity;
+  brief?: CreativeBrief;
+  references?: ImageReference[];
+  contactSheet?: boolean;
   subject?: string;
   prompt?: string; // raw prompt — full manual control, bypasses preset composition
   preset?: string;
@@ -237,6 +271,9 @@ export interface StyleInput {
 }
 
 export interface GenerateOutput {
+  qa?: ImageQA;
+  contactSheet?: string;
+  deliverable?: "concept-raster" | "generated-raster";
   path: string;
   bytes: number;
   format: ImageFormat;
@@ -345,17 +382,18 @@ async function runAndSave(
   const provider = getProvider(backend);
   const requestedModel = resolveImageModel(input.imageModel, provider.name);
   validateImageQuality(input.quality, requestedModel);
+  const resolvedBrandHash = meta.opts.brand ? await brandHash(meta.opts.brand) : undefined;
   const count = Math.max(1, Math.min(10, meta.count ?? 1));
   const basePath = resolveOutputPath(outputPath, input.format, prefix);
   await mkdir(dirname(basePath), { recursive: true });
 
-  const saved: { path: string; result: Awaited<ReturnType<ImageProvider["generate"]>>; verdict?: ProofVerdict }[] = [];
+  const saved: { path: string; result: Awaited<ReturnType<ImageProvider["generate"]>>; verdict?: ProofVerdict; qa: ImageQA }[] = [];
   for (let i = 0; i < count; i++) {
     let result = await generateWithRetry(provider, input); // validated to be an image
     let verdict: ProofVerdict | undefined;
     if (meta.proof) {
       // Proof-loop: proofread the render; on concrete failures, regenerate with that feedback.
-      const mime = mimeForFormat(input.format);
+      const mime = mimeForFormat(actualFormat(result.bytes));
       for (let attempt = 1; ; attempt++) {
         verdict = { ...(await proofImage(result.bytes, mime, meta.proof)), attempts: attempt };
         if (verdict.pass || verdict.unverified || attempt >= meta.proof.maxAttempts) break;
@@ -374,8 +412,9 @@ async function runAndSave(
     if (meta.transform) {
       // A keying/post-process failure must not lose the image — fall back to the original bytes.
       try {
-        result.bytes = meta.transform(result.bytes);
+        result.bytes = await meta.transform(result.bytes);
       } catch (e) {
+        if (meta.strictTransform) throw e;
         console.error(`[gpt-image] background key-out failed (${e instanceof Error ? e.message : e}); saving without transparency.`);
       }
     }
@@ -387,7 +426,19 @@ async function runAndSave(
         console.error(`[gpt-image] metadata strip failed (${e instanceof Error ? e.message : e}); saving original bytes.`);
       }
     }
-    const outPath = count > 1 ? indexedPath(basePath, i + 1) : basePath;
+    result.format = actualFormat(result.bytes);
+    const extension = ext(result.format);
+    const actualPath = extname(basePath).slice(1).toLowerCase() === extension || (result.format === "jpeg" && extname(basePath).toLowerCase() === ".jpeg") ? basePath : `${basePath.slice(0, basePath.length - extname(basePath).length)}.${extension}`;
+    const outPath = count > 1 ? indexedPath(actualPath, i + 1) : actualPath;
+    const qa: ImageQA = { ...await inspectBytes(result.bytes), ...meta.qa, warnings: [...(meta.warnings ?? [])] };
+    const decoded = await decodeRGBA(result.bytes);
+    const declaredColors = meta.opts.brief?.palette?.map(hex => ({ name: hex, hex })) ?? meta.opts.brand?.colors;
+    if (declaredColors?.length) qa.palette = paletteCheck(decoded, declaredColors);
+    if (qa.hasTransparency) qa.edges = edgeCheck(decoded, meta.transform ? pickChromaKey([meta.opts.style?.color ?? "", ...(meta.palette ?? [])]).rgb : undefined);
+    if (meta.opts.background === "transparent" || meta.opts.transparent) {
+      if (!qa.hasTransparency) qa.warnings.push("Transparency was requested but the saved image is fully opaque.");
+    }
+    if (input.size !== "auto" && input.size !== `${qa.width}x${qa.height}`) qa.warnings.push(`Requested ${input.size}; saved ${qa.width}x${qa.height}.`);
     await writeFile(outPath, result.bytes);
     if (SIDECARS) {
       const sc = sidecarFromOpts(meta.operation, meta.opts, meta);
@@ -397,17 +448,26 @@ async function runAndSave(
       sc.backend = provider.name;
       sc.imageModel = requestedModel ?? "auto";
       sc.reportedImageModel = result.reportedImageModel;
+      sc.format = result.format;
+      sc.qa = qa;
+      sc.proof = verdict;
+      sc.preserveUnmasked = meta.qa?.preservedOutsideMask;
+      sc.brandHash = resolvedBrandHash;
       await writeFile(`${outPath}.json`, JSON.stringify(sc, null, 2)).catch(() => {});
     }
-    saved.push({ path: outPath, result, verdict });
+    saved.push({ path: outPath, result, verdict, qa });
   }
 
   const primary = saved[0]!;
+  const contactSheet = meta.opts.contactSheet ? await createContactSheet(saved.map(s => s.path), `${primary.path.slice(0, -extname(primary.path).length)}-sheet.png`) : undefined;
   return {
     path: primary.path,
     bytes: primary.result.bytes.length,
     format: primary.result.format,
-    background: input.background ?? "auto",
+    background: primary.qa.hasTransparency ? "transparent" : "opaque",
+    qa: primary.qa,
+    contactSheet,
+    deliverable: meta.preset?.startsWith("logo-") ? "concept-raster" : "generated-raster",
     backend: provider.name,
     imageModel: requestedModel,
     reportedImageModel: primary.result.reportedImageModel,
@@ -424,6 +484,13 @@ async function runAndSave(
 const STYLE_REF_PREFIX =
   "Use the attached image(s) ONLY as a style and aesthetic reference — match their visual style, " +
   "color palette, lighting, and treatment — but depict the subject described below, not the reference's content. ";
+
+async function brandHash(brand: BrandIdentity): Promise<string> {
+  const hash = createHash("sha256").update(JSON.stringify(brand));
+  const paths = [brand.fonts?.heading.path, brand.fonts?.body?.path, brand.logos?.mark, brand.logos?.wordmark, brand.logos?.monoDark, brand.logos?.monoLight].filter((p): p is string => Boolean(p));
+  for (const path of paths) hash.update(await readFile(path));
+  return hash.digest("hex");
+}
 
 // Transparency on a backend that can't emit it natively (subscription) is faked: the model renders
 // on a flat chroma field we key out locally. A FIXED green field fails when the subject is itself
@@ -535,11 +602,32 @@ function proofRequest(opts: StyleInput, chromaActive: boolean): SaveMeta["proof"
   };
 }
 
-/** Text-to-image. Compose from subject + preset (+ modifiers + style overrides), or a raw prompt. */
-export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput> {
+/** One compiler path for a quota-free preview and the request actually sent to the provider. */
+async function prepareGeneration(rawOpts: StyleInput) {
   const opts = await resolveOpts(rawOpts); // apply project profile / --from sidecar beneath the call
-  const series = Math.max(1, Math.min(10, opts.series ?? 1));
-  if (series > 1) return generateSeries(opts, series);
+  for (const key of ["series", "count"] as const) if (opts[key] !== undefined && (!Number.isInteger(opts[key]) || opts[key]! < 1 || opts[key]! > 10)) throw new Error(`${key} must be an integer from 1 to 10.`);
+  if ((opts.series ?? 1) > 1 && (opts.count ?? 1) > 1) throw new Error("Choose count (independent concepts) or series (a consistent set), not both.");
+  const warnings: string[] = [];
+  if (opts.brand) opts.brand = resolveBrandPaths(opts.brand, process.cwd());
+  const explicitRefs = (opts.references ?? []).map(r => referenceSchema.parse(r));
+  const refs: ImageReference[] = [...(opts.styleReference ?? []).map(path => ({ path, role: "style" as const })), ...explicitRefs];
+  const referenceInfo: Array<ImageReference & { sent: boolean; reason?: string }> = [];
+  const sentRefs: ImageReference[] = [];
+  const inputImages: InputImage[] = [];
+  for (const ref of refs) {
+    const colorOnly = ref.role === "palette" || ref.role === "logo";
+    try {
+      if (colorOnly) await readFile(ref.path); // fail explicit typos before any provider work
+      else { inputImages.push((await readInputImage(ref.path)).image); sentRefs.push(ref); }
+      referenceInfo.push({ ...ref, path: resolve(ref.path), sent: !colorOnly, reason: colorOnly ? "Colors only; artwork is reserved for local compositing." : undefined });
+    } catch (e) {
+      if (explicitRefs.includes(ref)) throw e;
+      const warning = `Skipped unreadable legacy style reference ${ref.path}.`;
+      warnings.push(warning); console.error(`[gpt-image] ${warning}`);
+      referenceInfo.push({ ...ref, sent: false, reason: warning });
+    }
+  }
+  validateReferenceCount(inputImages.length + ((opts.series ?? 1) > 1 ? 1 : 0));
 
   // Platform target: native size (explicit size still wins) + a safe-area composition constraint.
   const plat: PlatformTarget | undefined = opts.platform ? getPlatform(opts.platform) : undefined;
@@ -547,14 +635,21 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
   // Brand palette: anchor colors to what the styleReference assets ACTUALLY contain, unless the
   // caller wrote an explicit color. Opt out via profile `autoPalette: false` / GPT_IMAGE_NO_AUTOPALETTE=1.
   // Extracted BEFORE compose so it joins the prompt canonically and steers the chroma-key choice.
-  let palette: string[] = [];
-  if (opts.styleReference?.length && !opts.style?.color && opts.autoPalette !== false && process.env.GPT_IMAGE_NO_AUTOPALETTE !== "1") {
-    palette = await extractPalette(opts.styleReference).catch(() => []);
+  let palette: string[] = opts.brief?.palette ?? opts.brand?.colors.map(c => c.hex) ?? [];
+  let paletteSource = palette.length ? "declared" : "none";
+  // An explicit style color wins over project palette defaults, as other style overrides do.
+  if (opts.style?.color && !opts.brief?.palette) { palette = []; paletteSource = "style"; }
+  const paletteRefs = referenceInfo.filter(r => !r.reason || r.role === "palette" || r.role === "logo").filter(r => ["style", "palette", "logo"].includes(r.role));
+  if (!palette.length && paletteRefs.length && !opts.style?.color && opts.autoPalette !== false && process.env.GPT_IMAGE_NO_AUTOPALETTE !== "1") {
+    palette = await extractPalette(paletteRefs.map(r => r.path)).catch(() => []);
+    if (palette.length) paletteSource = "extracted";
   }
 
-  const extraClauses: string[] = [];
+  const extraClauses: string[] = briefClauses(opts.brief);
+  extraClauses.push(...referenceClauses(sentRefs));
   if (plat) extraClauses.push(plat.clause);
   if (palette.length) extraClauses.push(`Anchor the color palette to the brand colors ${palette.join(", ")}`);
+  if (paletteSource === "declared" && !opts.brief?.palette && opts.brand) extraClauses.push(`Color roles: ${opts.brand.colors.map(c => `${c.hex} as ${c.role}`).join(", ")}`);
 
   const composed = build({
     subject: opts.subject,
@@ -576,25 +671,8 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
   // The key must dodge EVERY color the prompt steers the subject toward (style color + palette).
   const chroma = chromaSetup(wantTransparent, backendName, [opts.style?.color ?? "", ...palette]);
 
-  let inputImages: InputImage[] | undefined;
   let prompt = composed.prompt;
   if (chroma.promptSuffix) prompt += chroma.promptSuffix;
-  if (opts.styleReference?.length) {
-    // Skip (with a warning) any reference that can't be read — a typo in a brand profile's
-    // styleReference must not break every generation in the project.
-    const loaded: InputImage[] = [];
-    for (const ref of opts.styleReference) {
-      try {
-        loaded.push((await readInputImage(ref)).image);
-      } catch (e) {
-        console.error(`[gpt-image] skipping style reference ${ref}: ${e instanceof Error ? e.message : e}`);
-      }
-    }
-    if (loaded.length) {
-      inputImages = loaded;
-      prompt = STYLE_REF_PREFIX + prompt;
-    }
-  }
 
   const input: GenerateInput = {
     imageModel: opts.imageModel,
@@ -603,16 +681,43 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
     quality: composed.quality,
     format: wantTransparent ? "png" : composed.format, // alpha needs png
     background: nativeTransparent ? "transparent" : "auto",
-    inputImages,
+    inputImages: inputImages.length ? inputImages : undefined,
   };
+  const requestedModel = resolveImageModel(opts.imageModel, backendName);
+  validateImageQuality(input.quality, requestedModel);
+  if (!["subscription", "apikey"].includes(backendName)) throw new Error(`Unknown backend: ${backendName}`);
+  return { opts, input, composed, chroma, plat, palette, paletteSource, referenceInfo, warnings, backendName, requestedModel };
+}
+
+export async function previewImageRequest(rawOpts: StyleInput) {
+  const p = await prepareGeneration(rawOpts);
+  const proof = proofRequest(p.opts, Boolean(p.chroma.transform));
+  const images = Math.max(p.opts.count ?? 1, p.opts.series ?? 1);
+  return {
+    compiledPrompt: p.input.prompt, size: p.input.size, quality: p.input.quality, format: p.input.format,
+    background: p.composed.background, backend: p.backendName, imageModel: p.requestedModel ?? "auto",
+    inputImages: p.referenceInfo, palette: { source: p.paletteSource, colors: p.palette },
+    transparency: p.chroma.transform ? "local-chroma-key" : p.composed.background === "transparent" ? "native" : "opaque-or-auto",
+    plannedImages: images, maxGenerationAttempts: images * (proof?.maxAttempts ?? 1) * 2,
+    proofRequests: proof ? images * proof.maxAttempts : 0,
+    warnings: [...p.warnings, "Generation attempt ceiling includes the no-image retry; transient transport retries are additional.", ...(images > 1 && p.opts.series ? ["Later series prompts also reference the first output, which does not exist during preview."] : [])],
+  };
+}
+
+/** Text-to-image. Compose from subject + preset (+ modifiers + style overrides), or a raw prompt. */
+export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput> {
+  const p = await prepareGeneration(rawOpts);
+  const { opts, input, composed, chroma, plat, palette } = p;
+  if ((opts.series ?? 1) > 1) return generateSeries(opts, opts.series!);
   const out = await runAndSave(input, opts.outputPath, opts.backend, "img", {
-    prompt,
+    prompt: input.prompt,
     preset: composed.presetId,
     modifiers: composed.modifierIds,
     count: opts.count,
     operation: "generate",
-    opts,
-    refs: opts.styleReference,
+    opts: { ...opts, size: composed.size, quality: composed.quality, format: input.format, background: composed.background },
+    refs: p.referenceInfo.filter(r => r.sent).map(r => r.path),
+    warnings: p.warnings,
     palette: palette.length ? palette : undefined,
     transform: chroma.transform,
     proof: proofRequest(opts, Boolean(chroma.transform)),
@@ -630,7 +735,7 @@ export async function generateImage(rawOpts: StyleInput): Promise<GenerateOutput
  * whole series shares a coherent look (same character / brand). Returns anchor + variants.
  */
 async function generateSeries(opts: StyleInput, n: number): Promise<GenerateOutput> {
-  const base = { ...opts, series: undefined, count: undefined };
+  const base = { ...opts, series: undefined, count: undefined, contactSheet: false };
   const anchor = await generateImage(base);
   const variants: string[] = [];
   for (let i = 2; i <= n; i++) {
@@ -641,10 +746,12 @@ async function generateSeries(opts: StyleInput, n: number): Promise<GenerateOutp
     });
     variants.push(next.path);
   }
-  return { ...anchor, variants: variants.length ? variants : undefined };
+  const contactSheet = opts.contactSheet ? await createContactSheet([anchor.path, ...variants], `${anchor.path.slice(0, -extname(anchor.path).length)}-sheet.png`) : undefined;
+  return { ...anchor, contactSheet, variants: variants.length ? variants : undefined };
 }
 
 export interface EditInput extends StyleInput {
+  preserveUnmasked?: boolean;
   /** One or more reference images. The first is the primary; extras are style/context references. */
   imagePaths: string[];
   /** What to change. Becomes the core directive; preset/style add styling guidance on top. */
@@ -663,9 +770,18 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
   if (!opts.imagePaths?.length) throw new Error("editImage requires at least one imagePath.");
   const loaded = await Promise.all(opts.imagePaths.map(readInputImage));
   const inputImages = loaded.map((l) => l.image);
+  const extraRefs = (opts.references ?? []).map(r => referenceSchema.parse(r));
+  const sentRefs = extraRefs.filter(r => !["logo", "palette"].includes(r.role));
+  validateReferenceCount(inputImages.length + sentRefs.length);
+  for (const r of sentRefs) inputImages.push((await readInputImage(r.path)).image);
   let maskImage: InputImage | undefined;
   if (opts.maskPath) {
     const m = await readInputImage(opts.maskPath);
+    if (actualFormat(m.image.bytes) !== "png") throw new Error("Inpainting requires a PNG alpha mask.");
+    const decodedMask = await decodeRGBA(m.image.bytes);
+    let editable = false;
+    for (let i = 3; i < decodedMask.data.length; i += 4) if (decodedMask.data[i]! < 255) { editable = true; break; }
+    if (!editable) throw new Error("The mask has no editable pixels. Make the area to regenerate transparent.");
     const img = loaded[0]!.dim;
     if (img && m.dim && (img.width !== m.dim.width || img.height !== m.dim.height)) {
       throw new Error(
@@ -691,7 +807,7 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
     preset: opts.preset,
     modifiers: opts.modifiers,
     overrides: opts.style,
-    extraClauses: plat ? [plat.clause] : undefined,
+    extraClauses: [...briefClauses(opts.brief), ...referenceClauses(sentRefs, opts.imagePaths.length), ...(plat ? [plat.clause] : [])],
     size: opts.size ?? plat?.size ?? sizeForAspect(loaded[0]!.dim),
     quality: opts.quality,
     format: opts.format,
@@ -700,7 +816,7 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
 
   let prompt = composed.prompt;
   if (instruction && hasStyle) prompt = `${instruction}. Apply this to the reference image. ${composed.prompt}`;
-  else if (instruction) prompt = instruction + EDIT_PRESERVE;
+  else if (instruction) prompt = composed.prompt + EDIT_PRESERVE;
 
   // Edits need the same fake-transparency path as generate: without it, a
   // `transparent` edit on the subscription backend renders on a white field
@@ -710,13 +826,33 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
   const nativeTransparent = wantTransparent && backendName === "apikey";
   const chroma = chromaSetup(wantTransparent, backendName, opts.style?.color);
   if (chroma.promptSuffix) prompt += chroma.promptSuffix;
+  const preserve = Boolean(opts.maskPath && opts.preserveUnmasked !== false);
+  const warnings: string[] = [];
+  const qa: Partial<ImageQA> = {};
+  let transform: SaveMeta["transform"] = chroma.transform;
+  if (preserve) {
+    const original = await decodeRGBA(loaded[0]!.image.bytes);
+    const mask = await decodeRGBA(maskImage!.bytes);
+    transform = async bytes => {
+      const generated = await decodeRGBA(chroma.transform ? chroma.transform(bytes) : bytes);
+      if (Math.abs((generated.width / generated.height) / (original.width / original.height) - 1) > 0.01) warnings.push("Provider changed the aspect ratio; edit resized to the original before preserving unmasked pixels. Inspect the seam.");
+      const resized = resizeRGBA(generated, original.width, original.height);
+      let delta = 0, channels = 0;
+      for (let i = 0; i < mask.data.length; i += 4) if (mask.data[i + 3] === 255) {
+        for (let c = 0; c < 4; c++) { delta += Math.abs(original.data[i + c]! - resized.data[i + c]!); channels++; }
+      }
+      qa.outsideMaskMeanDifference = channels ? delta / channels : 0;
+      qa.preservedOutsideMask = true;
+      return encodePng(compositeMasked(original, resized, mask));
+    };
+  }
 
   const input: GenerateInput = {
     imageModel: opts.imageModel,
     prompt,
     size: composed.size,
     quality: composed.quality,
-    format: wantTransparent ? "png" : composed.format, // alpha needs png
+    format: wantTransparent || preserve ? "png" : composed.format,
     background: nativeTransparent ? "transparent" : "auto",
     inputImages,
     maskImage,
@@ -728,9 +864,12 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
     count: opts.count,
     operation: "edit",
     opts,
-    refs: opts.imagePaths,
+    refs: [...opts.imagePaths, ...sentRefs.map(r => r.path)],
     mask: opts.maskPath,
-    transform: chroma.transform,
+    transform,
+    strictTransform: preserve,
+    warnings,
+    qa,
     proof: proofRequest(opts, Boolean(chroma.transform)),
   });
   if (plat) {

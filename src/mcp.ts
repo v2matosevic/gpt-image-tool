@@ -18,7 +18,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { IMAGE_MODEL_CHOICES } from "./models.js";
-import { editImage, generateImage, modelAssistedCutout, upscaleImage, type GenerateOutput } from "./generate.js";
+import { editImage, generateImage, previewImageRequest, modelAssistedCutout, upscaleImage, type GenerateOutput } from "./generate.js";
 import { catalog, MODIFIER_IDS, PRESET_IDS } from "./presets/index.js";
 import { exportWebAssets } from "./webassets.js";
 import { cutoutPath, mimeForFormat, removeBackgroundFile } from "./imageops.js";
@@ -29,6 +29,10 @@ const PLATFORM_CATALOG = PLATFORMS.map(({ id, title, size, note }) => ({ id, tit
 import { composeOverlay } from "./typeset.js";
 import { createSocialCard, createSocialCarousel } from "./socialcard.js";
 import { listMetadataBlocks, stripImageMetadata } from "./metastrip.js";
+import { creativeBriefSchema, referenceSchema } from "./brief.js";
+import { brandSchema } from "./branding.js";
+import { logoKitSchema, exportLogoKit } from "./logo.js";
+import { brandBoardSchema, createBrandBoard } from "./brandboard.js";
 
 const INLINE = process.env.GPT_IMAGE_INLINE === "1";
 
@@ -102,6 +106,9 @@ function ok(out: GenerateOutput, verb: string) {
   const text =
     `Image ${verb} via the ${out.backend} backend and ${pathLine}\n\n` +
     `Open/view to see (${out.bytes} bytes, ${out.format}${out.background === "transparent" ? ", transparent" : ""}).` +
+    (out.qa ? `\nActual dimensions: ${out.qa.width}x${out.qa.height}. Transparent pixels: ${(out.qa.transparentFraction * 100).toFixed(1)}%.${out.qa.warnings.length ? `\n${out.qa.warnings.join("\n")}` : ""}` : "") +
+    (out.contactSheet ? `\nContact sheet: ${out.contactSheet}` : "") +
+    (out.deliverable ? `\nDeliverable: ${out.deliverable}; this is raster artwork, including vector-like logo concepts.` : "") +
     (out.imageModel ? `\nRequested image model: ${out.imageModel}` : "") +
     (out.reportedImageModel ? `\nProvider-reported image model: ${out.reportedImageModel}` : "") +
     (out.preset ? `\nPreset: ${out.preset}${out.modifiers.length ? ` + [${out.modifiers.join(", ")}]` : ""}` : "") +
@@ -122,17 +129,11 @@ function fail(e: unknown) {
 
 const server = new McpServer({ name: "gpt-image", version: "0.5.0" });
 
-server.registerTool(
-  "generate_image",
-  {
-    title: "Generate image (ChatGPT subscription)",
-    description:
-      "Generate an image from text using the user's ChatGPT/Codex subscription (no API cost). " +
-      "PREFERRED USAGE: pass `subject` (what to depict) + `preset` (a curated style) + optional " +
-      "`modifiers` (lighting/mood/color/angle) + `style` (override any dimension). The tool compiles " +
-      "a professional prompt for you. Call list_image_presets first to see all presets. " +
-      "Alternatively pass a raw `prompt` for full manual control. Saves to disk, returns the path.",
-    inputSchema: {
+const generationSchema = {
+      brief: creativeBriefSchema.optional().describe("Structured creative brief; merged with project defaults. Exact lettering still belongs in style.text."),
+      references: z.array(referenceSchema).max(32).optional().describe("Role-specific image references. Palette/logo roles supply colors only and are not sent as artwork. At most 16 sent images."),
+      brand: brandSchema.optional().describe("Exact brand colors, font files and approved logo paths; otherwise discovered from .gptimage.json."),
+      contact_sheet: z.boolean().optional().describe("Write a labelled local review sheet of all returned concepts."),
       subject: z.string().optional().describe("What to depict, e.g. 'a matte black ceramic coffee mug'. Use with a preset."),
       preset: z
         .enum(PRESET_IDS as [string, ...string[]])
@@ -176,7 +177,19 @@ server.registerTool(
       output_path: z.string().optional().describe("Absolute file path (or a directory ending in /) to save to. Defaults to ./generated-images/."),
       backend: backendSchema.optional(),
       image_model: imageModelSchema.optional(),
-    },
+    };
+
+server.registerTool(
+  "generate_image",
+  {
+    title: "Generate image (ChatGPT subscription)",
+    description:
+      "Generate an image from text using the user's ChatGPT/Codex subscription (no API cost). " +
+      "PREFERRED USAGE: pass `subject` (what to depict) + `preset` (a curated style) + optional " +
+      "`modifiers` (lighting/mood/color/angle) + `style` (override any dimension). The tool compiles " +
+      "a professional prompt for you. Call list_image_presets first to see all presets. " +
+      "Alternatively pass a raw `prompt` for full manual control. Saves to disk, returns the path.",
+    inputSchema: generationSchema,
   },
   async (a) => {
     try {
@@ -184,6 +197,10 @@ server.registerTool(
         throw new Error("Provide `subject` (with an optional preset), a raw `prompt`, or `from_image`.");
       }
       const out = await generateImage({
+        brief: a.brief,
+        references: a.references,
+        brand: a.brand,
+        contactSheet: a.contact_sheet,
         subject: a.subject,
         preset: a.preset,
         modifiers: a.modifiers,
@@ -211,6 +228,51 @@ server.registerTool(
   },
 );
 
+server.registerTool("preview_image_request", {
+  title: "Preview an image request without spending quota",
+  description: "Resolve the project brand, reference roles, preset, brief and output settings using the same compiler as generation. Reads local inputs only; never reads credentials or calls a provider.",
+  inputSchema: generationSchema,
+}, async a => {
+  try {
+    const plan = await previewImageRequest({ subject: a.subject, prompt: a.prompt, preset: a.preset, modifiers: a.modifiers, style: a.style,
+      brief: a.brief, references: a.references, brand: a.brand, styleReference: a.style_reference, transparent: a.transparent,
+      background: a.background, count: a.count, series: a.series, contactSheet: a.contact_sheet, fromImage: a.from_image,
+      platform: a.platform, proof: a.proof, size: a.size, quality: a.quality, format: a.format, outputPath: a.output_path, backend: a.backend, imageModel: a.image_model });
+    return { content: [{ type: "text", text: JSON.stringify(plan, null, 2) }] };
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool("export_logo_kit", {
+  title: "Export a complete logo family from approved artwork",
+  description: "Local deterministic logo delivery: mark, wordmark, horizontal and stacked lockups in color/mono/inverse, PNG/WebP and genuine SVG when all inputs are vector. Font files produce outlined wordmarks. Includes web icons, social images, proof sheet and provenance manifest. Never calls an image provider.",
+  inputSchema: {
+    brand: brandSchema.optional(), mark_path: logoKitSchema.shape.markPath, wordmark_path: logoKitSchema.shape.wordmarkPath,
+    brand_name: logoKitSchema.shape.brandName, font_file: logoKitSchema.shape.fontPath, out_dir: logoKitSchema.shape.outDir,
+    base_name: logoKitSchema.shape.baseName, layouts: logoKitSchema.shape.layouts, variants: logoKitSchema.shape.variants,
+    formats: logoKitSchema.shape.formats, padding: logoKitSchema.shape.padding, social: logoKitSchema.shape.social, monochrome_mode: logoKitSchema.shape.monochromeMode,
+  },
+}, async a => {
+  try {
+    const result = await exportLogoKit({ brand: a.brand, markPath: a.mark_path, wordmarkPath: a.wordmark_path, brandName: a.brand_name,
+      fontPath: a.font_file, outDir: a.out_dir, baseName: a.base_name, layouts: a.layouts, variants: a.variants, formats: a.formats, padding: a.padding, social: a.social, monochromeMode: a.monochrome_mode });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool("create_brand_board", {
+  title: "Build an exact brand board and web color tokens",
+  description: "Compose a self-contained board from real logo artwork, declared colors, font-file outlines and supplied visual references. Editorial/grid layouts; PNG, SVG presentation, tokens and source manifest. Optional generate tiles spend sequential image usage only when explicitly supplied; those tiles never contain the final logo or labels.",
+  inputSchema: { brand: brandSchema.optional(), out_dir: brandBoardSchema.shape.outDir, layout: brandBoardSchema.shape.layout,
+    assets: brandBoardSchema.shape.assets, generate: brandBoardSchema.shape.generate, keywords: brandBoardSchema.shape.keywords,
+    quality: qualitySchema.optional(), backend: backendSchema.optional(), image_model: imageModelSchema.optional() },
+}, async a => {
+  try {
+    const result = await createBrandBoard({ brand: a.brand, outDir: a.out_dir, layout: a.layout, assets: a.assets, generate: a.generate,
+      keywords: a.keywords, quality: a.quality, backend: a.backend, imageModel: a.image_model });
+    return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+  } catch (e) { return fail(e); }
+});
+
 server.registerTool(
   "edit_image",
   {
@@ -221,6 +283,9 @@ server.registerTool(
       "Great for variations, restyling, background swaps, adding/removing elements. Output aspect " +
       "matches the first reference unless `size` is set. Saves to disk, returns the path.",
     inputSchema: {
+      brief: creativeBriefSchema.optional(),
+      references: z.array(referenceSchema).max(16).optional(),
+      preserve_unmasked: z.boolean().optional().describe("With a mask, preserve all opaque-mask pixels from the original exactly (default true). The saved edit is PNG at the original dimensions."),
       image_paths: z.array(z.string()).min(1).describe("Absolute path(s) to reference image(s). First is primary; extras are style/context references (up to 16)."),
       instruction: z.string().optional().describe("What to change, e.g. 'replace the background with a sunlit beach'."),
       mask_path: z
@@ -251,6 +316,9 @@ server.registerTool(
   async (a) => {
     try {
       const out = await editImage({
+        brief: a.brief,
+        references: a.references,
+        preserveUnmasked: a.preserve_unmasked,
         imagePaths: a.image_paths,
         instruction: a.instruction,
         maskPath: a.mask_path,
@@ -337,6 +405,7 @@ server.registerTool(
       transparent: z.boolean().optional().describe("Generate the source on a transparent background (recommended for favicon/appicon)."),
       out_dir: z.string().optional().describe("Output directory. Defaults to a ./web folder next to the source."),
       base_name: z.string().optional().describe("Base filename for the assets (default = kind)."),
+      fit: z.enum(["cover", "contain"]).optional().describe("Icon fit; contain preserves non-square artwork, cover keeps the existing crop behavior."),
       format: z.enum(["png", "jpeg", "webp"]).optional().describe("Preferred format for og/hero (icons are always png)."),
     },
   },
@@ -363,6 +432,7 @@ server.registerTool(
         kind: a.kind,
         outDir: a.out_dir,
         baseName: a.base_name,
+        fit: a.fit,
         format: a.format,
       });
       const list = res.files.map((f) => `  ${f.path}  (${f.width}x${f.height} ${f.format})`).join("\n");
@@ -430,7 +500,7 @@ const positionSchema = z.enum([
 
 // One logo shape, one mapper — used by compose_overlay AND create_social_card.
 const logoSchema = z.object({
-  path: z.string().describe("The REAL logo asset (png; svg not supported here)."),
+  path: z.string().describe("The REAL logo asset (PNG or a self-contained outlined SVG). SVG is rasterized at the target size."),
   position: positionSchema.optional().describe("Default bottom-center."),
   width_ratio: z.number().optional().describe("Logo width as a fraction of canvas width. Default 0.14."),
   opacity: z.number().min(0).max(1).optional(),
@@ -458,6 +528,7 @@ server.registerTool(
             text: z.string().describe("Literal copy — rendered exactly as given."),
             position: positionSchema.optional().describe("Default: first block center, later blocks bottom-center."),
             font_family: z.string().optional().describe("Installed font family, e.g. 'Inter', 'Playfair Display'. Falls back to system sans."),
+            font_file: z.string().optional().describe("Static TTF/OTF/WOFF file. Uses real glyph outlines and rejects missing characters; takes precedence over font_family."),
             font_size: z.number().int().optional().describe("Px. Default: canvasWidth/9 for the first block, /22 after."),
             font_weight: z.union([z.number(), z.string()]).optional().describe("Default 700."),
             color: z.string().optional().describe("CSS color / hex. Default #111111."),
@@ -489,6 +560,7 @@ server.registerTool(
           text: b.text,
           position: b.position,
           fontFamily: b.font_family,
+          fontFile: b.font_file,
           fontSize: b.font_size,
           fontWeight: b.font_weight,
           color: b.color,
@@ -526,6 +598,11 @@ server.registerTool(
       "construction, no proofing needed. Use instead of generate_image + style.text whenever the " +
       "copy must be exact (long copy, diacritics, brand fonts). Needs `sharp`.",
     inputSchema: {
+      brief: creativeBriefSchema.optional(),
+      references: z.array(referenceSchema).max(16).optional(),
+      brand: brandSchema.optional(),
+      headline_font_file: z.string().optional(),
+      subline_font_file: z.string().optional(),
       headline: z.string().describe("The headline copy — set verbatim."),
       accent_word: z.string().optional().describe("One word/phrase of the headline inked in the accent color."),
       accent_color: z.string().optional().describe("Accent hex. Default: dominant brand color from style refs, else wine #8b0f24."),
@@ -559,6 +636,11 @@ server.registerTool(
         subline: a.subline,
         headlinePosition: a.headline_position,
         headlineFont: a.headline_font,
+        headlineFontFile: a.headline_font_file,
+        sublineFontFile: a.subline_font_file,
+        brief: a.brief,
+        references: a.references,
+        brand: a.brand,
         sublineFont: a.subline_font,
         headlineColor: a.headline_color,
         sublineColor: a.subline_color,
@@ -596,6 +678,11 @@ server.registerTool(
       "is set deterministically (exact copy, real fonts). Slides generate sequentially — an " +
       "N-slide carousel costs N generations of the shared ChatGPT quota. Needs `sharp`.",
     inputSchema: {
+      brief: creativeBriefSchema.optional(),
+      references: z.array(referenceSchema).max(16).optional(),
+      brand: brandSchema.optional(),
+      headline_font_file: z.string().optional(),
+      subline_font_file: z.string().optional(),
       slides: z
         .array(
           z.object({
@@ -633,6 +720,11 @@ server.registerTool(
         accentColor: a.accent_color,
         headlinePosition: a.headline_position,
         headlineFont: a.headline_font,
+        headlineFontFile: a.headline_font_file,
+        sublineFontFile: a.subline_font_file,
+        brief: a.brief,
+        references: a.references,
+        brand: a.brand,
         sublineFont: a.subline_font,
         headlineColor: a.headline_color,
         sublineColor: a.subline_color,

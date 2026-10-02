@@ -1,0 +1,15 @@
+{
+  "brand": {
+    "name": "NORTHLINE",
+    "colors": [
+      { "name": "Pine", "role": "primary", "hex": "#234D3C" },
+      { "name": "Ink", "role": "ink", "hex": "#1C2821" },
+      { "name": "Paper", "role": "paper", "hex": "#F4F0E6" },
+      { "name": "Marigold", "role": "accent", "hex": "#F1B954" }
+    ],
+    "fonts": { "heading": { "path": "./brand-font.ttf" } },
+    "logos": { "mark": "./brand-mark.svg", "monoDark": "./brand-mark-mono.svg", "monoLight": "./brand-mark-inverse.svg" }
+  },
+  "brandName": "NORTHLINE",
+  "outDir": "../../generated-images/fixture-kit"
+}

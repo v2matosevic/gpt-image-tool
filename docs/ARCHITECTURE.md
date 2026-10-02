@@ -39,6 +39,10 @@ inline copy too.
 | `imageops.ts` | Resize / fit / `.ico` / save (+ optional `sharp`); background-cutout helper. |
 | `webassets.ts` | Web-asset recipes (favicon / og / hero / appicon). |
 | `profile.ts` | Discover + load the `.gptimage.json` brand profile. |
+| `brief.ts` / `branding.ts` | Validated creative briefs, reference roles and exact brand settings. |
+| `font.ts` / `vector.ts` | Static font outlines, glyph coverage and a bounded self-contained SVG contract. |
+| `logo.ts` / `brandboard.ts` | Local logo families, web/social kit, exact board composition and tokens. |
+| `imageqa.ts` / `contactsheet.ts` | Actual size/alpha/color diagnostics, small-icon measurements and review sheets. |
 | `imageinfo.ts` | Dependency-free PNG/JPEG/WebP dimension reader. |
 | `mcp.ts` / `cli.ts` | The two entry points (MCP stdio server / CLI). |
 
@@ -110,6 +114,24 @@ jpeg/webp input and encode jpeg/webp output, otherwise it falls back to PNG.
 - **Single-flight refresh**: see above.
 
 ## Testing
+
+The branding path shares one request compiler between preview and generation.
+Preview performs no authentication or network work. Profile colors supersede old
+profile style hints; explicit call overrides remain authoritative. Sent references
+receive numbered roles; palette/logo references supply colors without leaking their
+artwork into a scene. Sidecars capture the resolved brand, source roles, font/artwork
+hashes and actual output measurements. [Full contract](BRANDING.md).
+
+Font files produce paths through opentype.js. SVG parsing uses xmldom with explicit
+rejection of active/external/font-dependent content. SVG rasterization uses sharp
+at the output size. Raster-only sources never produce SVG logo deliverables.
+Monochrome conversion is conservative for multicolor marks; supplied mono artwork
+takes precedence. Layout extents derive from the source ink geometry.
+
+Mask preservation composites through alpha in local RGBA at original dimensions.
+Opaque-mask pixels are copied exactly; a failed preservation transform fails the
+operation rather than silently returning a whole-frame redraw. Chroma key failures
+still preserve the provider's original result and report actual alpha afterward.
 
 `npm test` builds, then runs `node:test` over `test/*.test.ts` (zero extra deps). Coverage is on the
 deterministic core that needs no quota: the SSE parser, auth/version/JWT logic, the refresh lock, the

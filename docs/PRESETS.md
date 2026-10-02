@@ -1,6 +1,6 @@
 # Preset & modifier catalog
 
-_Auto-generated from `src/presets/lib/*.ts` — 70 presets, 23 modifiers. Regenerate with `npm run docs:presets`._
+_Auto-generated from `src/presets/lib/*.ts` — 77 presets, 23 modifiers. Regenerate with `npm run docs:presets`._
 
 Call `generate_image({ subject, preset })` with any `id` below. Recommended size/quality/format are applied unless you override them. `T` = defaults to a transparent background.
 
@@ -49,7 +49,7 @@ Call `generate_image({ subject, preset })` with any `id` below. Recommended size
 | id | title | description | recommended |
 |---|---|---|---|
 | `app-icon` | App icon | Polished rounded-square app icon with depth. iOS/Android/store-ready look. | 1024x1024 · high · png |
-| `logo-mark` | Logo mark | Minimal vector logo symbol on transparent background. Brand marks, favicons. | 1024x1024 · high · png · **T** |
+| `logo-mark` | Logo mark | Minimal logo-symbol raster concept on transparent background. Export approved artwork with export_logo_kit; vector-like appearance is not SVG. | 1024x1024 · high · png · **T** |
 | `ui-mockup` | UI / app screen mockup | Clean modern app or dashboard screen for portfolios and concept presentations. | 1024x1536 · high · png |
 | `hero-banner` | Website hero banner | Wide abstract/illustrated hero background for landing pages. | 1536x1024 · high · png |
 | `social-card` | Social / OG card | Eye-catching square or landscape social graphic with room for a headline. | 1536x1024 · high · png |
@@ -108,6 +108,18 @@ Call `generate_image({ subject, preset })` with any `id` below. Recommended size
 | `social-image-led` | Image-led campaign card | Campaign-grade art-directed photography carries the slide; a restrained bold type lockup sits in the negative space. Perfume/spirits-ad quality. The caller supplies the hero metaphor + headline. | 1024x1536 · high · png |
 | `concept-hero` | Editorial concept hero (textless metaphor) | A single art-directed real-photography hero object as a metaphor, with empty space for an optional overlay. gpt-image's sweet spot: no brand assets, no risky text. | 1024x1536 · high · png |
 | `social-bg-plate` | Social card BACKGROUND plate (no text) | A premium text-free background plate to sit UNDER type set deterministically (compose_overlay / create_social_card, or an external compositor). Restrained art confined to one zone, the rest clean for a headline overlay. | 1024x1536 · high · png |
+
+## branding (7)
+
+| id | title | description | recommended |
+|---|---|---|---|
+| `logo-wordmark` | Wordmark | Wordmark raster concept. Approved artwork or font outlines supply the final vector master. | 1024x1024 · high · png · **T** |
+| `logo-monogram` | Monogram | Monogram raster concept. Approved artwork or font outlines supply the final vector master. | 1024x1024 · high · png · **T** |
+| `logo-emblem` | Emblem | Emblem raster concept. Approved artwork or font outlines supply the final vector master. | 1024x1024 · high · png · **T** |
+| `logo-combination` | Combination mark | Combination mark raster concept. Approved artwork or font outlines supply the final vector master. | 1024x1024 · high · png · **T** |
+| `logo-mascot` | Mascot logo | Mascot logo raster concept. Approved artwork or font outlines supply the final vector master. | 1024x1024 · high · png · **T** |
+| `brand-material` | Brand material study | Text-free material and light direction for a branding mood board. | 1536x1024 · high · png |
+| `brand-pattern` | Brand pattern | A repeat-inspired raster pattern concept; seamless tiling must be checked separately. | 1024x1024 · high · png |
 
 ## Modifiers (23)
 

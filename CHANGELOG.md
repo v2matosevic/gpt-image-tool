@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Add quota-free request preview, structured creative briefs, role-specific references, and exact project brand settings.
+- Add local logo kits with supplied vector artwork, explicitly requested outlined wordmarks, approved mono variants, web/app/social assets and review sheets.
+- Add exact editorial/grid brand boards with font specimens, color measurements, source manifests and CSS/JSON tokens.
+- Add seven branding presets and concept contact sheets. Label generated logo concepts as raster.
+- Support static font files and outlined SVG logos in overlays/social workflows; preflight font coverage before generating boards/carousels.
+- Preserve original pixels outside masked edits by default; report actual output dimensions/format/alpha and diagnostic checks.
+- Fix transparent-edge darkening in scaling/compositing; preserve non-square icons with an optional contain fit.
+- Update compatible fast-uri and ip-address transitive dependencies to address reported advisories.
+
 ## 0.5.0, 2026-09-10
 
 - Update `sharp` to 0.35.4 or newer within its compatible patch range, addressing its bundled libheif security advisory (GHSA-rgj7-g3m4-5g8c).

@@ -5,7 +5,7 @@ catalog and [ARCHITECTURE.md](./ARCHITECTURE.md) for internals.
 
 ## Model selection (v0.5.0)
 
-All seven tools that can generate images accept `image_model`: `auto`, `flare`, `sunburst`, `gpt-image-2.5-flare`, or `gpt-image-2.5-sunburst`. For `export_web_assets` this applies only when generating the source; for `remove_background` only with `use_model: true`. Both also accept an explicit `backend`; generated web sources accept `quality`.
+All eight tools that can generate images accept `image_model`: `auto`, `flare`, `sunburst`, `gpt-image-2.5-flare`, or `gpt-image-2.5-sunburst`. For `export_web_assets` this applies only when generating the source; for `remove_background` only with `use_model: true`; for `create_brand_board` only when `generate` tiles are requested. All accept an explicit `backend`; generated web sources and board tiles also accept `quality`.
 
 Use `backend: "apikey"` to select a renderer, with separate API billing and `OPENAI_API_KEY`. Flare prioritizes speed; Sunburst prioritizes editing precision. Subscription only supports `auto`; a named renderer is rejected before requests. No fallback switches billing. `auto` uses the built-in API default (Sunburst) or the subscription server's selection; omitting the field inherits project/sidecar/environment defaults.
 
@@ -15,7 +15,15 @@ CLI equivalents: `--backend apikey --image-model flare` or `--image-model sunbur
 
 ## MCP tools
 
-The server exposes ten tools. All image-producing tools **save to disk and return the path(s)**.
+The current source exposes thirteen tools. All image-producing tools **save to disk and return the path(s)**. The three branding tools and new fields below are unreleased source additions; the v0.5.0 tag retains its previous tool set.
+
+### Branding tools
+
+`preview_image_request` accepts the same arguments as `generate_image` and returns the compiled request, reference roles, palette source and attempt bounds without provider access. `export_logo_kit` creates local logo families and website/social files from supplied artwork. `create_brand_board` composes exact color/font/logo boards with optional generated tiles. See the [complete branding contract and examples](BRANDING.md).
+
+New generation fields: `brief`, `references`, `brand`, and `contact_sheet`. Reference roles are `subject`, `style`, `photography`, `texture`, `composition`, `palette`, and `logo`; the last two supply only colors. Sidecars and results report actual dimensions, alpha and diagnostic checks. `edit_image` accepts `brief`, `references`, and `preserve_unmasked` (true by default with a mask, preserving original pixels outside the editable region).
+
+`compose_overlay.blocks[].font_file` and the social tools' `headline_font_file` / `subline_font_file` use static TTF/OTF/WOFF outlines, with explicit missing-glyph errors. Social tools also accept `brief`, `references`, and `brand`. SVG overlay logos are supported. `export_web_assets.fit` may be `cover` (existing default) or `contain` for icons.
 
 ### `generate_image`
 Text-to-image via the preset compiler (or a raw prompt).
@@ -98,7 +106,7 @@ plate (`social-bg-plate` / `concept-hero`), set the headline here. Text rasteriz
 |---|---|---|
 | `image_path` | string | The plate to composite onto. **Required.** |
 | `blocks` | object[] | `{ text, position, font_family, font_size, font_weight, color, accent_word, accent_color, scrim, letter_spacing, line_height, max_width_ratio, uppercase }`. Positions: `top/center/bottom` × `left/center/right`. `accent_word` inks one word of the text in `accent_color`. `scrim` omitted = **auto legibility guard**: contrast under the block is measured and a soft plate is slipped behind type below 2.5:1. |
-| `logo` | object | `{ path, position, width_ratio (default 0.14), opacity }` — the real PNG asset, never model-drawn. |
+| `logo` | object | `{ path, position, width_ratio (default 0.14), opacity }` — the real PNG or self-contained outlined SVG asset, never model-drawn. |
 | `platform` | enum | Keep overlays inside this platform's UI safe areas. |
 | `output_path` | string | Default `<image>-final.png`. |
 | `format` | enum | `png` (default) \| `jpeg` \| `webp`. |
@@ -157,6 +165,8 @@ gpt-image "<prompt>" [options]                      # raw prompt
 gpt-image --subject "<thing>" --preset <id> [...]   # compiled
 gpt-image --upscale <path> | --edit <path> | --web <kind> | --remove-bg <path>
 gpt-image --presets [category] | --check
+gpt-image --subject "<thing>" --preview [--brief brief.json]
+gpt-image --logo-kit kit.json | --brand-board board.json
 ```
 
 | flag | meaning |
@@ -189,8 +199,8 @@ CLI prints the saved path(s) to **stdout**; status/errors to **stderr**.
 ## Project brand profile — `.gptimage.json`
 
 Placed at a project root; auto-found by walking up from `CLAUDE_PROJECT_DIR` / cwd. Applied as
-defaults to every `generate_image` (per-call args override). Edits/upscales inherit only `outputDir`
-and `backend`. Paths resolve relative to the profile's own location.
+defaults to every `generate_image` (per-call args override). Edits/upscales inherit the operational
+defaults `outputDir`, `backend`, and `imageModel`. Paths resolve relative to the profile's own location.
 
 ```jsonc
 {

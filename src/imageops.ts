@@ -40,11 +40,15 @@ function isPng(buf: Buffer): boolean {
 /** Load any image to RGBA. PNG works dependency-free; jpeg/webp need `sharp` installed. */
 export async function loadRGBA(path: string): Promise<RGBA> {
   const buf = await readFile(path);
+  return decodeRGBA(buf);
+}
+
+export async function decodeRGBA(buf: Buffer): Promise<RGBA> {
   if (isPng(buf)) return decodePng(buf);
   const sharp = await loadSharp();
   if (!sharp) {
     throw new Error(
-      `Only PNG input is supported without \`sharp\`. Got a non-PNG file (${path}). ` +
+      `Only PNG input is supported without \`sharp\`. Got a non-PNG image. ` +
         `Generate as PNG, or run \`npm i sharp\` to enable jpeg/webp input.`,
     );
   }
@@ -54,6 +58,7 @@ export async function loadRGBA(path: string): Promise<RGBA> {
 
 /** Resample to exact w×h. Area-average for downscale (crisp), bilinear for upscale. */
 export function resizeRGBA(src: RGBA, dw: number, dh: number): RGBA {
+  if (![dw, dh].every(n => Number.isInteger(n) && n > 0) || dw * dh > 40_000_000) throw new Error("Invalid raster dimensions (maximum 40 million pixels).");
   if (dw === src.width && dh === src.height) return { ...src, data: Buffer.from(src.data) };
   const dst = Buffer.alloc(dw * dh * 4);
   const sxr = src.width / dw;
@@ -63,25 +68,21 @@ export function resizeRGBA(src: RGBA, dw: number, dh: number): RGBA {
   if (upscaling) {
     // Bilinear.
     for (let dy = 0; dy < dh; dy++) {
-      const fy = Math.min(src.height - 1, (dy + 0.5) * syr - 0.5);
+      const fy = Math.max(0, Math.min(src.height - 1, (dy + 0.5) * syr - 0.5));
       const y0 = Math.max(0, Math.floor(fy));
       const y1 = Math.min(src.height - 1, y0 + 1);
       const wy = fy - y0;
       for (let dx = 0; dx < dw; dx++) {
-        const fx = Math.min(src.width - 1, (dx + 0.5) * sxr - 0.5);
+        const fx = Math.max(0, Math.min(src.width - 1, (dx + 0.5) * sxr - 0.5));
         const x0 = Math.max(0, Math.floor(fx));
         const x1 = Math.min(src.width - 1, x0 + 1);
         const wx = fx - x0;
         const o = (dy * dw + dx) * 4;
-        for (let c = 0; c < 4; c++) {
-          const p00 = src.data[(y0 * src.width + x0) * 4 + c]!;
-          const p10 = src.data[(y0 * src.width + x1) * 4 + c]!;
-          const p01 = src.data[(y1 * src.width + x0) * 4 + c]!;
-          const p11 = src.data[(y1 * src.width + x1) * 4 + c]!;
-          const top = p00 + (p10 - p00) * wx;
-          const bot = p01 + (p11 - p01) * wx;
-          dst[o + c] = Math.round(top + (bot - top) * wy);
-        }
+        const samples = [[(y0 * src.width + x0) * 4, (1 - wx) * (1 - wy)], [(y0 * src.width + x1) * 4, wx * (1 - wy)],
+          [(y1 * src.width + x0) * 4, (1 - wx) * wy], [(y1 * src.width + x1) * 4, wx * wy]];
+        const alpha = samples.reduce((sum, [s, w]) => sum + src.data[s! + 3]! * w!, 0);
+        dst[o + 3] = Math.round(alpha);
+        for (let c = 0; c < 3; c++) dst[o + c] = alpha > 0 ? Math.round(samples.reduce((sum, [s, w]) => sum + src.data[s! + c]! * src.data[s! + 3]! * w!, 0) / alpha) : 0;
       }
     }
     return { width: dw, height: dh, data: dst };
@@ -102,12 +103,13 @@ export function resizeRGBA(src: RGBA, dw: number, dh: number): RGBA {
       for (let y = y0; y < y1; y++) {
         for (let x = x0; x < x1; x++) {
           const s = (y * src.width + x) * 4;
-          const af = src.data[s + 3]! / 255;
+          const weight = (Math.min(x + 1, (dx + 1) * sxr) - Math.max(x, dx * sxr)) * (Math.min(y + 1, (dy + 1) * syr) - Math.max(y, dy * syr));
+          const af = src.data[s + 3]! / 255 * weight;
           r += src.data[s]! * af;
           g += src.data[s + 1]! * af;
           b += src.data[s + 2]! * af;
-          a += src.data[s + 3]!;
-          n++;
+          a += src.data[s + 3]! * weight;
+          n += weight;
         }
       }
       const o = (dy * dw + dx) * 4;
@@ -129,7 +131,7 @@ function blank(w: number, h: number, bg?: [number, number, number, number]): RGB
 }
 
 /** Composite `src` onto `dst` at (ox,oy) with simple source-over. */
-function blit(dst: RGBA, src: RGBA, ox: number, oy: number): void {
+export function blitOver(dst: RGBA, src: RGBA, ox: number, oy: number): void {
   for (let y = 0; y < src.height; y++) {
     const dy = oy + y;
     if (dy < 0 || dy >= dst.height) continue;
@@ -139,8 +141,11 @@ function blit(dst: RGBA, src: RGBA, ox: number, oy: number): void {
       const s = (y * src.width + x) * 4;
       const d = (dy * dst.width + dx) * 4;
       const sa = src.data[s + 3]! / 255;
-      for (let c = 0; c < 3; c++) dst.data[d + c] = Math.round(src.data[s + c]! * sa + dst.data[d + c]! * (1 - sa));
-      dst.data[d + 3] = Math.max(dst.data[d + 3]!, src.data[s + 3]!);
+      if (sa === 0) continue;
+      const da = dst.data[d + 3]! / 255;
+      const oa = sa + da * (1 - sa);
+      for (let c = 0; c < 3; c++) dst.data[d + c] = Math.round((src.data[s + c]! * sa + dst.data[d + c]! * da * (1 - sa)) / oa);
+      dst.data[d + 3] = Math.round(oa * 255);
     }
   }
 }
@@ -153,7 +158,23 @@ export function fitTo(src: RGBA, dw: number, dh: number, fit: Fit = "cover", bg?
   const rh = Math.max(1, Math.round(src.height * scale));
   const scaled = resizeRGBA(src, rw, rh);
   const out = blank(dw, dh, fit === "contain" ? bg ?? [0, 0, 0, 0] : undefined);
-  blit(out, scaled, Math.round((dw - rw) / 2), Math.round((dh - rh) / 2));
+  blitOver(out, scaled, Math.round((dw - rw) / 2), Math.round((dh - rh) / 2));
+  return out;
+}
+
+/** Transparent mask pixels are editable; opaque pixels remain byte-identical to the original. */
+export function compositeMasked(original: RGBA, generated: RGBA, mask: RGBA): RGBA {
+  if (mask.width !== original.width || mask.height !== original.height) throw new Error("Mask dimensions must match the original.");
+  const edit = resizeRGBA(generated, original.width, original.height);
+  const out = { ...original, data: Buffer.from(original.data) };
+  for (let i = 0; i < out.data.length; i += 4) {
+    const mix = 1 - mask.data[i + 3]! / 255;
+    if (mix === 0) continue;
+    if (mix === 1) { edit.data.copy(out.data, i, i, i + 4); continue; }
+    const oa = original.data[i + 3]! * (1 - mix), ea = edit.data[i + 3]! * mix;
+    for (let c = 0; c < 3; c++) out.data[i + c] = oa + ea ? Math.round((original.data[i + c]! * oa + edit.data[i + c]! * ea) / (oa + ea)) : 0;
+    out.data[i + 3] = Math.round(oa + ea);
+  }
   return out;
 }
 

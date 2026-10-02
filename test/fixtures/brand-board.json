@@ -1,0 +1,16 @@
+{
+  "brand": {
+    "name": "NORTHLINE",
+    "tagline": "Material, light and considered form",
+    "colors": [
+      { "name": "Pine", "role": "primary", "hex": "#234D3C" },
+      { "name": "Ink", "role": "ink", "hex": "#1C2821" },
+      { "name": "Paper", "role": "paper", "hex": "#F4F0E6" }
+    ],
+    "fonts": { "heading": { "path": "./brand-font.ttf" } },
+    "logos": { "mark": "./brand-mark.svg" }
+  },
+  "assets": [{ "path": "./brand-mark.svg", "label": "Approved source artwork", "fit": "contain" }],
+  "keywords": ["Grounded", "Precise", "Warm"],
+  "outDir": "../../generated-images/fixture-board"
+}

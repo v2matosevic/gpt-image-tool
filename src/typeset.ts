@@ -6,8 +6,11 @@
 // would otherwise sink into a busy or same-tone region.
 
 import { extname } from "node:path";
-import { loadRGBA, loadSharp, resizeRGBA, saveImage, type OutFormat, type RGBA } from "./imageops.js";
+import { loadRGBA, loadSharp, resizeRGBA, saveImage, blitOver, decodeRGBA, type OutFormat, type RGBA } from "./imageops.js";
 import { getPlatform, type SafeInsets } from "./platforms.js";
+import { loadOutlineFont, outlineText, wrapOutlineText, type OutlineFont } from "./font.js";
+import { loadArtwork, placeArtwork } from "./logo.js";
+import { rasterizeSvg, svgDocument } from "./vector.js";
 
 export type OverlayPosition =
   | "top-left"
@@ -26,6 +29,8 @@ export interface TextBlock {
   position?: OverlayPosition;
   /** Font family; must be installed on this machine (falls back to system sans). */
   fontFamily?: string;
+  /** Static TTF/OTF/WOFF file. Uses actual outlines and rejects missing glyphs. */
+  fontFile?: string;
   /** Px. Default: 1/9 of canvas width for the first block, 1/22 for later blocks. */
   fontSize?: number;
   fontWeight?: number | string;
@@ -163,6 +168,20 @@ export function layoutBlock(b: TextBlock, canvasW: number, canvasH: number, inde
   return { lines, fontSize, lineH, x: pos.x, anchor: pos.anchor, top: pos.top, estWidth, height };
 }
 
+export function layoutFontBlock(b: TextBlock, font: OutlineFont, canvasW: number, canvasH: number, index: number, insets: SafeInsets): BlockLayout {
+  const fontSize = b.fontSize ?? Math.round(canvasW / (index === 0 ? 9 : 22));
+  const lineH = Math.round(fontSize * (b.lineHeight ?? 1.12));
+  const maxWidth = canvasW * (b.maxWidthRatio ?? 0.86) - canvasW * (insets.left + insets.right);
+  if (maxWidth <= 0) throw new Error("No width remains for this text block inside the platform safe area.");
+  const text = b.uppercase ? b.text.toUpperCase() : b.text;
+  const lines = wrapOutlineText(font, text, fontSize, maxWidth, b.letterSpacing);
+  const height = lines.length * lineH;
+  if (height > canvasH * (1 - insets.top - insets.bottom) - Math.min(canvasW, canvasH) * 0.12) throw new Error("Font-file text does not fit vertically. Reduce font_size or shorten the block.");
+  const pos = place(b.position ?? (index === 0 ? "center" : "bottom-center"), canvasW, canvasH, height, insets);
+  const estWidth = Math.max(...lines.map(line => font.font.getAdvanceWidth(line, fontSize, { kerning: true, letterSpacing: (b.letterSpacing ?? 0) / fontSize })));
+  return { lines, fontSize, lineH, ...pos, estWidth, height };
+}
+
 /** The block's bounding box in canvas pixels (clamped), derived from its anchor + estimate. */
 export function blockBox(l: BlockLayout, canvasW: number, canvasH: number): { x0: number; y0: number; x1: number; y1: number } {
   // Widen the estimate a further 8% — a scrim that clips the last glyph is worse than one a
@@ -283,28 +302,6 @@ export function buildOverlaySvg(
   return svgFromLayouts(blocks, layouts, canvasW, canvasH, scrims);
 }
 
-/** Composite `src` over `dst` at (ox,oy), straight source-over. */
-function blitOver(dst: RGBA, src: RGBA, ox: number, oy: number): void {
-  for (let y = 0; y < src.height; y++) {
-    const dy = oy + y;
-    if (dy < 0 || dy >= dst.height) continue;
-    for (let x = 0; x < src.width; x++) {
-      const dx = ox + x;
-      if (dx < 0 || dx >= dst.width) continue;
-      const s = (y * src.width + x) * 4;
-      const d = (dy * dst.width + dx) * 4;
-      const sa = src.data[s + 3]! / 255;
-      if (sa === 0) continue;
-      const da = dst.data[d + 3]! / 255;
-      const oa = sa + da * (1 - sa);
-      for (let c = 0; c < 3; c++) {
-        dst.data[d + c] = Math.round((src.data[s + c]! * sa + dst.data[d + c]! * da * (1 - sa)) / (oa || 1));
-      }
-      dst.data[d + 3] = Math.round(oa * 255);
-    }
-  }
-}
-
 function scaleAlpha(img: RGBA, opacity: number): RGBA {
   const out = { ...img, data: Buffer.from(img.data) };
   for (let i = 3; i < out.data.length; i += 4) out.data[i] = Math.round(out.data[i]! * opacity);
@@ -341,7 +338,8 @@ export async function composeOverlay(input: ComposeOverlayInput): Promise<Compos
       throw new Error("compose_overlay text needs `sharp` installed (`npm i sharp`) to rasterize SVG type.");
     }
     // Legibility guard: one layout pass; measure contrast under each block, decide scrims, render.
-    const layouts = blocks.map((b, i) => layoutBlock(b, base.width, base.height, i, insets));
+    const fonts = await Promise.all(blocks.map(b => b.fontFile ? loadOutlineFont(b.fontFile) : undefined));
+    const layouts = blocks.map((b, i) => fonts[i] ? layoutFontBlock(b, fonts[i]!, base.width, base.height, i, insets) : layoutBlock(b, base.width, base.height, i, insets));
     const scrims = blocks.map((b, i) => {
       if (b.scrim != null) return b.scrim;
       const contrast = regionContrast(base, blockBox(layouts[i]!, base.width, base.height), colorLuminance(b.color, 0.05));
@@ -353,7 +351,26 @@ export async function composeOverlay(input: ComposeOverlayInput): Promise<Compos
       }
       return false;
     });
-    const svg = svgFromLayouts(blocks, layouts, base.width, base.height, scrims);
+    const parts: string[] = [];
+    for (const [i, b] of blocks.entries()) {
+      const l = layouts[i]!;
+      if (!b.fontFile) { parts.push(blockSvg(b, l, scrims[i]!, base.width, base.height)); continue; }
+      const font = fonts[i]!;
+      if (scrims[i]) {
+        const box = blockBox(l, base.width, base.height);
+        parts.push(`<rect x="${box.x0}" y="${box.y0}" width="${box.x1 - box.x0}" height="${box.y1 - box.y0}" fill="${colorLuminance(b.color, 0.05) < 0.5 ? "#FFFFFF" : "#000000"}" opacity="0.62"/>`);
+      }
+      for (const [lineIndex, line] of l.lines.entries()) {
+        if (!line.trim()) continue;
+        const outline = outlineText(font, line, b.color ?? "#111111", l.fontSize, { tracking: b.letterSpacing, accentWord: b.uppercase ? b.accentWord?.toUpperCase() : b.accentWord, accentColor: b.accentColor });
+        const scale = 1;
+        const left = l.x - (l.anchor === "end" ? outline.width * scale : l.anchor === "middle" ? outline.width * scale / 2 : 0);
+        const top = l.top + lineIndex * l.lineH + (font.font.ascender / font.font.unitsPerEm * l.fontSize + outline.bearingY) * scale;
+        parts.push(`<g transform="translate(${left} ${top}) scale(${scale})">${outline.body}</g>`);
+      }
+      notes.push(`Text outlined from ${font.name}; font SHA-256 ${font.sha256}.`);
+    }
+    const svg = svgDocument(parts.join(""), base.width, base.height);
     const { data, info } = await sharp(Buffer.from(svg), { density: 72 })
       .ensureAlpha()
       .raw()
@@ -367,8 +384,9 @@ export async function composeOverlay(input: ComposeOverlayInput): Promise<Compos
 
   // 2. Logo: dependency-free resize + alpha blit of the REAL asset.
   if (input.logo) {
-    const raw = await loadRGBA(input.logo.path);
     const targetW = Math.max(1, Math.round(base.width * (input.logo.widthRatio ?? 0.14)));
+    const art = extname(input.logo.path).toLowerCase() === ".svg" ? await loadArtwork(input.logo.path, "overlay-logo") : undefined;
+    const raw = art ? await decodeRGBA(await rasterizeSvg(svgDocument(placeArtwork(art, 0, 0, targetW, Math.max(1, Math.round(targetW * art.height / art.width))), targetW, Math.max(1, Math.round(targetW * art.height / art.width))))) : await loadRGBA(input.logo.path);
     const targetH = Math.max(1, Math.round(raw.height * (targetW / raw.width)));
     let logo = resizeRGBA(raw, targetW, targetH);
     if (input.logo.opacity != null && input.logo.opacity < 1) logo = scaleAlpha(logo, Math.max(0, input.logo.opacity));

@@ -59,14 +59,18 @@ Installation is from source. There is no official npm release of this project ye
 
 ## What you can do
 
-- Generate from a prompt or choose from **70 presets** and 23 modifiers.
+- Generate from a prompt or choose from **77 presets** and 23 modifiers.
 - Edit with reference images, restyle, and use masks for targeted changes.
 - Make related assets with style references, project brand profiles, and series.
 - Export favicons, Open Graph cards, responsive hero images, and app icons locally.
 - Create transparent cutouts, with a local keyer for clean backgrounds.
 - Set exact text and real logos on generated plates; build social cards and carousels.
+- Preview image requests without quota, assign reference roles, and keep exact brand colors and font files in a project profile.
+- Explore six logo forms, export approved artwork as website/social kits, and compose exact branding boards. [Branding workflow](docs/BRANDING.md).
 
-The ten MCP tools are `generate_image`, `edit_image`, `upscale_image`, `export_web_assets`, `remove_background`, `compose_overlay`, `create_social_card`, `create_social_carousel`, `strip_image_metadata`, and `list_image_presets`. [Every parameter →](docs/TOOLS.md)
+The thirteen MCP tools are `generate_image`, `preview_image_request`, `edit_image`, `upscale_image`, `export_web_assets`, `export_logo_kit`, `create_brand_board`, `remove_background`, `compose_overlay`, `create_social_card`, `create_social_carousel`, `strip_image_metadata`, and `list_image_presets`. [Every parameter →](docs/TOOLS.md)
+
+The branding additions are available in this source checkout. They are not part of the existing v0.5.0 tag. Build the checkout and reconnect MCP to load them. Generated logo concepts remain raster; SVG logo delivery requires supplied vectors or explicitly requested font outlines.
 
 ## Choose an Image 2.5 model
 

@@ -5,6 +5,13 @@ returned in the `playbook` field of `list_image_presets`.
 
 ## The loop
 
+For brand work, read [BRANDING.md](BRANDING.md). Use `preview_image_request` before
+an expensive batch. Explore logo forms with the branding presets and a contact
+sheet, then use `export_logo_kit` with the chosen artwork. A raster concept is not
+an SVG master, and `brand.name` never authorizes re-typesetting an existing logo.
+Use `create_brand_board` to combine the real identity, exact font-file specimens,
+palette and image references. Supplied tiles are local; `generate` is explicit.
+
 1. **Pick a preset.** Call `list_image_presets` (optionally `category`) and choose the `id` that fits
    the goal. Don't hand-write a prompt — the preset compiler produces a better one from `subject` +
    `preset`.
@@ -37,6 +44,9 @@ For the explicit `apikey` backend, use `image_model: "flare"` for faster drafts 
 | A social post for a specific platform | `generate_image` + `platform` (native size + safe areas) |
 | A headline/logo that must be EXACT | `create_social_card` (one call: plate + exact type + logo) — or plate preset → `compose_overlay` for full control |
 | A coherent multi-slide carousel | `create_social_carousel` (slide 1's plate anchors the set) |
+| Inspect the request without quota | `preview_image_request` |
+| Logo family, true vector wordmark, website/social package | `export_logo_kit` |
+| Exact brand board, font specimens, palette and tokens | `create_brand_board` |
 
 ## Quality tips
 
@@ -54,6 +64,11 @@ For the explicit `apikey` backend, use `image_model: "flare"` for faster drafts 
   and anchored in the prompt (and reported back as `Brand palette:` in the result).
 - **Don't over-stack** conflicting modifiers (e.g. `photoreal` on a `flat-vector` preset) — pick a
   coherent direction.
+- **Preserve identity:** pass dedicated `monoDark` / `monoLight` assets for multicolor logos.
+  Flattening every color into one ink can erase important interior shapes. Font-file typesetting
+  creates a new name only when explicitly requested. Review both light and dark versions.
+- **Masked edits:** opaque mask pixels stay byte-identical to the original by default. The mask's
+  alpha supplies the transition. `preserve_unmasked: false` deliberately returns the full redraw.
 - **Web assets:** generate the source at high quality first (the tool auto-picks 2K for hero/og),
   then `export_web_assets` downsamples crisply. For favicons, generate a *simple* mark (e.g.
   `logo-mark`) — fine detail won't survive at 16px.
