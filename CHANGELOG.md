@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 - 2026-10-03
 
 - Add quota-free request preview, structured creative briefs, role-specific references, and exact project brand settings.
 - Add local logo kits with supplied vector artwork, explicitly requested outlined wordmarks, approved mono variants, web/app/social assets and review sheets.

@@ -4,6 +4,11 @@ Agreed on 2026-10-02 by Codex and Claude Opus 5.5 at Marko's request.
 Codex implements; Opus critiques the plan and reviews code and sample files.
 The detailed public contracts are in [BRANDING.md](BRANDING.md).
 
+Release follow-up, 2026-10-03: Marko authorized documentation, publication and
+updating the local installation. The original implementation handoff below remains
+dated evidence; current delivery status belongs in
+[RELEASE-VERIFICATION.md](RELEASE-VERIFICATION.md).
+
 ## Intended outcome
 
 Give an agent a complete path from image direction and logo exploration to reusable

@@ -35,3 +35,6 @@ auth.json.*
 !docs/launch/*.png
 !docs/launch/*.jpg
 !docs/launch/*.webp
+
+# Clipboard images pasted into terminals
+.clipboard-images/

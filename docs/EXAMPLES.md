@@ -96,6 +96,33 @@ Generate a text-free plate, then use `compose_overlay`:
 
 This uses local font rendering rather than asking a model to spell the headline. Inspect line breaks, contrast, and glyph coverage. `create_social_card` combines plate generation with the overlay; `create_social_carousel` repeats that process as a coherent set.
 
+## Brand brief, logo kit and mood board
+
+After upgrading to v0.6.0 and reconnecting MCP, ask your agent:
+
+```text
+Use gpt-image to read this project's brand settings. Preview the request first.
+Make two logo-mark concepts and a contact sheet. Keep the existing client logo
+unchanged. Build a logo kit from the artwork I selected, then make an editorial
+brand board using our actual font files, declared colors and supplied imagery.
+Inspect the logo at favicon size and review both light and dark variants.
+```
+
+The preview and supplied-artwork exports run locally. Concept generation consumes
+usage; optional board tile generation does too. An existing `brand.name` does not
+authorize re-typesetting its logo. Use `brand_name` explicitly to create a new
+typeset name, and provide approved monochrome artwork for a multicolor mark.
+
+Offline CLI examples, using the repository's synthetic test font:
+
+```sh
+node dist/cli.js --subject "an abstract leaf mark" --preset logo-mark --preview
+node dist/cli.js --logo-kit test/fixtures/brand-kit.json -o generated-images/logo-kit
+node dist/cli.js --brand-board test/fixtures/brand-board.json -o generated-images/brand-board
+```
+
+[All branding parameters and font/vector limits](BRANDING.md).
+
 ## Give your agent a standing instruction
 
 Add this small rule to your project's agent instructions:

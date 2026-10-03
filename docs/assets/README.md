@@ -12,7 +12,34 @@ These are AI-generated examples. They do not depict real products, customers, or
 
 Both requests specified 1024×1024; both returned 1254×1254. The sculpture is opaque; the fox has an alpha channel with fully transparent and fully opaque pixels. The sidecars record requested settings, not measured dimensions. This is why the setup guidance calls for inspecting actual outputs.
 
-## Designed layouts
+## Branding showcase, v0.6.0
+
+`branding-board.png` is the inspected editorial board from the October 2 branding
+verification. Two leaf-symbol concepts and one paper/leaf material study were
+generated through the subscription backend, sequentially at low quality, with no
+proof retries or paid API calls. The board's logo, labels, swatches and type were
+composited locally. It is an illustrative test identity, not a customer project.
+
+`logo-family.png` is a local export sheet from the original geometric test mark,
+its supplied monochrome/inverse masters, and an explicitly requested typeset name.
+The symbol sources live in [`test/fixtures`](../../test/fixtures/README.md) under
+this repository's MIT license. The sheet labels the name as typeset; it is not a
+claim of client approval. These vectors were drawn as test fixtures, not generated
+or traced from raster images.
+
+The showcase uses Georgia and Arial rendered from local font files. No system font
+files or font-bearing SVG presentations are distributed with these PNG previews.
+The portable fixture specifications use the repository's original synthetic test
+font to exercise the same code path offline. That fixture tests behavior rather
+than typography quality.
+
+Reproduce the live workflow manually with `scripts/verify-branding-live.mjs` and
+your own brand/font specification. It spends at most three subscription requests.
+Recompose existing sources with `--brand-board` or `--logo-kit` without generation.
+See [BRANDING.md](../BRANDING.md). The public PNGs contain no private file paths or
+account data, and their generation provenance is disclosed here.
+
+## Original launch layouts
 
 `github-banner.png` (1280×640) and `workflow.png` (1600×920) are deterministic editorial layouts from `scripts/launch-assets.mjs`. Typography is rendered locally, with the generated samples placed into the layouts. The workflow request panel is illustrative, not a captured client session.
 

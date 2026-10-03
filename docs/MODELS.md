@@ -1,6 +1,6 @@
 # Model configuration
 
-Checked against official OpenAI documentation on 2026-09-09 UTC. These Image 2.5 changes are included in v0.5.0.
+API model documentation checked on 2026-09-09 UTC; subscription availability and local configuration rechecked on 2026-09-11. The API model-selection changes are included in v0.5.0.
 
 | Work | Default | Override |
 | --- | --- | --- |
@@ -14,7 +14,15 @@ Both selections require the explicit `apikey` backend and separate API billing. 
 
 The API uses native PNG/WebP transparency; subscription keeps the existing chroma workflow. API edits send the requested output format. Explicit legacy API model overrides are preserved; `xhigh`/`max` are rejected for known older GPT Image models and unknown subscription renderers.
 
-Run `node dist/cli.js --check` to see configured models and validate the subscription session. It does not generate an image or establish access to either API model. Current verification: 97 offline tests and the real MCP smoke passed; paid API generation has not been run. Rebuild and reconnect existing MCP processes to load the changes.
+Run `node dist/cli.js --check` to see configured models and validate the subscription session. It does not generate an image or establish access to either API model. The v0.5.0 model-selection work passed 97 offline tests and the real MCP smoke; paid API generation was not run. Version 0.6.0 retains those model/billing boundaries and adds the branding workflow; see [release verification](RELEASE-VERIFICATION.md) for current checks. Rebuild and reconnect existing MCP processes to load changes.
+
+## Subscription recheck, 2026-09-11
+
+OpenAI's [September 8 announcement](https://openai.com/index/introducing-chatgpt-images-2-5/) says Images 2.5 is available to ChatGPT and Codex users. The announcement was opened in a real browser on September 11. Confidence: high for official availability; unknown for the renderer used by an individual request through our undocumented endpoint.
+
+The inspected local Codex MCP configuration points to the checkout's `dist/mcp.js` with no server environment overrides. Source and compiled output use the subscription default, Astra routing, and an unpinned `image_generation` tool. No older renderer is pinned and no local model change is needed to follow OpenAI's server selection. The September 9 negative control remains relevant: adding a model name does not establish that the server honors it. No new live generation was run for this recheck.
+
+Focused verification on September 11: all 10 tests in `test/image-models.test.ts` and `test/providers.test.ts` passed, including subscription payload selection and protection against switching billing backends. Provider requests were mocked; this does not identify the live renderer.
 
 ## MCP startup
 

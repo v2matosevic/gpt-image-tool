@@ -1,8 +1,8 @@
 # Branding workflow
 
-This source checkout adds three tools: `preview_image_request`, `export_logo_kit`
+Version 0.6.0 adds three tools: `preview_image_request`, `export_logo_kit`
 and `create_brand_board`. Build with `npm run build`, then reconnect MCP in the
-client to load the new tool definitions. This does not change the v0.5.0 release.
+client to load the new tool definitions. [Release notes](releases/v0.6.0.md).
 
 The workflow has separate exploration and delivery steps. Image generation makes
 raster concepts. Local exports use supplied artwork and font outlines. A generated

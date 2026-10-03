@@ -127,7 +127,7 @@ function fail(e: unknown) {
   return { isError: true, content: [{ type: "text", text: `Image operation failed: ${msg}` }] } as any;
 }
 
-const server = new McpServer({ name: "gpt-image", version: "0.5.0" });
+const server = new McpServer({ name: "gpt-image", version: "0.6.0" });
 
 const generationSchema = {
       brief: creativeBriefSchema.optional().describe("Structured creative brief; merged with project defaults. Exact lettering still belongs in style.text."),

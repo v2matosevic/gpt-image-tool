@@ -8,7 +8,7 @@ Ask for a hero image, edit it, then export the sizes your app needs. The tool sa
 
 [Quick start](#quick-start) · [Client setup](docs/SETUP.md) · [Examples](docs/EXAMPLES.md) · [Tool reference](docs/TOOLS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
-[Latest release: v0.5.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.5.0) adds GPT Image 2.5 Flare and Sunburst selection for the explicit paid API backend, plus `xhigh` and `max` quality. [Release notes](docs/releases/v0.5.0.md) · [Upgrade an existing installation](docs/SETUP.md#upgrade-an-existing-installation).
+[Latest release: v0.6.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.6.0) adds creative briefs, quota-free request previews, logo families, exact font outlines, and branding boards. [Release notes](docs/releases/v0.6.0.md) · [Upgrade an existing installation](docs/SETUP.md#upgrade-an-existing-installation).
 
 > **Subscription access is experimental.** The default backend reuses your local Codex ChatGPT login through an undocumented endpoint. It consumes account usage and may change or stop working. There is no separate image API bill on this path, but access is neither unlimited nor guaranteed. This is an independent project, not an official OpenAI integration. A separately billed OpenAI API backend is available when explicitly selected.
 
@@ -23,7 +23,7 @@ The sculpture above was generated with this tool. The surrounding layout is an e
 You need **Node.js 22.18 or newer**, npm, Git, and, for the subscription backend, a ChatGPT login saved by Codex CLI in a local `auth.json` file. OS keychain credentials are not read by this tool. [Authentication and API-key setup](docs/SETUP.md).
 
 ```sh
-git clone --branch v0.5.0 https://github.com/v2matosevic/gpt-image-tool.git
+git clone --branch v0.6.0 https://github.com/v2matosevic/gpt-image-tool.git
 cd gpt-image-tool
 npm ci
 npm run build
@@ -70,9 +70,15 @@ Installation is from source. There is no official npm release of this project ye
 
 The thirteen MCP tools are `generate_image`, `preview_image_request`, `edit_image`, `upscale_image`, `export_web_assets`, `export_logo_kit`, `create_brand_board`, `remove_background`, `compose_overlay`, `create_social_card`, `create_social_carousel`, `strip_image_metadata`, and `list_image_presets`. [Every parameter →](docs/TOOLS.md)
 
-The branding additions are available in this source checkout. They are not part of the existing v0.5.0 tag. Build the checkout and reconnect MCP to load them. Generated logo concepts remain raster; SVG logo delivery requires supplied vectors or explicitly requested font outlines.
+The branding workflow is included in v0.6.0. Build the checkout and reconnect MCP after upgrading. Generated logo concepts remain raster; SVG logo delivery requires supplied vectors or explicitly requested font outlines.
+
+![A branding board with generated paper and leaf imagery, two raster logo concepts, exact palette swatches, and real font specimens.](docs/assets/branding-board.png)
+
+The board combines generated imagery with local typography, declared colors and an original vector test mark. It is a workflow sample, not client work. [Logo-family preview](docs/assets/logo-family.png) · [Provenance and reproducible inputs](docs/assets/README.md#branding-showcase-v060) · [Branding guide](docs/BRANDING.md).
 
 ## Choose an Image 2.5 model
+
+OpenAI [announced Images 2.5 availability in ChatGPT and Codex](https://openai.com/index/introducing-chatgpt-images-2-5/) on September 8, 2026. This tool's default subscription backend leaves image model selection to OpenAI and does not pin an older renderer. No local model change is needed to follow that selection. The subscription endpoint does not report the renderer version, so we cannot certify Image 2.5 for an individual request. Keep `backend: "subscription"` and `image_model: "auto"` for subscription usage.
 
 Use `flare` for speed or `sunburst` for editing precision. Both require the explicitly selected, separately billed API backend and `OPENAI_API_KEY`:
 

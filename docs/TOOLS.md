@@ -5,6 +5,8 @@ catalog and [ARCHITECTURE.md](./ARCHITECTURE.md) for internals.
 
 ## Model selection (v0.5.0)
 
+For ChatGPT subscription usage, use `backend: "subscription"` and `image_model: "auto"`. OpenAI has announced Images 2.5 availability in Codex; this tool follows the server's renderer selection without pinning an older version. The endpoint does not report the actual renderer, so `auto` is not proof of a particular model version. No local model upgrade is needed to follow server selection. [Official announcement and verification evidence](MODELS.md#subscription-recheck-2026-09-11).
+
 All eight tools that can generate images accept `image_model`: `auto`, `flare`, `sunburst`, `gpt-image-2.5-flare`, or `gpt-image-2.5-sunburst`. For `export_web_assets` this applies only when generating the source; for `remove_background` only with `use_model: true`; for `create_brand_board` only when `generate` tiles are requested. All accept an explicit `backend`; generated web sources and board tiles also accept `quality`.
 
 Use `backend: "apikey"` to select a renderer, with separate API billing and `OPENAI_API_KEY`. Flare prioritizes speed; Sunburst prioritizes editing precision. Subscription only supports `auto`; a named renderer is rejected before requests. No fallback switches billing. `auto` uses the built-in API default (Sunburst) or the subscription server's selection; omitting the field inherits project/sidecar/environment defaults.
@@ -15,7 +17,7 @@ CLI equivalents: `--backend apikey --image-model flare` or `--image-model sunbur
 
 ## MCP tools
 
-The current source exposes thirteen tools. All image-producing tools **save to disk and return the path(s)**. The three branding tools and new fields below are unreleased source additions; the v0.5.0 tag retains its previous tool set.
+Version 0.6.0 exposes thirteen tools. All image-producing tools **save to disk and return the path(s)**. The three branding tools and fields below are included in v0.6.0; earlier tags retain their previous tool sets.
 
 ### Branding tools
 

@@ -4,6 +4,8 @@ Research checked 2026-09-09 UTC; implementation completed across September 9–1
 
 ## Finding and recommendation
 
+September 11 subscription update: OpenAI's [September 8 announcement](https://openai.com/index/introducing-chatgpt-images-2-5/) establishes Images 2.5 availability in Codex. Keep this tool's default subscription backend with `image_model: "auto"`; it does not pin an older renderer and needs no local model change to follow OpenAI's selection. Confidence: high for official availability; unknown for the renderer behind an individual request. This does not invalidate the selector negative control below or establish Flare/Sunburst selection through the subscription endpoint. [Installed configuration and focused verification](MODELS.md#subscription-recheck-2026-09-11).
+
 Both Image 2.5 models are officially documented. Offer Flare for speed and Sunburst for precision, with independent quality controls. Keep Sunburst as the explicit API backend's default. Confidence: high for the documented models and integration contract; their relative results on our actual production briefs have not been benchmarked.
 
 | Choice | Exact API ID | Intended use |

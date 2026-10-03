@@ -1,6 +1,19 @@
 # Public source release verification
 
-This is the canonical release handoff. The v0.5.0 release documentation is [here](releases/v0.5.0.md); prior release evidence is retained below.
+This is the canonical release handoff. The v0.6.0 release documentation is [here](releases/v0.6.0.md); prior release evidence is retained below.
+
+## v0.6.0, October 3, 2026
+
+Release preparation for the branding upgrade is in progress. The implementation
+commit is `0e2f678`; package, lockfile and MCP version are being aligned to `0.6.0`.
+Publication, CI, clean-install, source-archive and local-install evidence will be
+recorded here after those checks complete. This section does not yet claim a
+published release.
+
+The completed implementation record is [BRANDING-PLAN.md](BRANDING-PLAN.md), and
+the public workflow contract is [BRANDING.md](BRANDING.md). The earlier task passed
+115 tests, the 13-tool MCP smoke and a three-generation subscription sample.
+Release checks are separate from that implementation evidence.
 
 ## v0.5.0, September 10, 2026
 

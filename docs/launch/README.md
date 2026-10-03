@@ -4,7 +4,27 @@ The launch message: **Give your coding agent an image tool.** Lead with a real o
 
 Repository: https://github.com/v2matosevic/gpt-image-tool
 
-This artwork and initial launch copy were published with [v0.3.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.3.0), with a downloadable ZIP of the original kit. The current release is [v0.4.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.4.0); use its [release notes](../releases/v0.4.0.md) for the Astra update. [Release verification](../RELEASE-VERIFICATION.md). Social copy below is prepared for manual posting; no posts have been submitted.
+This artwork and original launch copy were published with [v0.3.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.3.0), with a downloadable ZIP of that kit. The current release is [v0.6.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.6.0); its [release notes](../releases/v0.6.0.md) cover branding tools and exports. [Release verification](../RELEASE-VERIFICATION.md). All social copy here is prepared for manual posting; no posts have been submitted.
+
+## v0.6.0 announcement draft
+
+```text
+gpt-image-tool 0.6 adds a branding workflow to your coding agent:
+
+Preview the image brief, explore logo forms, export the artwork as a website kit,
+then build a brand board with real fonts, exact colors and the supplied logo.
+
+13 MCP tools, 77 presets, PNG/WebP exports and genuine SVG from vector sources or
+font outlines. Public source, MIT licensed. Subscription access is experimental;
+image usage and account limits apply.
+
+https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.6.0
+```
+
+Use the reviewed [brand board](../assets/branding-board.png) or
+[logo-family sheet](../assets/logo-family.png). They show an illustrative test
+identity, not client work. [Asset provenance](../assets/README.md#branding-showcase-v060).
+The copy and graphics below this section are the original launch material.
 
 ![Overview of the launch artwork.](contact-sheet.png)
 
