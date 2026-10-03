@@ -4,16 +4,63 @@ This is the canonical release handoff. The v0.6.0 release documentation is [here
 
 ## v0.6.0, October 3, 2026
 
-Release preparation for the branding upgrade is in progress. The implementation
-commit is `0e2f678`; package, lockfile and MCP version are being aligned to `0.6.0`.
-Publication, CI, clean-install, source-archive and local-install evidence will be
-recorded here after those checks complete. This section does not yet claim a
-published release.
+Published [v0.6.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.6.0)
+as Latest at 10:44:16 UTC on October 3. It is a normal public release, neither draft
+nor prerelease. The annotated tag and release target both resolve to exact source
+`e867bfa542f2d725e55b133a11292e37f70b361e`. The implementation is `0e2f678`.
+Later handoff documentation on main does not move this immutable tag.
 
-The completed implementation record is [BRANDING-PLAN.md](BRANDING-PLAN.md), and
-the public workflow contract is [BRANDING.md](BRANDING.md). The earlier task passed
-115 tests, the 13-tool MCP smoke and a three-generation subscription sample.
-Release checks are separate from that implementation evidence.
+This release adds the three branding tools, structured briefs/reference roles,
+exact font outlines, logo kits, board layouts, presets and image-fidelity fixes.
+Package, lockfile and MCP version are aligned at `0.6.0`. The repository remains
+public and MIT licensed; installation is from the GitHub source tag/archive, not
+an npm package or separate binary distribution.
+
+- [CI run 37117204276](https://github.com/v2matosevic/gpt-image-tool/actions/runs/37117204276)
+  passed all four jobs at the exact release source: Node 22 on Windows, macOS and
+  Linux, plus Node 24 on Linux. Every job installed dependencies, ran the tests and
+  MCP smoke, regenerated presets and checked for catalog drift.
+- The release build passed 115 tests locally. A separate clean extraction of the
+  exact source, on Windows with Node 22.22.0, passed `npm ci`, all 115 tests, the
+  13-tool MCP smoke and normalized preset-catalog comparison. Installation and
+  the runtime audit reported zero npm vulnerability findings.
+- The real MCP smoke checked version `0.6.0`, all 13 registered tools and actual
+  offline calls to the catalog, request preview, logo kit and brand board.
+- After fetching remote refs, the publication heuristic scanned 400 blobs and
+  reported no credential-pattern or sensitive-filename findings. This is a
+  heuristic, not proof of absence of every secret. All 115 relative Markdown
+  file links resolved.
+- GitHub's source ZIP was downloaded: **7,536,004 bytes**. All **132 file blobs**
+  matched the annotated tag exactly, with no mismatches. Observed ZIP SHA-256:
+  `78f60e25ae0e294b208ae1561448e83564aa380f2cf0fbc2da52a74936cbea79`.
+- The signed-out public repository and release page were opened in a real browser.
+  The updated description, public/MIT status, Latest badge, release title and exact
+  commit were verified. README images loaded, including the new branding board.
+  The board and logo-sheet PNGs were copied from inspected outputs and their
+  [provenance](assets/README.md#branding-showcase-v060) is documented.
+
+### Local installation and wrap
+
+The working checkout at `B:/Coding/gpt-image-tool` is built at `0.6.0`. Existing
+Claude and Codex registrations both point to its `dist/mcp.js`; no global install,
+credential change or paid-backend change was needed. A fresh server from that
+registered entry point passed the version-aware MCP test. The already-open coding
+session retains its previous tool catalog until the user reconnects GPT-image MCP.
+No running client, terminal or background service was stopped or restarted.
+
+The implementation was reviewed and approved by Claude Opus 5.5. Its earlier live
+sample used exactly three subscription generations; no additional generation or
+paid API request was needed for this release. Confidence is high for measured
+installation/publication outcomes, and moderate for creative usefulness based on
+the bounded sample. The release does not claim every new preset was validated at
+final quality or certify an individual subscription renderer.
+
+Canonical usage: [BRANDING.md](BRANDING.md), [TOOLS.md](TOOLS.md) and
+[SETUP.md](SETUP.md). The dated implementation record remains in
+[BRANDING-PLAN.md](BRANDING-PLAN.md). Verification artifacts are retained in the
+local temp folder `gpt-image-release-0.6.0-5EaXrH` (`candidate.json`, installation/
+test/MCP logs, `ci.json`, `links.json`, `clean-verification.json`, downloaded ZIP and
+`archive-verification.json`). No social posts or direct messages were sent.
 
 ## v0.5.0, September 10, 2026
 
