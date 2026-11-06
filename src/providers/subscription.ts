@@ -57,7 +57,9 @@ export function buildSubscriptionBody(input: GenerateInput, model = configuredMo
     tool_choice: { type: "image_generation" },
     parallel_tool_calls: false,
     store: false,
-    reasoning: { effort: "low", summary: "auto" },
+    // No `reasoning` block: the backend passes reasoning.effort to the image call as its
+    // "complexity", and since 2026-11-06 the subscription renderer rejects every explicit level
+    // (low, medium, high, xhigh: "Complexity '<x>' is not supported for this image model").
     include: ["reasoning.encrypted_content"],
     text: { verbosity: "low" },
   };

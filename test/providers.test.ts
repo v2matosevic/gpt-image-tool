@@ -25,6 +25,8 @@ test("subscription forces image generation and keeps references, mask, and expli
   assert.deepEqual(body.tools[0].input_image_mask, { image_url: "data:image/png;base64,cmVmZXJlbmNl" });
   assert.equal(body.input[0].content[1].image_url, "data:image/png;base64,cmVmZXJlbmNl");
   assert.equal(body.store, false);
+  // The renderer reads reasoning.effort as its complexity and rejects every level (2026-11-06).
+  assert.equal("reasoning" in body, false);
 });
 
 test("API create and edit send GPT Image 2, selected format, transparency, references and mask", async (t) => {
