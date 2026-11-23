@@ -112,6 +112,14 @@ jpeg/webp input and encode jpeg/webp output, otherwise it falls back to PNG.
 - **Retry-on-empty**: if the model replies with text instead of an image, one forced retry.
 - **Timeouts**: total (`GPT_IMAGE_TIMEOUT_MS`, default 300s) and stall (`GPT_IMAGE_STALL_MS`, 120s).
 - **Single-flight refresh**: see above.
+- **Fast cold start**: `npm run build` runs `tsc`, then `scripts/bundle-mcp.mjs` replaces
+  `dist/mcp.js` with a single-file esbuild bundle. Every other `dist/*.js` file stays unbundled
+  for the tests and the CLI. `sharp` remains external and is imported lazily. Clients restart the
+  server often: ToolHub stops it after 10 idle minutes for each terminal. Unbundled, a start read
+  about 270 module files. On a busy hard drive that took up to 32s and sometimes exceeded the
+  gateway's start limit (2026-11-18 to 11-22). `test/bundle.test.ts` fails if `dist/mcp.js`
+  imports anything other than `node:` built-ins. Do not add file reads relative to
+  `import.meta.url` without checking that they still resolve from the bundle.
 
 ## Testing
 

@@ -22,6 +22,8 @@ The check does not make an image request. Model access, quota, endpoint changes,
 
 If Codex says an MCP server "timed out" during startup, set `startup_timeout_sec = 120` in that server's `[mcp_servers.<name>]` section and reconnect it. This is separate from the image generation timeout below. First verify `npm run build` and `npm run smoke:mcp` from this checkout; increasing the wait cannot repair a missing entry point or a startup crash.
 
+If every call fails after about 60 seconds with `MCP error -32001: Request timed out`, including instant local tools such as `list_image_presets`, the server process most likely never finished starting. The image service was never contacted, so this is not a quota or account problem. Shared MCP gateways often give a server's startup handshake less time than its tool calls. Run `npm run smoke:mcp` to confirm the build starts. Then give the gateway a longer start limit or keep the checkout on faster storage. Builds after 0.6.0 bundle the server into one file, so a cold start reads one file instead of about 270 modules.
+
 Image generation can take several minutes. Increase the client's per-tool timeout, for example `tool_timeout_sec = 600` in Codex. A carousel performs sequential image jobs and can exceed that. Request fewer slides or one image at a time. The provider's timeout is per request, not a total batch budget.
 
 ## Transparent image has halos or missing areas
