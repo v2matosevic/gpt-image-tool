@@ -26,6 +26,8 @@ If every call fails after about 60 seconds with `MCP error -32001: Request timed
 
 Image generation can take several minutes. Increase the client's per-tool timeout, for example `tool_timeout_sec = 600` in Codex. A carousel performs sequential image jobs and can exceed that. Request fewer slides or one image at a time. The provider's timeout is per request, not a total batch budget.
 
+A client timeout does not always stop the job. If the client reports a call as failed after its tool timeout, for example Claude Code's "timed out after 300s", the server may still finish and save the image. Look for the PNG and its `.json` sidecar in the requested output folder before you retry, so you don't pay for the same image twice. A slow cold start counts against the same wait: on a heavily loaded spinning disk, startup alone has taken about three minutes, and four parallel `high` renders took about four more. In Claude Code, raise `MCP_TOOL_TIMEOUT` (milliseconds) in the `env` block of `~/.claude/settings.json`, keep it below any gateway call limit, and start a new session so it takes effect.
+
 ## Transparent image has halos or missing areas
 
 Subscription transparency uses a generated solid chroma field and local keying. Inspect against both light and dark backgrounds. Provide your subject palette in `style.color`, simplify the subject, or generate against the actual page background with `background: "opaque"`. For busy photographs, model-assisted removal regenerates the subject and can alter it.
