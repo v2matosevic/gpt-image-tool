@@ -57,7 +57,7 @@ export async function planRun(project: string, dir: string, graph: GraphFile, st
     const upstreamChanges = inputsOf(graph, id).some(e => changed.has(e.from));
     if (!inScope.has(id)) { if (upstreamChanges) plan.staleAfter.push(id); continue; }
     const work = workOf(node.type, node.settings);
-    if (work === "none" || node.type === "reference") { if (upstreamChanges) changed.add(id); continue; }
+    if (work === "none" || node.type === "reference" || node.type === "canon") { if (upstreamChanges) changed.add(id); continue; }
     let toRun: number, slots = ev.slots.length, estimate = false;
     if (ev.issues.length || ev.blockedBy) {
       if (!(ev.blockedBy && upstreamChanges)) {
@@ -338,6 +338,7 @@ export async function runJob(project: string, slug: string, job: string, executo
       const node = graph.nodes.find(n => n.id === id);
       if (!node) continue;
       if (node.type === "reference") { await refreshReference(project, dir, id, job); continue; }
+      if (node.type === "canon") { await refreshCanon(project, dir, id, job); continue; }
       if (workOf(node.type, node.settings) === "none") continue;
       const evals = await evaluate(graph, state, { dir, project, liveJob: job });
       const ev = evals.get(id)!;
@@ -432,6 +433,17 @@ async function clearActivity(dir: string, job: string, node: string, outcome: st
 
 async function reserveTake(dir: string): Promise<string> {
   return (await mutate(dir, "worker", (_g, s) => ({ result: `t${s.nextTake++}` }))).result;
+}
+
+/** Re-import a canon node's entry when it was replaced (a quick copy of at most 8 files). */
+async function refreshCanon(project: string, dir: string, id: string, job: string) {
+  const { importCanon } = await import("./canon.js");
+  await mutate(dir, "worker", async (g, s) => {
+    const node = g.nodes.find(n => n.id === id);
+    const events: EventInput[] = [];
+    if (node) for (const t of await importCanon(g, s, project, dir, node, job).catch(() => [])) events.push({ type: "take.saved", job, node: id, take: t.id, asset: t.asset });
+    return { result: null, events };
+  });
 }
 
 /** Re-import a reference whose file changed. Hashing and reading happen before the lock; the

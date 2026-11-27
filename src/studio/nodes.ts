@@ -170,6 +170,13 @@ export const NODE_SPECS: Record<NodeType, NodeSpec> = {
     docs: { screenshot: "Screenshot file (PNG), project-relative or absolute.", viewport: "Viewport it was taken at, e.g. 1440x900." },
     work: "local",
   },
+  canon: {
+    type: "canon", summary: "A named character, place, product or look from the project canon (_canon/), usable from any graph. Connect it to a generator's or edit's references: its images go in with their roles and its locked description is added to the prompt word for word.",
+    inputs: [], outputs: [h("image", IMG, true, "The entry's reference images.")],
+    settings: z.object({ name: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/), project: z.string().trim().min(1) }).partial({ project: true }).strict(),
+    docs: { name: "Canon entry name (save one with the canon_save op).", project: "Another project to read the entry from, relative to this one or absolute (stored relative). Default: this project." },
+    work: "local",
+  },
   note: {
     type: "note", summary: "A comment or feedback attached to a node (settings.on), with author. Not part of the data flow.",
     inputs: [], outputs: [],

@@ -66,6 +66,17 @@ the prompt, and the run sheet is labelled by value. Only the wording is controll
 in a live key-light sweep (2026-11-28) the lighting followed each value and the
 bottle's shape also changed between takes.
 
+Canon keeps a named character, place, product or look the same across graphs and
+projects. `{op:"canon_save", name, kind, takes, description}` (approved takes only)
+writes `_canon/<name>/` next to the graphs: `canon.json` (the locked description,
+reference files with roles and source takes, the merged measured palette, who and
+when) and `ref-N.png`. Replacing an entry needs `replace: true` and moves the old
+one to `history/<time>/`. A `canon` node (`settings.name`, optional
+`settings.project`, stored relative) imports the references as its takes; connected
+to a generator's references it adds them with their roles and appends the
+description to the prompt word for word. A replaced entry re-renders its users on
+the next run.
+
 An example spec to start from is
 [examples/studio/product-lookbook.json](../examples/studio/product-lookbook.json):
 `gpt-image studio create --spec @examples/studio/product-lookbook.json`, or pass its
@@ -170,8 +181,8 @@ Rules:
   all use forward slashes. Files outside the project are copied into `assets/` as
   `import-<hash>`, so no absolute path is ever stored. A cloned or moved project
   keeps working and its fingerprints stay valid.
-- Reserved: `_canon/` and `_lessons/` next to graph folders (slugs cannot start
-  with `_`). `perception` on a take is reserved for an optional model-based
+- `_canon/` and `_lessons/` sit next to graph folders (slugs cannot start with
+  `_`). `_canon/<name>/canon.json` has schema `gpt-image-studio/canon@1`. `perception` on a take is reserved for an optional model-based
   reading (`{version, source, ...}` per source); nothing writes it yet.
 - Review fields on a take, all optional: `reading` (local measurements,
   `{version: 1, source: "local", palette, luminance, contrast, color, composition,

@@ -11,7 +11,7 @@ export const ENGINE_VERSION = 1;
 export type HandleType = "text" | "style" | "image" | "package";
 export type NodeType =
   | "prompt" | "style" | "list" | "reference" | "generate" | "edit" | "process"
-  | "gallery" | "handoff" | "implementation" | "note";
+  | "gallery" | "handoff" | "implementation" | "note" | "canon";
 
 export interface Position { x: number; y: number; /** Set when a person or agent placed the node; auto layout leaves it alone. */ pinned?: boolean }
 

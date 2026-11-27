@@ -28,7 +28,9 @@ export async function listGraphs(w: Who = {}) {
       graphs.push({ slug, error: e instanceof Error ? e.message : String(e), path: dir });
     }
   }
-  return { project, graphs };
+  const { listCanon } = await import("./canon.js");
+  const canon = (await listCanon(project).catch(() => [])).map(c => ({ name: c.name, kind: c.kind, images: c.references.length, description: c.description }));
+  return { project, graphs, canon };
 }
 
 export interface CreateInput {

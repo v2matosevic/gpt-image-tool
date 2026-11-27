@@ -37,12 +37,13 @@ export function registerStudioTools(server: McpServer) {
 
   server.registerTool("studio_list", {
     title: "List Studio graphs",
-    description: "Graphs in a project with revision, size and last run.",
+    description: "Graphs in a project with revision, size and last run, and the project's canon entries (named characters, places, products, looks).",
     inputSchema: { project },
   }, wrap(async a => {
     const r = await listGraphs({ project: a.project });
-    if (!r.graphs.length) return `No Studio graphs in ${r.project}. Create one with studio_create (see studio_guide).`;
-    return `Studio graphs in ${r.project}:\n${r.graphs.map((g: any) => g.error ? `  ${g.slug}: unreadable (${g.error})` : `  ${g.slug}  "${g.name}"  rev ${g.revision}  ${g.nodes} nodes  updated ${g.updated}${g.lastRun ? `  last run ${g.lastRun.job} ${g.lastRun.status}` : ""}`).join("\n")}`;
+    const canon = r.canon.length ? `\nCanon (use with a canon node):\n${r.canon.map(c => `  ${c.name}  ${c.kind}  ${c.images} image(s)  "${c.description.slice(0, 100)}${c.description.length > 100 ? "…" : ""}"`).join("\n")}` : "";
+    if (!r.graphs.length) return `No Studio graphs in ${r.project}. Create one with studio_create (see studio_guide).${canon}`;
+    return `Studio graphs in ${r.project}:\n${r.graphs.map((g: any) => g.error ? `  ${g.slug}: unreadable (${g.error})` : `  ${g.slug}  "${g.name}"  rev ${g.revision}  ${g.nodes} nodes  updated ${g.updated}${g.lastRun ? `  last run ${g.lastRun.job} ${g.lastRun.status}` : ""}`).join("\n")}${canon}`;
   }));
 
   server.registerTool("studio_get", {
@@ -72,7 +73,7 @@ export function registerStudioTools(server: McpServer) {
 
   server.registerTool("studio_edit", {
     title: "Edit a Studio graph",
-    description: "Apply a list of ops together or not at all: add, remove, set, prompt_edit, connect, disconnect, group, ungroup, move, layout, rename, select, pick, approve, reject, clear_verdict, predict, note, answer, critique, judge_pair. Shapes are in studio_guide topic ops. An agent must record a look (answer or critique) before approve; put both in one call.",
+    description: "Apply a list of ops together or not at all: add, remove, set, prompt_edit, connect, disconnect, group, ungroup, move, layout, rename, select, pick, approve, reject, clear_verdict, predict, note, answer, critique, judge_pair, canon_save. Shapes are in studio_guide topic ops. An agent must record a look (answer or critique) before approve; put both in one call.",
     inputSchema: {
       graph, ops: z.array(z.record(z.unknown()).describe('e.g. {op:"set", node:"gen", settings:{quality:"high"}}')).min(1),
       expect_revision: z.number().int().optional().describe("Refuse if the graph changed since this revision."), project,

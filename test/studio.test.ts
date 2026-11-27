@@ -440,3 +440,43 @@ test("a sweep varies one look dimension per slot, reuses unchanged values and re
   const snap = (await getGraph("sweep", { project: p })).snapshot as string;
   assert.match(snap, /sweep needs one prompt and one image/);
 });
+
+test("a canon entry saved in one project is used from another; its description reaches the compiled prompt verbatim", async () => {
+  const a = project();
+  await createGraph({ name: "Source", nodes: [{ ref: "gen", type: "generate", settings: { prompt: "a teapot" } }], connections: [] }, { project: a });
+  await startRun(a, "source", { actor: "t", detach: false, executors: makeFakes().executors });
+  const description = "Mira the teapot: small and round, deep cobalt glaze, cream lid knob, a hairline chip on the spout.";
+  await refusal(editGraph("source", [{ op: "canon_save", name: "mira", takes: ["gen/t1"], description }], { project: a }), "NOT_APPROVED");
+  await editGraph("source", [{ op: "approve", take: "gen/t1" }, { op: "canon_save", name: "mira", kind: "character", takes: ["gen/t1"], description }], { project: a, human: true });
+  await refusal(editGraph("source", [{ op: "canon_save", name: "mira", takes: ["gen/t1"], description: "other" }], { project: a }), "CANON_EXISTS");
+  const listed = await (await import("../dist/studio/api.js")).listGraphs({ project: a });
+  assert.equal((listed as any).canon[0].name, "mira");
+
+  const b = project();
+  await createGraph({ name: "User", nodes: [
+    { ref: "mira", type: "canon", settings: { name: "mira", project: a } },
+    { ref: "gen", type: "generate", settings: { prompt: "on a sunny windowsill" } },
+  ], connections: [{ from: "mira", to: "gen", to_handle: "references" }] }, { project: b });
+  const gdir = graphDir(b, "user");
+  const graph = JSON.parse(readFileSync(join(gdir, "graph.json"), "utf8"));
+  assert.ok(!/^[A-Za-z]:|^\//.test(graph.nodes.find((n: any) => n.id === "mira").settings.project), "stored relative");
+  const fakes = makeFakes();
+  await startRun(b, "user", { actor: "t", detach: false, executors: fakes.executors });
+  const take = (await readBoth(gdir)).state.nodes.gen.takes[0];
+  assert.ok(take.text.prompt.includes(description), take.text.prompt);
+  assert.equal(take.inputs.find((i: any) => i.handle === "references").role, "subject");
+  // The real compiler (no network): the description survives verbatim into the compiled prompt.
+  const { readBoth: rb } = await import("../dist/studio/store.js");
+  const { state, graph: g2 } = await rb(gdir);
+  const ev = (await evaluate(g2, state, { dir: gdir, project: b })).get("gen")!;
+  const { previewImageRequest } = await import("../dist/generate.js");
+  const pre = await previewImageRequest({ subject: ev.slots[0]!.text, references: ev.slots[0]!.refs.map((r: any) => ({ path: join(gdir, r.asset), role: r.role })), backend: "subscription", imageModel: "auto", quality: "low", format: "png" } as any);
+  assert.ok(pre.compiledPrompt.includes(description), pre.compiledPrompt);
+
+  await editGraph("source", [{ op: "canon_save", name: "mira", takes: ["gen/t1"], description: description + " Always smiling.", replace: true }], { project: a });
+  assert.equal(readdirSync(join(a, ".gptimage", "studio", "_canon", "mira", "history")).length, 1);
+  const again = makeFakes();
+  await startRun(b, "user", { actor: "t", detach: false, executors: again.executors });
+  assert.equal(again.calls.length, 1, "a replaced description re-renders the user");
+  assert.ok((await readBoth(gdir)).state.nodes.gen.takes[1].text.prompt.includes("Always smiling."));
+});

@@ -24,6 +24,7 @@ function details(ev: NodeEval, state: StateFile): string {
       return bits.join(" · ") || "(empty)";
     }
     case "list": return ev.text ? `${ev.text.length} items: ${clip(ev.text.map(t => t.item ?? t.text).join(" | "), 160)}` : "";
+    case "canon": return `canon "${s.name}"${s.project ? ` from ${s.project}` : ""}${ev.canon ? `: "${ev.canon.description.slice(0, 90)}${ev.canon.description.length > 90 ? "…" : ""}"` : ""}${ev.images?.length ? ` · ${ev.images.length} image(s)` : ""}`;
     case "reference": return `${s.path ?? "?"} as ${s.role ?? "style"}${ev.images?.[0] ? ` · ${ev.images[0].node}/${ev.images[0].take}` : ""}`;
     case "gallery": return `${ev.images?.length ?? 0} image(s)${ns?.picks?.length ? `, picks ${ns.picks.join(" ")}` : ", no picks (passes all)"}`;
     default: {

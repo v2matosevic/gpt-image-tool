@@ -69,7 +69,8 @@ export function briefChecklist(text: string | undefined, look: Look | undefined,
     add("Is everything not mentioned in the instruction unchanged from the source image?", "instruction");
   } else if (t) {
     const parts = t.split(/,|;|\.\s|\bwith\b|\band\b|\bon\b|\bin front of\b/i).map(x => x.trim()).filter(x => x.split(/\s+/).length >= 2 && x.length <= 80);
-    for (const p of parts.slice(0, 5)) {
+    for (const raw of parts.slice(0, 5)) {
+      const p = raw.replace(/^(A|An|The)\b/, m => m.toLowerCase());
       const neg = /^(?:no|without)\s+(.+)$/i.exec(p);
       add(neg ? `Is it free of ${neg[1]}?` : /\b(?:photograph|photo|illustration|render|painting|drawing|still life|portrait|poster)\b/i.test(p) && !/\bof\b/i.test(p)
         ? `Does it read as ${/^(a|an|the)\s/i.test(p) ? p : `a ${p}`}?` : `Does the image show ${p}?`, "prompt");

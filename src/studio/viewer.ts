@@ -172,14 +172,14 @@ aside.open{display:block}aside h2{font-size:15px;margin:0 0 4px}aside .close{flo
 <div id="stage"><div id="world"><svg id="edges"></svg></div></div><div id="empty"></div>
 <aside id="side"></aside><div id="lb" role="dialog"><img id="lbimg" alt=""><p id="lbtxt"></p></div>
 <script>
-const COLORS={prompt:"#6b7d8c",style:"#8a6bb0",list:"#5f8a6a",reference:"#7b6f5a",generate:"#2f6f5e",edit:"#3f6fa0",process:"#8a7a3a",gallery:"#a0603f",handoff:"#b04a6a",implementation:"#4a5ab0",note:"#b09a3a"};
+const COLORS={prompt:"#6b7d8c",style:"#8a6bb0",list:"#5f8a6a",reference:"#7b6f5a",generate:"#2f6f5e",edit:"#3f6fa0",process:"#8a7a3a",gallery:"#a0603f",handoff:"#b04a6a",implementation:"#4a5ab0",note:"#b09a3a",canon:"#5a7f8f"};
 let slug=__DEFAULT_GRAPH__||location.hash.slice(1)||null,data=null,lastSeq=0,sel=null,view={x:40,y:40,k:1},fitted=false;
 const $=s=>document.querySelector(s),stage=$("#stage"),world=$("#world"),svg=$("#edges");
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const f=(p,thumb)=>(thumb?"/thumb":"/file")+"?g="+encodeURIComponent(slug)+"&p="+encodeURIComponent(p);
 async function j(u){const r=await fetch(u);if(!r.ok)throw new Error((await r.json()).error||r.status);return r.json()}
 function apply(){world.style.transform="translate("+view.x+"px,"+view.y+"px) scale("+view.k+")"}
-const IMG=new Set(["reference","generate","edit","process","gallery","implementation"]);const cur={};
+const IMG=new Set(["reference","generate","edit","process","gallery","implementation","canon"]);const cur={};
 function nodeW(n){return IMG.has(n.type)?280:240}
 function nodeH(n){return n.type==="note"?70:(n.outputs&&n.outputs.length&&n.outputs[0].kind!=="package"?36+260+33+62:110)}
 function summary(n){const s=n.settings||{};switch(n.type){case"prompt":return s.text;case"list":return(s.items||[]).join(" | ");case"style":return[s.preset,s.shot&&Object.values(s.shot).join(", ")].filter(Boolean).join(" · ");

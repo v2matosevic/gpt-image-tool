@@ -87,7 +87,8 @@ export async function studioMain(argv: string[]): Promise<number> {
     switch (cmd) {
       case "list": {
         const r = await listGraphs(who);
-        out(r, r.graphs.length ? r.graphs.map((g: any) => `${g.slug}\t${g.name ?? g.error}\trev ${g.revision ?? "?"}`).join("\n") : `No graphs in ${r.project}.`);
+        out(r, (r.graphs.length ? r.graphs.map((g: any) => `${g.slug}\t${g.name ?? g.error}\trev ${g.revision ?? "?"}`).join("\n") : `No graphs in ${r.project}.`) +
+          (r.canon.length ? `\nCanon: ${r.canon.map(c => `${c.name} (${c.kind}, ${c.images} image(s))`).join(", ")}` : ""));
         return 0;
       }
       case "guide": {

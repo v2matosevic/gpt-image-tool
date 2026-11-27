@@ -29,6 +29,8 @@ export interface NodeEval {
   text?: TextItem[];
   look?: Look;
   images?: ImageRef[];
+  /** A canon node's locked description, injected verbatim downstream. */
+  canon?: { name: string; description: string };
   /** Upstream nodes whose outputs are out of date or incomplete. */
   upstreamStale: string[];
   status: "ready" | "needs-input" | "blocked" | "empty" | "current" | "stale" | "failed" | "running" | "queued";
@@ -197,6 +199,21 @@ export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalCont
         } else ev.issues.push({ message: "reference has no imported image", fix: `Set its file: {op:"set", node:"${id}", settings:{path:"images/ref.png"}}.` });
         break;
       }
+      case "canon": {
+        const { readCanon, canonProject } = await import("./canon.js");
+        try {
+          const entry = await readCanon(canonProject(ctx.project, node), String(s.name));
+          ev.canon = { name: entry.name, description: entry.description };
+          const takes = (ns?.takes ?? []).filter(t => ns!.selected.includes(t.id));
+          const current = entry.references.every(r => takes.some(t => t.sha256 === r.sha256));
+          ev.images = takes.map(t => ({ node: id, take: t.id, asset: t.asset, sha256: t.sha256, current, role: (t.settings as any).role }));
+          ev.views = takes.map((t, i) => ({ slot: { index: i, variant: 0, fingerprint: t.fingerprint, refs: [], inputs: [], label: `${entry.name} ${(t.settings as any).role}` }, take: t, status: current ? "current" : "stale" }));
+          if (!takes.length) ev.issues.push({ message: `canon "${entry.name}" is not imported yet`, fix: `Run it: studio_run {scope:"${id}"}.` });
+        } catch (err) {
+          ev.issues.push({ message: err instanceof Error ? err.message : String(err), fix: (err as any)?.fix });
+        }
+        break;
+      }
       case "generate":
       case "edit": {
         const isGen = node.type === "generate";
@@ -208,7 +225,10 @@ export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalCont
         const look = mergeLook(styleIn, s);
         ev.look = look;
         const hasLook = Boolean(look.preset || look.modifiers?.length || look.style || look.shot);
+        // Canon descriptions go into the prompt word for word; rewording them is what causes drift.
+        const canonText = upstream("references").filter(u => u.canon).map(u => `${u.canon!.description}`).join(" ");
         let items: TextItem[] = connected ?? own ?? [];
+        if (canonText) items = (items.length ? items : [{ text: "", source: id }]).map(it => ({ ...it, text: it.text ? `${it.text}. ${canonText}` : canonText }));
         if (isGen && !items.length && !ev.blockedBy) ev.issues.push({ message: "generate needs a prompt", fix: `Connect a prompt or list ({op:"connect", from:"<prompt>", to:"${id}"}) or set settings.prompt.` });
         if (!isGen && !items.length && !hasLook && !ev.blockedBy) ev.issues.push({ message: "edit needs an instruction", fix: `Connect a prompt or set settings.instruction on "${id}".` });
         const refs = takeImages("references").map(r => ({ ...r, role: r.role ?? (s.reference_role as string) ?? "style" }));

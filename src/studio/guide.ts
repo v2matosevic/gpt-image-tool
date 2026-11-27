@@ -102,6 +102,17 @@ Looking closer (studio_view):
 - pair:["gen/t3","gen/t5"]: a blind A/B sheet in random order; record it with
   {op:"judge_pair", pair:"p...", preferred:"A", reason:"..."}.
 
+Keeping things the same across images:
+- Anchor: approve one image and make variations as edits of it (edit node, image handle), not
+  fresh generations. Deviations then report drift from the anchor.
+- Canon: save approved takes as a named entry with a locked description:
+  {op:"canon_save", name:"mira", kind:"character", takes:["gen/t4"], description:"..."}.
+  Any graph (another project too, settings.project) adds {type:"canon", settings:{name:"mira"}} and
+  connects it to a generator's references. Its images go in with their role and its description is
+  added to the prompt word for word. Write the description once, carefully: rewording is drift.
+  studio_list shows the project's canon.
+- Identity of a face, character or product is not measured; check it with a blind pair.
+
 Recording a judgement:
 - {op:"critique", take, summary, criteria?, against?, preferred?}: what you saw, in words.
 - An agent cannot approve a take without a recorded look (a critique or checklist answers). Put the

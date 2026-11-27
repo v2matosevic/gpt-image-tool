@@ -6,7 +6,7 @@ import { copyFile, mkdir, readFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
-import { NODE_SPECS, NODE_TYPES, STAGES, closest, typeIssue, validateSettings, type HandleSpec } from "./nodes.js";
+import { NODE_SPECS, NODE_TYPES, ROLES, STAGES, closest, typeIssue, validateSettings, type HandleSpec } from "./nodes.js";
 import { StudioError, assetRel, now, paths, toPosix, type EventInput } from "./store.js";
 import type { GraphEdge, GraphFile, GraphNode, Issue, NodeState, NodeType, StateFile, Take } from "./types.js";
 
@@ -16,7 +16,7 @@ export const COL_W = 340;
 export const ROW_H = 220;
 /** Nodes that show an image get a taller row, so the image can dominate the node. */
 export const IMAGE_ROW_H = 420;
-const IMAGE_TYPES = new Set(["reference", "generate", "edit", "process", "gallery", "implementation"]);
+const IMAGE_TYPES = new Set(["reference", "generate", "edit", "process", "gallery", "implementation", "canon"]);
 const rowH = (n: GraphNode) => (IMAGE_TYPES.has(n.type) ? IMAGE_ROW_H : ROW_H);
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 
@@ -185,7 +185,7 @@ export async function importPath(ctx: OpContext, raw: string, what: string): Pro
 // ---------------------------------------------------------------- ops
 
 export const OP_NAMES = ["add", "remove", "set", "prompt_edit", "connect", "disconnect", "group", "ungroup", "move", "layout", "rename",
-  "select", "pick", "approve", "reject", "clear_verdict", "predict", "note", "answer", "critique", "judge_pair"] as const;
+  "select", "pick", "approve", "reject", "clear_verdict", "predict", "note", "answer", "critique", "judge_pair", "canon_save"] as const;
 
 type Op = Record<string, unknown> & { op: string };
 
@@ -221,6 +221,7 @@ export const OP_HELP: Record<string, string> = {
   answer: '{op:"answer", take:"gen/t4", answers:{c1:"yes", c2:"no", c3:{answer:"unsure", note:"hand hidden"}}} (the checklist of the take, from studio_get node)',
   critique: '{op:"critique", take:"gen/t4", summary:"...", criteria?:{composition:"...", lighting:"...", artefacts:"..."}, against?:"gen/t2", preferred?:"gen/t4", judge?}',
   judge_pair: '{op:"judge_pair", pair:"p...", preferred:"A"|"B", reason:"...", criteria?} (a blind pair from studio_view pair)',
+  canon_save: '{op:"canon_save", name:"teapot", takes:["variant/t5"], description:"a small round ceramic teapot, deep cobalt glaze, ...", kind?:"character"|"place"|"product"|"look", role?:"subject", replace?:true} (approved takes only)',
 };
 
 const KNOWN: Record<string, string[]> = {
@@ -229,7 +230,7 @@ const KNOWN: Record<string, string[]> = {
   disconnect: ["op", "from", "to", "to_handle"], group: ["op", "id", "label", "stage", "nodes"], ungroup: ["op", "id"], move: ["op", "node", "x", "y"],
   layout: ["op"], rename: ["op", "name"], select: ["op", "take"], pick: ["op", "node", "takes"], approve: ["op", "take", "note"], reject: ["op", "take", "note"],
   clear_verdict: ["op", "take"], predict: ["op", "take", "decision", "reason"], note: ["op", "on", "text", "author", "id", "take"],
-  answer: ["op", "take", "answers"], critique: ["op", "take", "summary", "criteria", "against", "preferred", "judge"], judge_pair: ["op", "pair", "preferred", "reason", "criteria"],
+  answer: ["op", "take", "answers"], critique: ["op", "take", "summary", "criteria", "against", "preferred", "judge"], judge_pair: ["op", "pair", "preferred", "reason", "criteria"], canon_save: ["op", "name", "takes", "description", "kind", "role", "replace"],
 };
 
 function freshId(graph: GraphFile, base: string): string {
@@ -280,6 +281,11 @@ async function afterSettings(graph: GraphFile, state: StateFile, ctx: OpContext,
     const { rel } = await importPath(ctx, node.settings.path, `${path}.settings.path`);
     node.settings.path = rel;
     await importReference(graph, state, ctx.project, ctx.dir, node);
+  }
+  if (node.type === "canon" && typeof node.settings.name === "string") {
+    const { importCanon, relativeProject } = await import("./canon.js");
+    if (typeof node.settings.project === "string") node.settings.project = relativeProject(ctx.project, node.settings.project);
+    await importCanon(graph, state, ctx.project, ctx.dir, node);
   }
   if (node.type === "implementation" && typeof node.settings.screenshot === "string") {
     node.settings.screenshot = (await importPath(ctx, node.settings.screenshot, `${path}.settings.screenshot`)).rel;
@@ -557,6 +563,22 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
       ctx.events.push({ type: "take.critiqued", node: node.id, take: take.id, judge: c.judge });
       ctx.feedback.push(takeFeedback(graph, node, take, "critique", { judge: c.judge, summary, against, preferred }));
       return `critique ${c.id} on ${node.id}/${take.id} by ${c.judge}`;
+    }
+    case "canon_save": {
+      const name = str(op, "name", path)!;
+      const description = str(op, "description", path)!;
+      if (!Array.isArray(op.takes) || !op.takes.length) throw new StudioError("BAD_OP", `${path}.takes must list 1-8 takes.`, OP_HELP.canon_save);
+      const role = typeof op.role === "string" ? op.role : "subject";
+      if (!(ROLES as readonly string[]).includes(role)) throw new StudioError("BAD_OP", `${path}.role "${role}" is not valid.`, `Roles: ${ROLES.join(", ")}.`);
+      const takes = (op.takes as unknown[]).map((r, i) => {
+        const x = parseTakeRef(graph, state, r, `${path}.takes[${i}]`);
+        if (x.take.verdict?.decision !== "approved") throw new StudioError("NOT_APPROVED", `${path}.takes[${i}]: ${x.node.id}/${x.take.id} is not approved.`, `Canon is for settled images. Approve it first (after a recorded look): {op:"approve", take:"${x.node.id}/${x.take.id}"}.`);
+        return { ref: `${x.node.id}/${x.take.id}`, take: x.take, role };
+      });
+      const { saveCanon } = await import("./canon.js");
+      const entry = await saveCanon(ctx.project, ctx.dir, { name, kind: typeof op.kind === "string" ? op.kind : undefined, description, takes, by: ctx.actor, replace: op.replace === true });
+      ctx.events.push({ type: "canon.saved", name, takes: takes.map(t => t.ref) });
+      return `saved canon "${entry.name}" (${entry.kind}, ${entry.references.length} image(s)); use it with {op:"add", id:"${entry.name}", type:"canon", settings:{name:"${entry.name}"}} and connect it to a generator's references`;
     }
     case "judge_pair": {
       const id = str(op, "pair", path)!;
