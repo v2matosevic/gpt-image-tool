@@ -559,3 +559,15 @@ test("every recipe builds a valid graph that plans a run; bad recipe input names
   assert.equal((await readBoth(graphDir(p, "r-lookbook"))).state.nodes.variants.takes.length, 2);
   assert.match(guide("recipes"), /Composition: many low-quality thumbnails/);
 });
+
+test("review 2 #1: set merges shot/style/brief key by key, null removes one key, and the result says what was kept", async () => {
+  const p = project();
+  await createGraph({ name: "Merge", nodes: [{ ref: "look", type: "style", settings: { preset: "product-studio", shot: { lens: "85mm", aperture: "f/2", grade: "cool" } } }], connections: [] }, { project: p });
+  const r = await editGraph("merge", [{ op: "set", node: "look", settings: { shot: { grade: "warm print", aperture: null } } }], { project: p });
+  const look = (await readBoth(graphDir(p, "merge"))).graph.nodes[0].settings;
+  assert.deepEqual(look.shot, { lens: "85mm", grade: "warm print" });
+  assert.equal(look.preset, "product-studio");
+  assert.equal(r.applied[0], "look: set shot.grade; removed shot.aperture; kept shot.lens");
+  const r2 = await editGraph("merge", [{ op: "set", node: "look", settings: { preset: null } }], { project: p });
+  assert.equal(r2.applied[0], "look: removed preset");
+});

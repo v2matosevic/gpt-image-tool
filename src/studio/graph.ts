@@ -202,7 +202,7 @@ function str(op: Op, key: string, path: string, required = true): string | undef
 export const OP_HELP: Record<string, string> = {
   add: '{op:"add", id:"gen", type:"generate", settings:{...}, label?, group?, connect_from?:["prompt1"]}',
   remove: '{op:"remove", node:"gen"} (also removes its edges and notes)',
-  set: '{op:"set", node:"gen", settings:{quality:"high"}, label?, group?} (a null value removes a setting)',
+  set: '{op:"set", node:"gen", settings:{quality:"high", shot:{grade:"warm"}}, label?, group?} (shot/style/brief merge key by key; null removes a setting or one key)',
   prompt_edit: '{op:"prompt_edit", node:"p1", find:"red", replace:"blue"} or {append:"..."} or {prepend:"..."}; field? defaults to the node\'s text field',
   connect: '{op:"connect", from:"p1", to:"gen", to_handle?:"prompt"}',
   disconnect: '{op:"disconnect", from:"p1", to:"gen", to_handle?}',
@@ -237,6 +237,9 @@ const KNOWN: Record<string, string[]> = {
 function freshId(graph: GraphFile, base: string): string {
   for (let i = 1; ; i++) if (!graph.nodes.some(n => n.id === `${base}${i}`)) return `${base}${i}`;
 }
+
+/** Settings whose object values merge key by key on set (null removes one key). */
+const MERGED_SETTINGS = new Set(["shot", "style", "brief"]);
 
 let humanAct = false;
 function takeFeedback(graph: GraphFile, node: GraphNode, take: Take, action: string, extra: Record<string, unknown> = {}) {
@@ -374,7 +377,22 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
       const patch = op.settings as Record<string, unknown> | undefined;
       if (patch !== undefined && (typeof patch !== "object" || patch === null || Array.isArray(patch))) throw new StudioError("BAD_OP", `${path}.settings must be an object.`, OP_HELP.set);
       const next = { ...node.settings };
-      for (const [k, v] of Object.entries(patch ?? {})) { if (v === null) delete next[k]; else next[k] = v; }
+      const changed: string[] = [], removed: string[] = [];
+      const plain = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+      for (const [k, v] of Object.entries(patch ?? {})) {
+        if (v === null) { if (k in next) removed.push(k); delete next[k]; continue; }
+        // shot, style and brief merge key by key, so setting one dimension keeps the others.
+        if (MERGED_SETTINGS.has(k) && plain(v) && plain(next[k])) {
+          const merged = { ...(next[k] as Record<string, unknown>) };
+          for (const [kk, vv] of Object.entries(v)) {
+            if (vv === null) { if (kk in merged) removed.push(`${k}.${kk}`); delete merged[kk]; } else { merged[kk] = vv; changed.push(`${k}.${kk}`); }
+          }
+          if (Object.keys(merged).length) next[k] = merged; else delete next[k];
+          continue;
+        }
+        next[k] = v;
+        changed.push(k);
+      }
       const issues = validateSettings(node.type, next, `${path}.settings`);
       if (issues.length) throw new StudioError("BAD_SETTINGS", `${path}: invalid settings for ${node.type} "${node.id}".`, issues[0]!.fix, issues);
       if (node.type === "note" && typeof next.on === "string") findNode(graph, next.on, `${path}.settings.on`);
@@ -384,7 +402,8 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
       if (op.group !== undefined) { if (op.group === null) delete node.group; else { requireGroup(graph, String(op.group), `${path}.group`); node.group = String(op.group); } }
       if (pathChanged) await afterSettings(graph, state, ctx, node, path);
       ctx.events.push({ type: "node.changed", node: node.id, keys: Object.keys(patch ?? {}) });
-      return `set ${node.id} ${Object.keys(patch ?? {}).join(", ") || "(label/group)"}`;
+      const kept = [...MERGED_SETTINGS].flatMap(k => Object.keys(patch ?? {}).includes(k) && plain(next[k]) ? Object.keys(next[k] as object).filter(kk => !changed.includes(`${k}.${kk}`)).map(kk => `${k}.${kk}`) : []);
+      return `${node.id}: ${[changed.length ? `set ${changed.join(", ")}` : "", removed.length ? `removed ${removed.join(", ")}` : "", kept.length ? `kept ${kept.join(", ")}` : ""].filter(Boolean).join("; ") || "label/group updated"}`;
     }
     case "prompt_edit": {
       const node = findNode(graph, str(op, "node", path)!, path);
