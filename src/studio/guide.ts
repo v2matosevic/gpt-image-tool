@@ -30,6 +30,9 @@ Rules that save quota and mistakes:
 - Studio uses the ChatGPT subscription only, never the paid API. The renderer is whatever OpenAI
   routes. The default is quality low; medium and high are sent, but the subscription reports "low" for
   every value it is given (tested 2026-11-28), so do not expect high to look better.
+- Images have their own cap of roughly 24 hours, shared with ChatGPT Images and separate from the
+  Codex usage meter (reported around 97 images on Plus). When it is hit the run stops and its fix
+  says when the cap resets; resume after that.
 - A list node fans out: one slot per item. takes:N gives N images per slot.
 - Images are never inlined: every take is a file in assets/ with a fingerprint and lineage.
 - Every refusal names its fix. Unknown settings are rejected with the valid names.

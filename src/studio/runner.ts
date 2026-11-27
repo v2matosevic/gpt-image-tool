@@ -172,7 +172,10 @@ export function workerScript(): string {
 export function classifyError(e: unknown): { kind: "quota" | "auth" | "node"; message: string; fix: string } {
   const message = e instanceof Error ? e.message : String(e);
   if (/\b429\b|rate.?limit|quota|usage limit|too many requests|throttl/i.test(message)) {
-    return { kind: "quota", message, fix: "The subscription quota or rate limit was reached. Wait, then resume with studio_run {resume:true}; finished slots are kept." };
+    const reset = /resets at (\S+) \(in ([^)]+)\)/.exec(message);
+    return { kind: "quota", message, fix: reset
+      ? `The subscription image cap was reached; it resets at ${reset[1]} (in ${reset[2]}). Resume after that with studio_run {resume:true}; finished slots are kept.`
+      : "The subscription quota or rate limit was reached. Wait, then resume with studio_run {resume:true}; finished slots are kept." };
   }
   if (/codex login|session (?:has )?ended|re-?log ?in|unauthori[sz]ed|\b401\b/i.test(message)) {
     return { kind: "auth", message, fix: "The ChatGPT session needs `codex login` (run it once), then studio_run {resume:true}." };

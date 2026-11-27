@@ -394,3 +394,20 @@ test("a run started over MCP finishes after the MCP server is closed the way Too
   assert.equal(rec.takes.length, 3);
   assert.notEqual(rec.pid, serverPid, "the worker is its own process");
 });
+
+test("an image-cap 429 names its reset time in the provider error and the run's stop fix", async () => {
+  const { usageLimitNote } = await import("../dist/providers/subscription.js");
+  const now = Date.parse("2026-11-28T10:00:00Z");
+  const body = JSON.stringify({ error: { type: "usage_limit_reached", message: "limit", resets_at: now / 1000 + 5400, resets_in_seconds: 5400 } });
+  const note = usageLimitNote(body, now)!;
+  assert.equal(note, "Usage limit (usage_limit_reached): resets at 2026-11-28T11:30:00.000Z (in 1h 30m).");
+  assert.equal(usageLimitNote(JSON.stringify({ error: { resets_in_seconds: 60 } }), now), "Usage limit: resets at 2026-11-28T10:01:00.000Z (in 0h 1m).");
+  assert.equal(usageLimitNote("not json"), undefined);
+  const p = project();
+  await createGraph(lookbook, { project: p });
+  const { executors } = makeFakes({ fail: () => { throw new Error(`subscription image request failed: HTTP 429 — ${note} ${body}`); } });
+  const r = await startRun(p, "mug-lookbook", { actor: "t", detach: false, executors });
+  assert.equal(r.status, "stopped");
+  const rec = JSON.parse(readFileSync(join(graphDir(p, "mug-lookbook"), "runs", `${r.job}.json`), "utf8"));
+  assert.match(rec.stopFix, /resets at 2026-11-28T11:30:00\.000Z \(in 1h 30m\)/);
+});

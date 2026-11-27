@@ -31,6 +31,12 @@ that the value is not validated; unknown whether it changes the render. So `xhig
 and `max` stay refused (no evidence they do anything), and `high` should not be
 described as producing a better image on the subscription.
 
+Image generation has its own cap of roughly 24 hours, shared with ChatGPT Images
+and separate from the Codex usage meter (a community report, openai/codex #49214:
+a Plus account stopped after 97 images). Its 429 carries `resets_at` and
+`resets_in_seconds`; the provider error and a stopped run's fix state the reset
+time.
+
 Runs spend the account's usage. Agents may run any graph without asking; each run
 records how many generations it made, and a quota or rate-limit error stops the run
 cleanly so it can be resumed.

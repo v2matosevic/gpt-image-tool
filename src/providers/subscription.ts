@@ -100,10 +100,26 @@ async function consumeStream(
 
 async function safeText(res: Response): Promise<string> {
   try {
-    return (await res.text()).slice(0, 300);
+    const raw = await res.text();
+    const limit = usageLimitNote(raw);
+    return (limit ? `${limit} ` : "") + raw.slice(0, 300);
   } catch {
     return "";
   }
+}
+
+/** A 429 for the image cap carries resets_at (epoch seconds) and resets_in_seconds. Turn them into
+ *  one plain sentence so callers (and Studio's stop reason) can say when to try again. */
+export function usageLimitNote(body: string, nowMs = Date.now()): string | undefined {
+  let j: any;
+  try { j = JSON.parse(body); } catch { return undefined; }
+  const e = j?.error ?? j;
+  const inSec = Number(e?.resets_in_seconds);
+  const atSec = Number(e?.resets_at);
+  const at = Number.isFinite(atSec) && atSec > 0 ? atSec * 1000 : Number.isFinite(inSec) && inSec >= 0 ? nowMs + inSec * 1000 : undefined;
+  if (at === undefined) return undefined;
+  const mins = Math.max(0, Math.round((at - nowMs) / 60_000));
+  return `Usage limit${e?.type ? ` (${e.type})` : ""}: resets at ${new Date(at).toISOString()} (in ${Math.floor(mins / 60)}h ${mins % 60}m).`;
 }
 
 export class SubscriptionProvider implements ImageProvider {
