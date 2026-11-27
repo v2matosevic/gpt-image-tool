@@ -571,3 +571,13 @@ test("review 2 #1: set merges shot/style/brief key by key, null removes one key,
   const r2 = await editGraph("merge", [{ op: "set", node: "look", settings: { preset: null } }], { project: p });
   assert.equal(r2.applied[0], "look: removed preset");
 });
+
+test("review 2 #2: a dry run lists nodes it skips with their fix, and Next says to fix them first", async () => {
+  const p = project();
+  const c = await createGraph({ name: "Broken", nodes: [{ ref: "gen", type: "generate", settings: { quality: "low" } }, { ref: "pick", type: "gallery" }], connections: [{ from: "gen", to: "pick" }] }, { project: p });
+  assert.match(c.snapshot, /Next:\n  Fix gen first/);
+  assert.doesNotMatch(c.snapshot, /studio_run \{graph:"broken"\} renders/);
+  const r: any = await startRun(p, "broken", { actor: "t", detach: false, dryRun: true });
+  assert.match(r.message, /Skipped gen: generate needs a prompt\. Fix: Connect a prompt/);
+  assert.match(r.message, /Nothing in scope can run until the skipped nodes are fixed/);
+});

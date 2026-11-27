@@ -276,7 +276,11 @@ export async function startRun(project: string, slug: string, req: RunRequest): 
 
 function planMessage(plan: Plan, dry: boolean): string {
   const gen = `${plan.generations}${plan.estimate ? "+" : ""} generation${plan.generations === 1 ? "" : "s"}`;
-  return `${dry ? "Would run" : "Running"} scope "${plan.scope}": ${gen} and ${plan.localSteps} local step${plan.localSteps === 1 ? "" : "s"}; ${plan.nodes.reduce((a, n) => a + n.cached, 0)} slot(s) reused from cache.`;
+  const lines = [`${dry ? "Would run" : "Running"} scope "${plan.scope}": ${gen} and ${plan.localSteps} local step${plan.localSteps === 1 ? "" : "s"}; ${plan.nodes.reduce((a, n) => a + n.cached, 0)} slot(s) reused from cache.`];
+  if (plan.estimate) lines.push(`"+" means at least: ${plan.nodes.filter(n => n.estimate).map(n => n.node).join(", ")} wait${plan.nodes.filter(n => n.estimate).length === 1 ? "s" : ""} on upstream images this run makes, so their slot count is known only then.`);
+  for (const s of plan.skipped) lines.push(`Skipped ${s.node}: ${s.reason}.${s.fix ? ` Fix: ${s.fix}` : ""}`);
+  if (dry && plan.skipped.length && !plan.slots) lines.push("Nothing in scope can run until the skipped nodes are fixed.");
+  return lines.join("\n");
 }
 
 export async function stopRun(project: string, slug: string, actor: string): Promise<{ job?: string; status: string; message: string }> {

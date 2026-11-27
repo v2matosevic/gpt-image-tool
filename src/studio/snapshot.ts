@@ -91,7 +91,11 @@ export async function snapshot(project: string, dir: string, graph: GraphFile, s
 
 function nextSteps(graph: GraphFile, evals: Map<string, NodeEval>): string[] {
   const out: string[] = [];
-  const pending = [...evals.values()].filter(e => workOf(e.node.type, e.node.settings) !== "none" && e.node.type !== "reference" && (e.status === "empty" || e.status === "stale" || e.status === "blocked"));
+  const broken = [...evals.values()].filter(e => e.issues.length);
+  if (broken.length) out.push(`Fix ${broken.map(e => e.node.id).join(", ")} first (see Needs attention); a run skips them and everything that depends on them.`);
+  const brokenIds = new Set(broken.map(e => e.node.id));
+  const pending = [...evals.values()].filter(e => workOf(e.node.type, e.node.settings) !== "none" && e.node.type !== "reference" && !e.issues.length
+    && (e.status === "empty" || e.status === "stale" || (e.status === "blocked" && !brokenIds.has(e.blockedBy!))));
   if (pending.length) out.push(`studio_run {graph:"${graph.slug}"} renders what is empty or stale (${pending.map(e => e.node.id).join(", ")}); unchanged slots are reused.`);
   const handoffs = [...evals.values()].filter(e => e.node.type === "handoff" && e.issues.some(i => /approved/.test(i.message)));
   if (handoffs.length) out.push(`Look at the results (studio_view), then approve one with studio_edit {op:"approve", take:"node/take"} so ${handoffs.map(h => h.node.id).join(", ")} can package it.`);
