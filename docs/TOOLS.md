@@ -160,6 +160,23 @@ encoded in the pixels themselves.
 Returns the catalog (`presets`, `modifiers`, `categories`), a `usage` line, and a `playbook` for
 agents. Optional `category` filter.
 
+### Studio tools (unreleased, main branch)
+
+Node-graph workflows, subscription only. Full guide, storage contract and CLI: [STUDIO.md](STUDIO.md). Every tool takes an optional `project` (default: this project).
+
+| Tool | Purpose | Key inputs |
+| --- | --- | --- |
+| `studio_guide` | Node types with every setting, ops, running, handoff, shot language, worked example | `topic` |
+| `studio_list` | Graphs in a project | `project` |
+| `studio_get` | Text snapshot, or one node in full with take paths | `graph`, `node` |
+| `studio_create` | Create from nodes (your refs) and connections, all or nothing; or `copy_from` another graph | `name`, `nodes`, `connections`, `groups`, `copy_from` |
+| `studio_edit` | Apply ops together or not at all | `graph`, `ops`, `expect_revision` |
+| `studio_run` | Start a background run; unchanged slots are reused | `graph`, `scope`, `nodes`, `new_take`, `concurrency`, `dry_run`, `resume`, `stop`, `wait_seconds` |
+| `studio_status` | Progress, generations spent, new take paths, errors with fixes | `graph`, `job`, `wait_seconds` |
+| `studio_view` | Labelled contact sheet and preview paths; `serve` starts the read-only viewer | `graph`, `nodes`, `all_takes`, `serve` |
+
+Studio quality is `low` (default), `medium` or `high`; it always sends `backend: "subscription"` and `image_model: "auto"`.
+
 ## CLI
 
 ```
@@ -168,6 +185,7 @@ gpt-image --subject "<thing>" --preset <id> [...]   # compiled
 gpt-image --upscale <path> | --edit <path> | --web <kind> | --remove-bg <path>
 gpt-image --presets [category] | --check
 gpt-image --subject "<thing>" --preview [--brief brief.json]
+gpt-image studio <list|guide|get|create|edit|run|status|sheet|events|view> ...   # see STUDIO.md
 gpt-image --logo-kit kit.json | --brand-board board.json
 ```
 

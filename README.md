@@ -67,8 +67,9 @@ Installation is from source. There is no official npm release of this project ye
 - Set exact text and real logos on generated plates; build social cards and carousels.
 - Preview image requests without quota, assign reference roles, and keep exact brand colors and font files in a project profile.
 - Explore six logo forms, export approved artwork as website/social kits, and compose exact branding boards. [Branding workflow](docs/BRANDING.md).
+- Work as a node graph with Studio: prompts, lists and references feed generators, unchanged images are never regenerated, approved images become a build package for a coding agent, and a read-only local viewer shows the graph. Subscription only. Not in a tagged release yet. [Studio](docs/STUDIO.md).
 
-The thirteen MCP tools are `generate_image`, `preview_image_request`, `edit_image`, `upscale_image`, `export_web_assets`, `export_logo_kit`, `create_brand_board`, `remove_background`, `compose_overlay`, `create_social_card`, `create_social_carousel`, `strip_image_metadata`, and `list_image_presets`. [Every parameter →](docs/TOOLS.md)
+The thirteen MCP tools are `generate_image`, `preview_image_request`, `edit_image`, `upscale_image`, `export_web_assets`, `export_logo_kit`, `create_brand_board`, `remove_background`, `compose_overlay`, `create_social_card`, `create_social_carousel`, `strip_image_metadata`, and `list_image_presets`. The development branch adds eight Studio tools (`studio_guide`, `studio_list`, `studio_get`, `studio_create`, `studio_edit`, `studio_run`, `studio_status`, `studio_view`). [Every parameter →](docs/TOOLS.md)
 
 The branding workflow is included in v0.6.0. Build the checkout and reconnect MCP after upgrading. Generated logo concepts remain raster; SVG logo delivery requires supplied vectors or explicitly requested font outlines.
 

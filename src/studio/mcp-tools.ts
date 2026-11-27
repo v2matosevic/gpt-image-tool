@@ -3,7 +3,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createGraph, editGraph, getGraph, listGraphs, runGraph, statusReport, viewGraph } from "./api.js";
+import { createGraph, editGraph, getGraph, listGraphs, runGraph, serveDetached, statusReport, viewGraph } from "./api.js";
 import { guide, GUIDE_TOPICS } from "./guide.js";
 import { StudioError } from "./store.js";
 
@@ -111,6 +111,14 @@ export function registerStudioTools(server: McpServer) {
   server.registerTool("studio_view", {
     title: "Look at Studio results",
     description: "Write one labelled contact sheet of the current outputs (or every take) and return it with small preview paths and full-size paths to open.",
-    inputSchema: { graph, nodes: z.array(z.string()).optional(), all_takes: z.boolean().optional().describe("Every take, not just current outputs."), project },
-  }, wrap(async a => (await viewGraph(a.graph, { project: a.project, nodes: a.nodes, allTakes: a.all_takes })).text));
+    inputSchema: { graph, nodes: z.array(z.string()).optional(), all_takes: z.boolean().optional().describe("Every take, not just current outputs."),
+      serve: z.boolean().optional().describe("Also start the read-only browser viewer for a person (127.0.0.1; exits after 30 idle minutes)."), project },
+  }, wrap(async a => {
+    const sheet = (await viewGraph(a.graph, { project: a.project, nodes: a.nodes, allTakes: a.all_takes })).text;
+    if (!a.serve) return sheet;
+    const v = await serveDetached(a.graph, { project: a.project });
+    return `Viewer: ${v.url} (read-only, local only; exits after ${v.idleMinutes} idle minutes)
+
+${sheet}`;
+  }));
 }

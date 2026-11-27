@@ -23,6 +23,14 @@ palette and image references. Supplied tiles are local; `generate` is explicit.
 Set `GPT_IMAGE_INLINE=1` (env, at registration) if you want the image returned inline so you can see
 it directly without a separate read.
 
+## Multi-step work: Studio
+
+When a task needs more than one or two images (a lookbook, variations of an approved anchor,
+a design that becomes code), use Studio instead of separate calls: `studio_guide` once, then
+`studio_create`, `studio_run`, `studio_view`, revise with `studio_edit`, approve, and run the
+handoff node for the coding agent. Unchanged images are reused, not regenerated, and every image
+keeps its lineage. Draft at quality `low`; finish at `high`. [STUDIO.md](STUDIO.md).
+
 ## Choosing the image model
 
 For the explicit `apikey` backend, use `image_model: "flare"` for faster drafts or `image_model: "sunburst"` for precise edits. Both are GPT Image 2.5; the API default is Sunburst. Keep model choice separate from quality: use `low` for drafts, compare `high`, `xhigh` or `max` for final assets. Do not switch a subscription user to paid API billing without their authorization. Subscription renderer selection is unverified and named selections are refused, even though direct experimental requests can return images.

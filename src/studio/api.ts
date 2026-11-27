@@ -204,6 +204,27 @@ export async function viewGraph(slug: string, opts: Who & { nodes?: string[]; al
   return { project, slug, sheet, images: items, text };
 }
 
+/** Start the read-only viewer as a detached process and return its URL. It exits by itself after
+ *  idleMinutes without requests, so an agent never leaves a server running indefinitely. */
+export async function serveDetached(slug: string | undefined, w: Who & { idleMinutes?: number } = {}): Promise<{ url: string; pid?: number; idleMinutes: number }> {
+  const project = resolveProject(w.project);
+  const { spawn } = await import("node:child_process");
+  const { workerScript } = await import("./runner.js");
+  const idle = w.idleMinutes ?? 30;
+  const child = spawn(process.execPath, [workerScript(), "studio", "view", ...(slug ? [slug] : []), "--project", project, "--idle-exit", String(idle)], {
+    detached: true, stdio: ["ignore", "pipe", "ignore"], windowsHide: true, cwd: project,
+  });
+  const url = await new Promise<string>((res, rej) => {
+    let buf = "";
+    const t = setTimeout(() => rej(new StudioError("VIEWER", "The viewer did not start within 20 seconds.", `Run it yourself: gpt-image studio view --project "${project}"`)), 20_000);
+    child.stdout!.on("data", d => { buf += d; const m = /http:\/\/127\.0\.0\.1:\d+\/\S*/.exec(buf); if (m) { clearTimeout(t); res(m[0]); } });
+    child.on("exit", code => { clearTimeout(t); rej(new StudioError("VIEWER", `The viewer exited (${code}).`, `Run it yourself: gpt-image studio view --project "${project}"`)); });
+  });
+  child.stdout!.destroy();
+  child.unref();
+  return { url, pid: child.pid, idleMinutes: idle };
+}
+
 export async function readRunRecord(slug: string, job: string, w: Who = {}) {
   const project = resolveProject(w.project);
   return readJson<RunRecord>(join(paths(graphDir(project, slug)).runs, `${job}.json`));

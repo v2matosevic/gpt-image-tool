@@ -45,6 +45,7 @@ inline copy too.
 | `imageqa.ts` / `contactsheet.ts` | Actual size/alpha/color diagnostics, small-icon measurements and review sheets. |
 | `imageinfo.ts` | Dependency-free PNG/JPEG/WebP dimension reader. |
 | `mcp.ts` / `cli.ts` | The two entry points (MCP stdio server / CLI). |
+| `studio/` | Node-graph workflows ([STUDIO.md](STUDIO.md)): `store` (paths, lock, atomic writes, events), `nodes` (types, handles, settings schemas), `graph` (ops, connection rules, layout), `evaluate` (slots, fingerprints, status), `runner` (jobs, run lock, worker, resume), `execute` / `handoff` (node work), `snapshot`, `api`, `mcp-tools`, `command` (CLI), `viewer`, `guide`. |
 
 ## Image renderer selection
 
@@ -113,13 +114,25 @@ jpeg/webp input and encode jpeg/webp output, otherwise it falls back to PNG.
 - **Timeouts**: total (`GPT_IMAGE_TIMEOUT_MS`, default 300s) and stall (`GPT_IMAGE_STALL_MS`, 120s).
 - **Single-flight refresh**: see above.
 - **Fast cold start**: `npm run build` runs `tsc`, then `scripts/bundle-mcp.mjs` replaces
-  `dist/mcp.js` with a single-file esbuild bundle. Every other `dist/*.js` file stays unbundled
-  for the tests and the CLI. `sharp` remains external and is imported lazily. Clients restart the
+  `dist/mcp.js` and `dist/cli.js` with single-file esbuild bundles. Every other `dist/*.js` file
+  stays unbundled for the tests. The CLI is bundled because ADE calls `gpt-image studio` for every
+  Studio edit and run, and the MCP server starts Studio's detached run worker as
+  `dist/cli.js studio worker` (resolved as the sibling of the running bundle). `sharp` remains external and is imported lazily. Clients restart the
   server often: ToolHub stops it after 10 idle minutes for each terminal. Unbundled, a start read
   about 270 module files. On a busy hard drive that took up to 32s and sometimes exceeded the
   gateway's start limit (2026-11-18 to 11-22). `test/bundle.test.ts` fails if `dist/mcp.js`
   imports anything other than `node:` built-ins. Do not add file reads relative to
   `import.meta.url` without checking that they still resolve from the bundle.
+
+## Studio runs
+
+A Studio run is a job, not a blocking call. The caller takes the per-graph `run.lock`, writes
+`runs/<job>.json` and spawns `dist/cli.js studio worker` detached, so the run survives a client
+timeout and ToolHub stopping the MCP server after 10 idle minutes. The worker heartbeats the lock,
+re-reads the graph before each node (edits made mid-run apply to nodes not yet reached), saves
+each take under the graph lock, and stops on quota or authentication errors. Interrupted runs
+resume from `completed` slot keys and fingerprints. Every provider call is made with backend
+`subscription` and image model `auto` passed explicitly. Contract details: [STUDIO.md](STUDIO.md).
 
 ## Testing
 
