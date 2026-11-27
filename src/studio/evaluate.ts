@@ -79,6 +79,13 @@ export function mergeLook(base: Look | undefined, node: Record<string, unknown>)
   return out;
 }
 
+/** The look with one swept dimension set to a value. */
+export function sweepLook(look: Look, dim: string, value: string): Look {
+  if (dim === "preset") return { ...look, preset: value };
+  const [group, key] = dim.split(".") as ["style" | "shot", string];
+  return { ...look, [group]: { ...((look[group] as Record<string, unknown>) ?? {}), [key]: value } };
+}
+
 /** Map shot language onto the prompt compiler's dimensions. Explicit style dimensions win. */
 export function shotToDims(shot: Record<string, string> | undefined): Record<string, string> {
   if (!shot) return {};
@@ -220,8 +227,14 @@ export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalCont
         if (node.type === "generate") profile ??= await profileHash(ctx.dir);
         const variants = (s.takes as number) ?? 1;
         const pairs: Array<{ item: TextItem; image?: ImageRef }> = images.length > 1 ? images.map(im => ({ item: items[0]!, image: im })) : items.map(it => ({ item: it, image: images[0] }));
-        if (pairs.length * variants > MAX_SLOTS) { ev.issues.push({ message: `${pairs.length * variants} slots (max ${MAX_SLOTS})`, fix: "Reduce takes or list items." }); break; }
-        pairs.forEach((p, index) => {
+        // A sweep varies one look dimension across values; it replaces fan-out, so it needs one pair.
+        const sw = s.sweep as { dim: string; values: string[] } | undefined;
+        if (sw && pairs.length > 1) { ev.issues.push({ message: `sweep needs one prompt and one image, but this node fans out to ${pairs.length}`, fix: "Sweep one thing at a time: disconnect the list (or pick one image in a gallery), or remove settings.sweep." }); break; }
+        const looks: Array<{ look: Look; label?: string }> = sw ? sw.values.map(v => ({ look: sweepLook(look, sw.dim, v), label: `${sw.dim}: ${v}` })) : [{ look }];
+        const fan = sw ? looks.map(l => ({ ...pairs[0]!, ...l })) : pairs.map(p => ({ ...p, look, label: undefined as string | undefined }));
+        if (fan.length * variants > MAX_SLOTS) { ev.issues.push({ message: `${fan.length * variants} slots (max ${MAX_SLOTS})`, fix: "Reduce takes, sweep values or list items." }); break; }
+        fan.forEach((p, index) => {
+          const look = p.look;
           for (let variant = 0; variant < variants; variant++) {
             const base = { e: ENGINE_VERSION, t: node.type, s: pick(s, RENDER_KEYS), look, text: p.item.text, refs: refs.map(r => [r.sha256, r.role, r.instruction ?? null]), image: p.image?.sha256 ?? null, mask: mask?.sha256 ?? null, v: variant, profile: isGen ? profile : null };
             const inputs: TakeInput[] = [
@@ -231,7 +244,7 @@ export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalCont
               ...(mask ? [{ handle: "mask", node: mask.node, take: mask.take, sha256: mask.sha256 }] : []),
             ];
             ev.slots.push({ index, variant, fingerprint: hashOf(base), text: p.item.text || undefined, item: p.item.item, image: p.image, refs, mask, look, inputs,
-              label: [p.item.item ?? (p.image ? `${p.image.node}/${p.image.take}` : undefined), variants > 1 ? `take ${variant + 1}` : undefined].filter(Boolean).join(" · ") || id });
+              label: [p.label ?? p.item.item ?? (p.image ? `${p.image.node}/${p.image.take}` : undefined), variants > 1 ? `take ${variant + 1}` : undefined].filter(Boolean).join(" · ") || id });
           }
         });
         finishSlots();

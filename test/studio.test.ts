@@ -411,3 +411,32 @@ test("an image-cap 429 names its reset time in the provider error and the run's 
   const rec = JSON.parse(readFileSync(join(graphDir(p, "mug-lookbook"), "runs", `${r.job}.json`), "utf8"));
   assert.match(rec.stopFix, /resets at 2026-11-28T11:30:00\.000Z \(in 1h 30m\)/);
 });
+
+test("a sweep varies one look dimension per slot, reuses unchanged values and refuses a list", async () => {
+  const p = project();
+  const values = ["from camera left", "backlight", "top light"];
+  await createGraph({ name: "Sweep", nodes: [{ ref: "gen", type: "generate", settings: { prompt: "a glass bottle", shot: { lens: "85mm" }, sweep: { dim: "shot.key_light", values } } }], connections: [] }, { project: p });
+  const fakes = makeFakes();
+  const r = await startRun(p, "sweep", { actor: "t", detach: false, executors: fakes.executors });
+  assert.equal(r.status, "done");
+  assert.equal(fakes.calls.length, 3);
+  const dir = graphDir(p, "sweep");
+  const takes = (await readBoth(dir)).state.nodes.gen.takes;
+  assert.deepEqual(takes.map((t: any) => t.settings.shot.key_light), values);
+  assert.ok(takes.every((t: any) => t.settings.shot.lens === "85mm"));
+  const sheet = JSON.parse(readFileSync(join(dir, JSON.parse(readFileSync(join(dir, "runs", `${r.job}.json`), "utf8")).sheet + ".json"), "utf8"));
+  assert.deepEqual(sheet.items.map((i: any) => i.detail), values.map(v => `shot.key_light: ${v}`));
+  await editGraph("sweep", [{ op: "set", node: "gen", settings: { sweep: { dim: "shot.key_light", values: ["from camera left", "rim light", "top light"] } } }], { project: p });
+  const again = makeFakes();
+  await startRun(p, "sweep", { actor: "t", detach: false, executors: again.executors });
+  assert.equal(again.calls.length, 1, "only the changed value renders");
+  const bad = await refusal(editGraph("sweep", [{ op: "set", node: "gen", settings: { sweep: { dim: "shot.keylight", values: ["a", "b"] } } }], { project: p }), "BAD_SETTINGS");
+  assert.match(String(bad.issues?.[0]?.message), /Did you mean "shot.key_light"/);
+  await editGraph("sweep", [
+    { op: "set", node: "gen", settings: { prompt: null } },
+    { op: "add", id: "kinds", type: "list", settings: { items: ["red", "blue"] } },
+    { op: "connect", from: "kinds", to: "gen" },
+  ], { project: p });
+  const snap = (await getGraph("sweep", { project: p })).snapshot as string;
+  assert.match(snap, /sweep needs one prompt and one image/);
+});

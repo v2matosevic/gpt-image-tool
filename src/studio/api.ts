@@ -154,9 +154,16 @@ async function summarize(dir: string, rec: RunRecord) {
       lines.push(`  ${x.ref}  ${x.path}`);
       if (x.take?.reading) lines.push(`    reads: ${await summaryOf(x.take.reading)}`);
     }
-    const byNode = new Map<string, string>();
-    for (const x of shown) if (x.take?.checklist?.length) byNode.set(x.ref.split("/")[0]!, x.take.checklist.map(c => `${c.id} ${c.question}`).join(" | "));
-    for (const [node, list] of byNode) lines.push(`Checklist for each ${node} take (answer with {op:"answer", take, answers:{c1:"yes", ...}} before approving): ${list}`);
+    const byNode = new Map<string, Array<{ ref: string; list: string }>>();
+    for (const x of shown) if (x.take?.checklist?.length) {
+      const node = x.ref.split("/")[0]!;
+      byNode.set(node, [...(byNode.get(node) ?? []), { ref: x.ref, list: x.take.checklist.map(c => `${c.id} ${c.question}`).join(" | ") }]);
+    }
+    const how = `answer with {op:"answer", take, answers:{c1:"yes", ...}} before approving`;
+    for (const [node, lists] of byNode) {
+      if (new Set(lists.map(l => l.list)).size === 1) lines.push(`Checklist for each ${node} take (${how}): ${lists[0]!.list}`);
+      else { lines.push(`Checklists (${how}):`); for (const l of lists) lines.push(`  ${l.ref}: ${l.list}`); }
+    }
   }
   if (["starting", "running"].includes(rec.status)) lines.push(`Still running. Call studio_status {graph:"${rec.graph}", job:"${rec.id}"} again; it waits up to 30s.`);
   else if (rec.status === "interrupted" || rec.status === "stopped") lines.push(`Resume with studio_run {graph:"${rec.graph}", resume:true}; finished slots are kept.`);

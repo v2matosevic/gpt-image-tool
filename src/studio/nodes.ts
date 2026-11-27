@@ -75,10 +75,16 @@ const lookDocs = {
   shot: "Shot language (see the shot section): size, angle, lens, aperture, key_light, light_ratio, light_quality, light_source, palette, color_scheme, time, atmosphere, foreground, midground, background, device, medium, texture, grade.",
   brief: "Creative brief: purpose, audience, brandName, direction, composition, palette[#hex], mustInclude[], avoid[], preserve[].",
 };
+export const STYLE_DIMS = ["medium", "composition", "subjectDetail", "setting", "lighting", "camera", "color", "mood", "detail"] as const;
+export const SWEEP_DIMS = ["preset", ...STYLE_DIMS.map(d => `style.${d}`), ...Object.keys(SHOT_DIMENSIONS).map(d => `shot.${d}`)];
+const sweep = z.object({
+  dim: z.string().refine(v => SWEEP_DIMS.includes(v), v => ({ message: `cannot sweep "${v}"${closest(v, SWEEP_DIMS) ? `. Did you mean "${closest(v, SWEEP_DIMS)}"?` : ""} Sweepable: ${SWEEP_DIMS.join(", ")}` })),
+  values: z.array(short).min(2).max(8),
+}).strict();
 const renderFields = {
   size: z.enum(SIZES), quality: z.enum(QUALITIES), format: z.enum(["png", "jpeg", "webp"]),
   transparent: z.boolean(), platform, takes: z.number().int().min(1).max(4),
-  reference_role: z.enum(ROLES), proof: z.boolean(),
+  reference_role: z.enum(ROLES), proof: z.boolean(), sweep,
 };
 const renderDocs = {
   size: `One of ${SIZES.join(", ")}. Default: the preset's size, else 1024x1024.`,
@@ -87,6 +93,7 @@ const renderDocs = {
   transparent: "Transparent background (local chroma key on the subscription).",
   platform: "Platform target: native size and safe-area composition.",
   takes: "Images per fan-out slot, 1-4 (default 1). Raising it only renders the missing takes.",
+  sweep: 'Vary one look dimension, one slot per value, everything else fixed: {dim:"shot.key_light", values:["from camera left","backlight","top light"]}. dim is preset, style.<dimension> or shot.<dimension>. Needs a single prompt (not a list); 2-8 values. The run sheet is labelled by value.',
   reference_role: `Role for connected reference images that do not carry their own: ${ROLES.join(", ")} (default style).`,
   proof: "Vision proofread of rendered lettering (default on when style.text is set).",
 };

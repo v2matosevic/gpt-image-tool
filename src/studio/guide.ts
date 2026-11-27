@@ -126,6 +126,12 @@ Measured colours are pixel observations, not intended design tokens.`;
 function shotSection(): string {
   return ["# Shot language", "", "Set shot:{...} on a style node or a generate/edit node. Each dimension maps onto the prompt compiler",
     "(composition, camera, lighting, color, mood, setting, medium, detail). An explicit style.<dimension> wins.", "",
+    "To learn what one dimension does, sweep it: on a generate or edit node set",
+    'sweep:{dim:"shot.key_light", values:["from camera left","backlight","top light"]}. One slot per value,',
+    "everything else fixed in the prompt, and the run sheet is labelled by value. Only the wording is controlled:",
+    "the renderer still varies the rest (a live key-light sweep changed the bottle's shape too), so judge the",
+    "swept dimension, and use takes:2 when you need to separate it from chance. dim can be preset,",
+    "style.<dimension> or shot.<dimension>; changing one value re-renders only that slot.", "",
     ...Object.entries(SHOT_DIMENSIONS).map(([k, v]) => `- ${k}: ${v}`)].join("\n");
 }
 

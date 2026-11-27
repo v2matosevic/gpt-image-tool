@@ -60,6 +60,12 @@ cleanly so it can be resumed.
 - Verdicts: `approve` and `reject` record who decided and why. Only approved images
   reach a handoff package.
 
+A sweep varies one look dimension: `sweep: {dim: "shot.key_light", values: [...]}`
+on a generate or edit node gives one slot per value with everything else fixed in
+the prompt, and the run sheet is labelled by value. Only the wording is controlled;
+in a live key-light sweep (2026-11-28) the lighting followed each value and the
+bottle's shape also changed between takes.
+
 An example spec to start from is
 [examples/studio/product-lookbook.json](../examples/studio/product-lookbook.json):
 `gpt-image studio create --spec @examples/studio/product-lookbook.json`, or pass its

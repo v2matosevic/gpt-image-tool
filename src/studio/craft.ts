@@ -69,16 +69,20 @@ export function briefChecklist(text: string | undefined, look: Look | undefined,
     add("Is everything not mentioned in the instruction unchanged from the source image?", "instruction");
   } else if (t) {
     const parts = t.split(/,|;|\.\s|\bwith\b|\band\b|\bon\b|\bin front of\b/i).map(x => x.trim()).filter(x => x.split(/\s+/).length >= 2 && x.length <= 80);
-    for (const p of parts.slice(0, 5)) add(`Does the image show ${p.replace(/^(a|an|the)\s+/i, m => m.toLowerCase())}?`, "prompt");
+    for (const p of parts.slice(0, 5)) {
+      const neg = /^(?:no|without)\s+(.+)$/i.exec(p);
+      add(neg ? `Is it free of ${neg[1]}?` : /\b(?:photograph|photo|illustration|render|painting|drawing|still life|portrait|poster)\b/i.test(p) && !/\bof\b/i.test(p)
+        ? `Does it read as ${/^(a|an|the)\s/i.test(p) ? p : `a ${p}`}?` : `Does the image show ${p}?`, "prompt");
+    }
     if (!parts.length) add(`Does the image show ${t}?`, "prompt");
   }
   const shot = (look?.shot ?? {}) as Record<string, string>;
   const ask: Partial<Record<keyof typeof SHOT_DIMENSIONS, (v: string) => string>> = {
-    size: v => `Is it a ${v} shot?`, angle: v => `Is the camera angle ${v}?`, aperture: v => `Does the depth of field match ${v}?`,
-    key_light: v => `Does the key light come ${v}?`, light_quality: v => `Is the light ${v}?`, light_source: v => `Is the light motivated by ${v}?`,
-    palette: v => `Are the colours ${v}?`, color_scheme: v => `Is the colour scheme ${v}?`, time: v => `Does it read as ${v}?`, atmosphere: v => `Is there ${v}?`,
-    foreground: v => `Is ${v} in the foreground?`, midground: v => `Is ${v} in the midground?`, background: v => `Is ${v} in the background?`,
-    device: v => `Is the composition built on ${v}?`, medium: v => `Does it read as ${v}?`, grade: v => `Is the grade ${v}?`,
+    size: v => `Shot size: is it ${v}?`, angle: v => `Camera angle: is it ${v}?`, aperture: v => `Depth of field: does it match ${v}?`,
+    key_light: v => `Key light: does it match "${v}"?`, light_quality: v => `Light quality: is it ${v}?`, light_source: v => `Light source: does it read as ${v}?`,
+    palette: v => `Palette: is it ${v}?`, color_scheme: v => `Colour scheme: is it ${v}?`, time: v => `Time of day: does it read as ${v}?`, atmosphere: v => `Atmosphere: is there ${v}?`,
+    foreground: v => `Foreground: is ${v} there?`, midground: v => `Midground: is ${v} there?`, background: v => `Background: is ${v} there?`,
+    device: v => `Composition: is it built on ${v}?`, medium: v => `Medium: does it read as ${v}?`, grade: v => `Grade: is it ${v}?`,
   };
   for (const [k, fn] of Object.entries(ask)) if (shot[k]) add(fn!(shot[k]!), `shot.${k}`);
   const style = (look?.style ?? {}) as Record<string, any>;
