@@ -61,10 +61,13 @@ cleanly so it can be resumed.
   reach a handoff package.
 
 A sweep varies one look dimension: `sweep: {dim: "shot.key_light", values: [...]}`
-on a generate or edit node gives one slot per value with everything else fixed in
-the prompt, and the run sheet is labelled by value. Only the wording is controlled;
-in a live key-light sweep (2026-11-28) the lighting followed each value and the
-bottle's shape also changed between takes.
+on a generate or edit node gives one slot per value, labelled by value on the run
+sheet. With an anchor (an edit node's image, or a generator's subject reference or
+canon image) each slot is an edit of the anchor that changes only the swept
+dimension. Without one only the prompt wording is held: in a live key-light sweep
+from a prompt (2026-11-28) the lighting followed each value and the bottle's shape
+also changed, so the run result says the subject may vary and to pick a take and
+sweep again as edits of it.
 
 Canon keeps a named character, place, product or look the same across graphs and
 projects. `{op:"canon_save", name, kind, takes, description}` (approved takes only)

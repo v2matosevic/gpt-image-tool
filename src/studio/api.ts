@@ -170,6 +170,8 @@ async function summarize(dir: string, rec: RunRecord) {
       lines.push("Deviations (measured; confirm them when you look):");
       for (const x of devs) lines.push(`  ${x.ref}: ${x.take!.deviations!.map(d => `${d.note}, expected ${d.expected}, measured ${d.measured}`).join("; ")}`);
     }
+    const loose = [...new Set(shown.filter(x => (x.take?.settings as any)?.sweep && !x.take!.inputs.some(i => i.handle === "image" || (i.handle === "references" && i.role === "subject"))).map(x => x.ref.split("/")[0]!))];
+    for (const node of loose) lines.push(`${node}: sweep without an anchor, so the subject may vary between takes and differences cannot be pinned on the swept setting. Pick one take, then sweep again as edits of it (an edit node with that image, or a subject reference).`);
     lines.push("New takes:");
     for (const x of shown) {
       lines.push(`  ${x.ref}  ${x.path}`);

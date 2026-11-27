@@ -17,6 +17,8 @@ export interface Slot {
   index: number; variant: number; fingerprint: string;
   text?: string; item?: string; image?: ImageRef; refs: ImageRef[]; mask?: ImageRef; pkg?: ImageRef; screenshot?: { rel: string; sha256: string };
   look?: Look; inputs: TakeInput[]; label: string;
+  /** Set on sweep slots. With an anchor, the slot renders as an edit of that image that changes only this. */
+  sweep?: { dim: string; value: string; anchor?: ImageRef };
 }
 export type SlotStatus = "current" | "pinned" | "stale" | "missing";
 export interface SlotView { slot: Slot; take?: Take; status: SlotStatus }
@@ -255,8 +257,10 @@ export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalCont
             : { message: `a sweep needs a single image and a single instruction, but this node fans out to ${pairs.length} slots`, fix: `Pick one image in the upstream gallery ({op:"pick", node:"<gallery>", takes:["<node>/<take>"]}) or use one instruction, or remove the sweep: {op:"set", node:"${id}", settings:{sweep:null}}.` });
           break;
         }
-        const looks: Array<{ look: Look; label?: string }> = sw ? sw.values.map(v => ({ look: sweepLook(look, sw.dim, v), label: `${sw.dim}: ${v}` })) : [{ look }];
-        const fan = sw ? looks.map(l => ({ ...pairs[0]!, ...l })) : pairs.map(p => ({ ...p, look, label: undefined as string | undefined }));
+        // The anchor a sweep edits: the edit node's own image, or a generator's subject reference/canon image.
+        const sweepAnchor = sw ? (isGen ? refs.find(r => r.role === "subject") : images[0]) : undefined;
+        const looks: Array<{ look: Look; label?: string; sweep?: Slot["sweep"] }> = sw ? sw.values.map(v => ({ look: sweepLook(look, sw.dim, v), label: `${sw.dim}: ${v}`, sweep: { dim: sw.dim, value: v, ...(sweepAnchor ? { anchor: sweepAnchor } : {}) } })) : [{ look }];
+        const fan = sw ? looks.map(l => ({ ...pairs[0]!, ...l })) : pairs.map(p => ({ ...p, look, label: undefined as string | undefined, sweep: undefined }));
         if (fan.length * variants > MAX_SLOTS) { ev.issues.push({ message: `${fan.length * variants} slots (max ${MAX_SLOTS})`, fix: "Reduce takes, sweep values or list items." }); break; }
         fan.forEach((p, index) => {
           const look = p.look;
@@ -268,7 +272,7 @@ export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalCont
               ...refs.map(r => ({ handle: "references", node: r.node, take: r.take, sha256: r.sha256, role: r.role })),
               ...(mask ? [{ handle: "mask", node: mask.node, take: mask.take, sha256: mask.sha256 }] : []),
             ];
-            ev.slots.push({ index, variant, fingerprint: hashOf(base), text: p.item.text || undefined, item: p.item.item, image: p.image, refs, mask, look, inputs,
+            ev.slots.push({ index, variant, fingerprint: hashOf(p.sweep ? { ...base, sweepEdit: p.sweep.anchor?.sha256 ?? null } : base), text: p.item.text || undefined, item: p.item.item, image: p.image, refs, mask, look, inputs, ...(p.sweep ? { sweep: p.sweep } : {}),
               label: [p.label ?? p.item.item ?? (p.image ? `${p.image.node}/${p.image.take}` : undefined), variants > 1 ? `take ${variant + 1}` : undefined].filter(Boolean).join(" · ") || id });
           }
         });

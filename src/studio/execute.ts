@@ -50,9 +50,24 @@ function lookArgs(slot: Slot) {
 
 const refArgs = (x: ExecInput) => x.slot.refs.map(r => ({ path: resolve(x.dir, r.asset), role: (r.role ?? "style") as any, ...(r.instruction ? { instruction: r.instruction } : {}) }));
 
+/** "Change only the key light to: backlight", so a sweep varies one thing and holds the subject. */
+export function sweepInstruction(dim: string, value: string): string {
+  const name = dim === "preset" ? "overall style" : dim.split(".")[1]!.replace(/_/g, " ").replace(/^color/, "colour");
+  return `Keep the subject, its shape, materials and position, and the composition exactly as in the image. Change only the ${name} to: ${value}.`;
+}
+
 async function execGenerate(x: ExecInput): Promise<ExecOutput> {
-  const { generateImage } = await import("../generate.js");
+  const { generateImage, editImage } = await import("../generate.js");
   const s = x.node.settings as Record<string, any>;
+  if (x.slot.sweep?.anchor) {
+    // A sweep with an anchor: edit the anchor so only the swept dimension changes.
+    const out = await editImage({
+      imagePaths: [resolve(x.dir, x.slot.sweep.anchor.asset)], instruction: sweepInstruction(x.slot.sweep.dim, x.slot.sweep.value), ...lookArgs(x.slot),
+      size: s.size, quality: s.quality ?? "low", format: s.format ?? "png", transparent: s.transparent, platform: s.platform, proof: s.proof,
+      outputPath: `${x.outBase}.png`, backend: BACKEND, imageModel: MODEL, count: 1,
+    });
+    return { path: out.path, compiledPrompt: out.prompt, revisedPrompt: out.revisedPrompt, generations: out.proof?.attempts ?? 1, warnings: out.qa?.warnings };
+  }
   const out = await generateImage({
     subject: x.slot.text, ...lookArgs(x.slot), references: refArgs(x),
     size: s.size, quality: s.quality ?? "low", format: s.format ?? "png", transparent: s.transparent, platform: s.platform, proof: s.proof,
@@ -65,7 +80,8 @@ async function execEdit(x: ExecInput): Promise<ExecOutput> {
   const { editImage } = await import("../generate.js");
   const s = x.node.settings as Record<string, any>;
   const out = await editImage({
-    imagePaths: [resolve(x.dir, x.slot.image!.asset)], instruction: x.slot.text || undefined, ...lookArgs(x.slot), references: refArgs(x),
+    imagePaths: [resolve(x.dir, x.slot.image!.asset)], ...lookArgs(x.slot), references: refArgs(x),
+    instruction: x.slot.sweep ? [x.slot.text, sweepInstruction(x.slot.sweep.dim, x.slot.sweep.value)].filter(Boolean).join(". ") : x.slot.text || undefined,
     maskPath: x.slot.mask ? resolve(x.dir, x.slot.mask.asset) : undefined, preserveUnmasked: s.preserve_unmasked,
     size: s.size, quality: s.quality ?? "low", format: s.format ?? "png", transparent: s.transparent, platform: s.platform, proof: s.proof,
     outputPath: `${x.outBase}.png`, backend: BACKEND, imageModel: MODEL, count: 1,

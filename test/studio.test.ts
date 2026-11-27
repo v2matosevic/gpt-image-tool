@@ -645,3 +645,29 @@ test("review 2 #6: the CLI guide and create say what memory holds, including not
   await cli(["edit", "g", "--human", "--actor", "marko", "--ops", JSON.stringify([{ op: "approve", take: "gen/t1" }])]);
   assert.match(await cli(["guide", "review"]), /From 1 human decision\(s\) in this project; counts appear once an attribute has two or more decisions\./);
 });
+
+test("review 2 #7: a sweep with a subject anchor renders as edits of it; without one the result says the subject may vary", async () => {
+  const { sweepInstruction } = await import("../dist/studio/execute.js");
+  assert.equal(sweepInstruction("shot.key_light", "backlight"), "Keep the subject, its shape, materials and position, and the composition exactly as in the image. Change only the key light to: backlight.");
+  const p = project();
+  const values = ["from camera left", "backlight"];
+  await createGraph({ name: "Anch", nodes: [
+    { ref: "ref", type: "reference", settings: { path: "images/ref.png", role: "subject" } },
+    { ref: "gen", type: "generate", settings: { prompt: "a glass bottle", sweep: { dim: "shot.key_light", values } } },
+    { ref: "loose", type: "generate", settings: { prompt: "a glass bottle", sweep: { dim: "shot.key_light", values } } },
+  ], connections: [{ from: "ref", to: "gen", to_handle: "references" }] }, { project: p });
+  const seen: any[] = [];
+  const fakes = makeFakes();
+  const gen = fakes.executors.generate;
+  fakes.executors.generate = async (x: any) => { seen.push({ node: x.node.id, sweep: x.slot.sweep }); return gen(x); };
+  const r = await startRun(p, "anch", { actor: "t", detach: false, executors: fakes.executors });
+  assert.equal(r.status, "done");
+  const anchored = seen.filter(s => s.node === "gen");
+  assert.equal(anchored.length, 2);
+  assert.ok(anchored.every(s => s.sweep?.anchor?.asset), "anchored slots carry the subject reference");
+  assert.deepEqual(anchored.map(s => s.sweep.value), values);
+  assert.ok(seen.filter(s => s.node === "loose").every(s => s.sweep && !s.sweep.anchor));
+  const text = (await statusReport("anch", { project: p })).text as string;
+  assert.match(text, /loose: sweep without an anchor, so the subject may vary/);
+  assert.doesNotMatch(text, /\bgen: sweep without an anchor/);
+});
