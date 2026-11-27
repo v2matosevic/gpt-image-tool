@@ -46,7 +46,7 @@ Text-to-image via the preset compiler (or a raw prompt).
 | `series` | int 1–10 | N **consistent** images (first reused as a style ref for the rest). |
 | `from_image` | string | Reload a prior image's sidecar as the base, then apply args on top. |
 | `size` | enum | `auto`, `1024x1024`, `1536x1024`, `1024x1536`, `1024x1280`, `1280x1024`, `2048x2048`, `2048x1152`, `1152x2048`. Upstream support varies; inspect actual output dimensions. |
-| `quality` | enum | `auto` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` (last two: Image 2.5 API). On the subscription the server replaces it with `auto` and reports every image as `low` ([evidence](IMAGE-2.5-RESEARCH.md)); it has effect only on the API backend. |
+| `quality` | enum | `auto` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` (last two: Image 2.5 API). On the subscription the server replaces it with `auto` and reports every image as `low` ([evidence](IMAGE-2.5-RESEARCH.md)). Only the API backend documents honouring it. |
 | `format` | enum | `png` \| `jpeg` \| `webp`. |
 | `output_path` | string | File, or a directory ending in `/`. Default `./generated-images/`. |
 | `backend` | enum | `subscription` (default) \| `apikey`. |
