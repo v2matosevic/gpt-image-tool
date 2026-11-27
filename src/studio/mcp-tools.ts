@@ -3,7 +3,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createGraph, editGraph, getGraph, listGraphs, runGraph, serveDetached, statusReport, viewGraph } from "./api.js";
+import { createGraph, editGraph, getGraph, listGraphs, lookCloser, runGraph, serveDetached, statusReport, viewGraph } from "./api.js";
 import { guide, GUIDE_TOPICS } from "./guide.js";
 import { StudioError } from "./store.js";
 
@@ -72,7 +72,7 @@ export function registerStudioTools(server: McpServer) {
 
   server.registerTool("studio_edit", {
     title: "Edit a Studio graph",
-    description: "Apply a list of ops together or not at all: add, remove, set, prompt_edit, connect, disconnect, group, ungroup, move, layout, rename, select, pick, approve, reject, clear_verdict, predict, note. Shapes are in studio_guide topic ops.",
+    description: "Apply a list of ops together or not at all: add, remove, set, prompt_edit, connect, disconnect, group, ungroup, move, layout, rename, select, pick, approve, reject, clear_verdict, predict, note, answer, critique, judge_pair. Shapes are in studio_guide topic ops. An agent must record a look (answer or critique) before approve; put both in one call.",
     inputSchema: {
       graph, ops: z.array(z.record(z.unknown()).describe('e.g. {op:"set", node:"gen", settings:{quality:"high"}}')).min(1),
       expect_revision: z.number().int().optional().describe("Refuse if the graph changed since this revision."), project,
@@ -110,11 +110,15 @@ export function registerStudioTools(server: McpServer) {
 
   server.registerTool("studio_view", {
     title: "Look at Studio results",
-    description: "Write one labelled contact sheet of the current outputs (or every take) and return it with small preview paths and full-size paths to open.",
+    description: "Write one labelled review sheet of the current outputs (or every take; each cell is labelled with the setting that differs, with a palette strip) and return it with preview and full-size paths. zoom crops a region at full resolution (hands, text, edges vanish when downsized); pair makes a blind A/B sheet to judge with the judge_pair op.",
     inputSchema: { graph, nodes: z.array(z.string()).optional(), all_takes: z.boolean().optional().describe("Every take, not just current outputs."),
+      overlays: z.array(z.enum(["grid", "palette", "histogram"])).optional().describe("grid: thirds lines and the visual-weight centre; palette: colour shares; histogram: lightness. Default palette."),
+      zoom: z.object({ take: z.string(), region: z.union([z.string(), z.tuple([z.number(), z.number(), z.number(), z.number()])]) }).optional().describe('{take:"gen/t3", region:"bottom-right"} (a thirds cell) or region:[x,y,w,h] as fractions.'),
+      pair: z.array(z.string()).optional().describe('Two takes, e.g. ["gen/t3","gen/t5"]: a blind A/B sheet in random order.'),
       serve: z.boolean().optional().describe("Also start the read-only browser viewer for a person (127.0.0.1; exits after 30 idle minutes)."), project },
   }, wrap(async a => {
-    const sheet = (await viewGraph(a.graph, { project: a.project, nodes: a.nodes, allTakes: a.all_takes })).text;
+    if (a.zoom || a.pair) return lookCloser(a.graph, { project: a.project, zoom: a.zoom as any, pair: a.pair as any });
+    const sheet = (await viewGraph(a.graph, { project: a.project, nodes: a.nodes, allTakes: a.all_takes, overlays: a.overlays })).text;
     if (!a.serve) return sheet;
     const v = await serveDetached(a.graph, { project: a.project });
     return `Viewer: ${v.url} (read-only, local only; exits after ${v.idleMinutes} idle minutes)

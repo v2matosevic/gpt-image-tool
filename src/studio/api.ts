@@ -9,9 +9,9 @@ import { nodeDetail, snapshot } from "./snapshot.js";
 import { StudioError, createGraphFiles, emptyState, graphDir, listGraphSlugs, mutate, now, paths, readBoth, readGraph, readJson, resolveProject, slugify, checkSlug, toPosix } from "./store.js";
 import { listRecords, readRecord, runStatus, startRun, stopRun, type RunRequest } from "./runner.js";
 import { evaluate } from "./evaluate.js";
-import { GRAPH_SCHEMA, type GraphFile, type RunRecord } from "./types.js";
+import { GRAPH_SCHEMA, type GraphFile, type RunRecord, type Take } from "./types.js";
 
-export interface Who { project?: string; actor?: string }
+export interface Who { project?: string; actor?: string; human?: boolean }
 const actorOf = (w: Who) => w.actor?.trim() || process.env.GPT_IMAGE_STUDIO_ACTOR?.trim() || "agent";
 
 export async function listGraphs(w: Who = {}) {
@@ -80,7 +80,7 @@ export async function editGraph(slug: string, ops: unknown[], opts: Who & { expe
   const project = resolveProject(opts.project);
   const dir = graphDir(project, slug);
   const actor = actorOf(opts);
-  const ctx: OpContext = { project, dir, actor, events: [], feedback: [], notes: [] };
+  const ctx: OpContext = { project, dir, actor, events: [], feedback: [], notes: [], human: opts.human };
   const res = await mutate(dir, actor, async (graph, state) => {
     if (opts.expectRevision !== undefined && graph.revision !== opts.expectRevision) {
       throw new StudioError("STALE_REVISION", `Graph "${slug}" is at revision ${graph.revision}, not ${opts.expectRevision}; someone else changed it.`,
@@ -128,10 +128,10 @@ export async function statusReport(slug: string, opts: Who & { job?: string; wai
   const dir = graphDir(project, slug);
   const st = await runStatus(project, slug, opts.job, opts.waitSeconds ?? 0);
   if (!st.record) return { project, slug, status: st.status, text: "No runs yet. Start one with studio_run." };
-  return { project, slug, job: st.job, status: st.status, waitedMs: st.waitedMs, ...summarize(dir, st.record) };
+  return { project, slug, job: st.job, status: st.status, waitedMs: st.waitedMs, ...(await summarize(dir, st.record)) };
 }
 
-function summarize(dir: string, rec: RunRecord) {
+async function summarize(dir: string, rec: RunRecord) {
   const lines: string[] = [];
   const p = rec.progress;
   lines.push(`Run ${rec.id} (${rec.scope.kind === "all" ? "all" : rec.scope.nodes.join(",") + (rec.scope.kind === "downstream" ? "+" : "")}): ${rec.status}. ${p.slotsDone}/${rec.planned.slots}${rec.planned.estimate ? "+" : ""} slots done, ${p.slotsCached} reused, ${p.slotsFailed} failed, ${p.generations} generation(s).`);
@@ -140,8 +140,23 @@ function summarize(dir: string, rec: RunRecord) {
   for (const e of rec.errors.slice(0, 5)) lines.push(`Error in ${e.node}: ${e.message.slice(0, 300)}${e.fix ? ` Fix: ${e.fix}` : ""}`);
   for (const s of rec.skipped.slice(0, 5)) lines.push(`Skipped ${s.node}: ${s.reason}`);
   if (rec.takes.length) {
-    lines.push("New takes (open these to look):");
-    for (const t of rec.takes.slice(-24)) lines.push(`  ${t.node}/${t.take}  ${resolve(dir, t.asset)}`);
+    const { state } = await readBoth(dir);
+    const { summaryOf } = await import("./craft.js");
+    const shown = rec.takes.slice(-24).map(t => ({ ref: `${t.node}/${t.take}`, path: resolve(dir, t.asset), take: state.nodes[t.node]?.takes.find(x => x.id === t.take) }));
+    if (rec.sheet) lines.push(`Review sheet (open this first; labels show what differs): ${resolve(dir, rec.sheet)}`);
+    const devs = shown.filter(x => x.take?.deviations?.length);
+    if (devs.length) {
+      lines.push("Deviations (measured; confirm them when you look):");
+      for (const x of devs) lines.push(`  ${x.ref}: ${x.take!.deviations!.map(d => `${d.note}, expected ${d.expected}, measured ${d.measured}`).join("; ")}`);
+    }
+    lines.push("New takes:");
+    for (const x of shown) {
+      lines.push(`  ${x.ref}  ${x.path}`);
+      if (x.take?.reading) lines.push(`    reads: ${await summaryOf(x.take.reading)}`);
+    }
+    const byNode = new Map<string, string>();
+    for (const x of shown) if (x.take?.checklist?.length) byNode.set(x.ref.split("/")[0]!, x.take.checklist.map(c => `${c.id} ${c.question}`).join(" | "));
+    for (const [node, list] of byNode) lines.push(`Checklist for each ${node} take (answer with {op:"answer", take, answers:{c1:"yes", ...}} before approving): ${list}`);
   }
   if (["starting", "running"].includes(rec.status)) lines.push(`Still running. Call studio_status {graph:"${rec.graph}", job:"${rec.id}"} again; it waits up to 30s.`);
   else if (rec.status === "interrupted" || rec.status === "stopped") lines.push(`Resume with studio_run {graph:"${rec.graph}", resume:true}; finished slots are kept.`);
@@ -166,13 +181,13 @@ export async function ensurePreview(dir: string, rel: string, size = 384): Promi
   } catch { return null; }
 }
 
-export async function viewGraph(slug: string, opts: Who & { nodes?: string[]; allTakes?: boolean } = {}) {
+export async function viewGraph(slug: string, opts: Who & { nodes?: string[]; allTakes?: boolean; overlays?: Array<"grid" | "palette" | "histogram"> } = {}) {
   const project = resolveProject(opts.project);
   const dir = graphDir(project, slug);
   const { graph, state } = await readBoth(dir);
   const evals = await evaluate(graph, state, { dir, project });
   const wanted = opts.nodes?.length ? opts.nodes : graph.nodes.filter(n => !["prompt", "style", "list", "note", "handoff"].includes(n.type)).map(n => n.id);
-  const items: Array<{ ref: string; path: string; label: string; preview?: string; verdict?: string; status: string }> = [];
+  const items: Array<{ ref: string; path: string; label: string; preview?: string; verdict?: string; status: string; take: Take }> = [];
   for (const id of wanted) {
     const ev = evals.get(id);
     if (!ev) { const { findNode } = await import("./graph.js"); findNode(graph, id, "nodes"); continue; }
@@ -184,7 +199,7 @@ export async function viewGraph(slug: string, opts: Who & { nodes?: string[]; al
       if (take.kind !== "image") continue;
       const path = resolve(dir, take.asset);
       if (!existsSync(path)) continue;
-      items.push({ ref: `${id}/${take.id}`, path, label: `${label}${take.verdict ? ` ${take.verdict.decision}` : ""}`, verdict: take.verdict?.decision, status, preview: (await ensurePreview(dir, take.asset)) ?? undefined });
+      items.push({ ref: `${id}/${take.id}`, path, label: `${label}${take.verdict ? ` ${take.verdict.decision}` : ""}`, verdict: take.verdict?.decision, status, take, preview: (await ensurePreview(dir, take.asset)) ?? undefined });
     }
   }
   if (!items.length) return { project, slug, sheet: undefined, images: [], text: "No images yet. Run the graph first (studio_run)." };
@@ -192,16 +207,52 @@ export async function viewGraph(slug: string, opts: Who & { nodes?: string[]; al
   const shown = items.slice(-30);
   const notes: string[] = [];
   try {
-    const { createContactSheet } = await import("../contactsheet.js");
+    const craft = await import("./craft.js");
     await mkdir(paths(dir).views, { recursive: true });
-    sheet = await createContactSheet(shown.map(i => i.path), join(paths(dir).views, `sheet-${now().replace(/[:.]/g, "-")}.png`), shown.map(i => i.label));
+    const diffs = craft.differingSettings(shown.map(i => i.take));
+    sheet = await craft.reviewSheet(shown.map((i, k) => ({
+      path: i.path, reading: i.take.reading,
+      title: `${i.ref}${i.verdict ? ` ${i.verdict}` : ""}${i.status === "stale" ? " (stale)" : ""}${i.take.deviations?.length ? `  ⚠ ${i.take.deviations.map(d => d.measure).join(",")}` : ""}`,
+      detail: diffs[k]!.join(" · ") || i.take.text?.item || "",
+    })), join(paths(dir).views, `sheet-${now().replace(/[:.]/g, "-")}.png`), opts.overlays ?? ["palette"], `${graph.name ?? slug}`);
   } catch (e) {
     notes.push(`No contact sheet (${e instanceof Error ? e.message : e}); open the preview paths instead.`);
   }
   if (items.length > 30) notes.push(`Showing the last 30 of ${items.length} images; pass nodes to narrow it.`);
-  const text = [sheet ? `Contact sheet (open this first): ${sheet}` : "", "Images (ref, label, preview path, full path):",
+  const text = [sheet ? `Review sheet (open this first): ${sheet}` : "", "Images (ref, label, preview path, full path):",
     ...items.map(i => `  ${i.ref}  ${i.label}${i.status === "stale" ? " (stale)" : ""}\n    preview ${i.preview ?? "(none)"}\n    full    ${i.path}`), ...notes].filter(Boolean).join("\n");
   return { project, slug, sheet, images: items, text };
+}
+
+/** Look closer: a full-resolution region of one take, or a blind A/B pair of two takes. */
+export async function lookCloser(slug: string, opts: Who & { zoom?: { take: string; region: string | [number, number, number, number] }; pair?: [string, string] }) {
+  const project = resolveProject(opts.project);
+  const dir = graphDir(project, slug);
+  const { graph, state } = await readBoth(dir);
+  const { parseTakeRef } = await import("./graph.js");
+  const craft = await import("./craft.js");
+  const lines: string[] = [];
+  if (opts.zoom) {
+    const { node, take } = parseTakeRef(graph, state, opts.zoom.take, "zoom.take");
+    if (take.kind !== "image") throw new StudioError("NOT_IMAGE", `${node.id}/${take.id} is a package, not an image.`, "Zoom into an image take.");
+    const name = typeof opts.zoom.region === "string" ? opts.zoom.region : opts.zoom.region.join("_");
+    try {
+      const z = await craft.zoomRegion(resolve(dir, take.asset), opts.zoom.region, join(paths(dir).views, `zoom-${node.id}-${take.id}-${name.replace(/[^a-z0-9_.-]/gi, "")}.png`));
+      lines.push(`Zoom of ${node.id}/${take.id} ${name} at full resolution (box ${z.box.join(",")}): ${z.path}`);
+    } catch (e) {
+      throw new StudioError("BAD_REGION", e instanceof Error ? e.message : String(e), 'Example: {zoom:{take:"gen/t3", region:"bottom-right"}} or region:[0.4,0.5,0.2,0.2].');
+    }
+  }
+  if (opts.pair) {
+    if (opts.pair.length !== 2) throw new StudioError("BAD_PAIR", "pair needs exactly two takes.", 'Example: {pair:["gen/t3","gen/t5"]}.');
+    const [a, b] = opts.pair.map((r, i) => { const x = parseTakeRef(graph, state, r, `pair[${i}]`); return { ref: `${x.node.id}/${x.take.id}`, path: resolve(dir, x.take.asset), kind: x.take.kind }; });
+    if (a!.kind !== "image" || b!.kind !== "image" || a!.ref === b!.ref) throw new StudioError("BAD_PAIR", "pair needs two different image takes.", 'Example: {pair:["gen/t3","gen/t5"]}.');
+    const p = await craft.blindPair(dir, a!, b!);
+    lines.push(`Blind pair ${p.id}: ${p.sheet}`, "A and B are in random order and the sheet does not say which is which. Look, decide for the stated intent, then record it:",
+      `  studio_edit {graph:"${slug}", ops:[{op:"judge_pair", pair:"${p.id}", preferred:"A", reason:"..."}]}`);
+  }
+  if (!lines.length) throw new StudioError("BAD_VIEW", "Nothing to look at.", "Pass zoom or pair.");
+  return lines.join("\n");
 }
 
 /** Start the read-only viewer as a detached process and return its URL. It exits by itself after

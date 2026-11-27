@@ -11,7 +11,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { evaluate, slotKey, slotsToRun, type NodeEval, type Slot } from "./evaluate.js";
-import { descendants, findNode, importReference, inputsOf, nodeState, topoOrder } from "./graph.js";
+import { descendants, fileSha, findNode, importReference, inputsOf, nodeState, topoOrder } from "./graph.js";
 import { workOf, NODE_SPECS } from "./nodes.js";
 import { StudioError, assetRel, atomicWrite, graphDir, mutate, now, paths, pidAlive, readBoth, readJson, sleep, type EventInput } from "./store.js";
 import type { Executors, ExecutorKind, ExecOutput } from "./execute.js";
@@ -382,6 +382,7 @@ export async function runJob(project: string, slug: string, job: string, executo
       });
       await clearActivity(dir, job, id, stop ? "stopped" : "finished");
     }
+    await writeRunSheet(dir, rec).catch(e => rec.errors.push({ node: "(sheet)", message: `Review sheet failed: ${e instanceof Error ? e.message : e}`, fix: "Use studio_view instead." }));
     rec.status = stop ? "stopped" : rec.errors.length ? "done_with_errors" : "done";
     if (stop) { rec.stopReason = stop.reason; rec.stopFix = stop.fix; }
   } catch (e) {
@@ -402,6 +403,22 @@ export async function runJob(project: string, slug: string, job: string, executo
   }
 }
 
+/** One labelled review sheet of the run's new images, so the run result can point at a single file. */
+async function writeRunSheet(dir: string, rec: RunRecord) {
+  const { state } = await readBoth(dir);
+  const takes = rec.takes.map(t => ({ ref: t, take: state.nodes[t.node]?.takes.find(x => x.id === t.take) })).filter(x => x.take?.kind === "image").slice(-30);
+  if (!takes.length) return;
+  const craft = await import("./craft.js");
+  const diffs = craft.differingSettings(takes.map(x => x.take!));
+  const out = join(paths(dir).views, `run-${rec.id}.png`);
+  await craft.reviewSheet(takes.map((x, i) => ({
+    path: resolve(dir, x.take!.asset), reading: x.take!.reading,
+    title: `${x.ref.node}/${x.ref.take}${x.take!.deviations?.length ? "  ⚠ " + x.take!.deviations.map(d => d.measure).join(",") : ""}`,
+    detail: diffs[i]!.join(" · ") || x.take!.text?.item || "",
+  })), out, ["palette"], `Run ${rec.id}`);
+  rec.sheet = assetRel(dir, out);
+}
+
 async function clearActivity(dir: string, job: string, node: string, outcome: string) {
   await mutate(dir, "worker", (_g, s) => {
     const ns = s.nodes[node];
@@ -414,13 +431,27 @@ async function reserveTake(dir: string): Promise<string> {
   return (await mutate(dir, "worker", (_g, s) => ({ result: `t${s.nextTake++}` }))).result;
 }
 
+/** Re-import a reference whose file changed. Hashing and reading happen before the lock; the
+ *  common case (file unchanged, reading present) takes no lock at all. */
 async function refreshReference(project: string, dir: string, id: string, job: string) {
+  const before = await readBoth(dir);
+  const node0 = before.graph.nodes.find(n => n.id === id);
+  if (!node0 || typeof node0.settings.path !== "string") return;
+  const src = resolve(project, node0.settings.path);
+  if (!existsSync(src)) return;
+  const { sha256 } = await fileSha(src);
+  const known = before.state.nodes[id]?.takes.find(t => t.sha256 === sha256);
+  if (known?.reading && before.state.nodes[id]?.selected?.[0] === known.id) return;
+  const { readingOf } = await import("./craft.js");
+  const reading = await readingOf(src);
   await mutate(dir, "worker", async (g, s) => {
     const node = g.nodes.find(n => n.id === id);
     const events: EventInput[] = [];
-    if (node && typeof node.settings.path === "string" && existsSync(resolve(project, node.settings.path))) {
+    if (node && node.settings.path === node0.settings.path && existsSync(src)) {
       const t = await importReference(g, s, project, dir, node, job);
-      if (t) events.push({ type: "take.saved", job, node: id, take: t.id, asset: t.asset });
+      if (t) { t.reading = reading; events.push({ type: "take.saved", job, node: id, take: t.id, asset: t.asset }); }
+      const same = s.nodes[id]?.takes.find(x => x.sha256 === sha256);
+      if (same && !same.reading && reading) same.reading = reading;
     }
     return { result: null, events };
   });
@@ -445,6 +476,19 @@ async function saveTake(dir: string, graphRevision: number, nodeId: string, slot
     files: res.files?.map(f => assetRel(dir, resolve(f))), generations: res.generations, warnings: res.warnings?.length ? res.warnings : undefined,
   };
   if (slot.screenshot) take.source = slot.screenshot.rel;
+  const craft = await import("./craft.js");
+  if (kind === "image") {
+    take.reading = await craft.readingOf(res.path);
+    const kindOf = (settings as any).op ? "process" : slot.image ? "edit" : "generate";
+    if (kindOf !== "process") take.checklist = craft.briefChecklist(slot.text, slot.look, settings as Record<string, any>, kindOf === "edit" ? "edit" : "generate");
+  }
+  if (take.reading) {
+    // Outside the graph lock: an anchor's reading never changes once saved.
+    const anchorIn = take.inputs.find(i => i.take && (i.handle === "image" || i.handle === "references"));
+    const anchor = anchorIn ? (await readBoth(dir)).state.nodes[anchorIn.node]?.takes.find(t => t.id === anchorIn.take) : undefined;
+    const devs = [...craft.requestDeviations(take.reading, craft.requestText(take)), ...(anchorIn ? await craft.anchorDeviations(take.reading, anchor?.reading, `${anchorIn.node}/${anchorIn.take}`) : [])];
+    if (devs.length) take.deviations = devs;
+  }
   for (const k of Object.keys(take) as (keyof Take)[]) if (take[k] === undefined) delete take[k];
   await mutate(dir, "worker", (_g, s) => {
     const ns = nodeState(s, nodeId);

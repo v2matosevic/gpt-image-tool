@@ -90,3 +90,157 @@ export function smallSizeCheck(img: RGBA, size: number) {
   return { size, width: small.width, height: small.height, inkCoverage, components,
     warnings: inkCoverage < 0.08 || inkCoverage > 0.85 ? ["Very little or very dense ink at this size; inspect legibility."] : [] };
 }
+
+// ---------------------------------------------------------------- look readings (Studio instruments)
+// Local measurements of what an agent cannot reliably eyeball in a downsized view. They are
+// measurements, not a quality score: a low-contrast or off-centre image is not a worse image.
+
+export interface LookReading {
+  version: 1;
+  source: "local";
+  width: number;
+  height: number;
+  /** Dominant colours with their share of (opaque) pixels, largest first. */
+  palette: Array<{ hex: string; share: number }>;
+  /** CIE L* (0-100) of opaque pixels; key from the median: low below 35, high above 65. */
+  luminance: { mean: number; median: number; p5: number; p95: number; key: "low" | "mid" | "high"; histogram: number[] };
+  /** RMS contrast of L* / 100, and the p5 to p95 L* range. */
+  contrast: { rms: number; range: number };
+  /** Mean b* (yellow positive, blue negative) as warmth; mean chroma C* as saturation. */
+  color: { warmth: number; temperature: "warm" | "neutral" | "cool"; chroma: number; saturation: "muted" | "moderate" | "vivid" };
+  /** Visual weight per thirds cell (row-major, sums to 1), its centroid (0..1), and the share of quiet area. */
+  composition: { thirds: number[]; centroid: { x: number; y: number }; heaviest: string; negativeSpace: number };
+  /** Relative sharpness per thirds cell (max = 1), and max/min ratio as a focus-separation measure. */
+  sharpness: { thirds: number[]; sharpest: string; separation: number };
+  /** Share of pixels on a strong edge: a proxy for detail density. */
+  detail: { edgeDensity: number };
+}
+
+const CELLS = ["top-left", "top-centre", "top-right", "middle-left", "centre", "middle-right", "bottom-left", "bottom-centre", "bottom-right"];
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+function srgbToLab(r: number, g: number, b: number): [number, number, number] {
+  const lin = (c: number) => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const R = lin(r), G = lin(g), B = lin(b);
+  const x = (R * 0.4124564 + G * 0.3575761 + B * 0.1804375) / 0.95047, y = R * 0.2126729 + G * 0.7151522 + B * 0.072175, z = (R * 0.0193339 + G * 0.119192 + B * 0.9503041) / 1.08883;
+  const f = (t: number) => (t > (6 / 29) ** 3 ? Math.cbrt(t) : t / (3 * (6 / 29) ** 2) + 4 / 29);
+  return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+}
+
+export function readLook(src: RGBA): LookReading {
+  const scale = Math.min(1, 256 / Math.max(src.width, src.height));
+  const img = scale < 1 ? resizeRGBA(src, Math.max(1, Math.round(src.width * scale)), Math.max(1, Math.round(src.height * scale))) : src;
+  const { width: w, height: h, data } = img;
+  const n = w * h;
+  const L = new Float32Array(n), A = new Float32Array(n), B = new Float32Array(n), opaque = new Uint8Array(n);
+  let count = 0;
+  for (let i = 0; i < n; i++) {
+    const lab = srgbToLab(data[i * 4]!, data[i * 4 + 1]!, data[i * 4 + 2]!);
+    L[i] = lab[0]; A[i] = lab[1]; B[i] = lab[2];
+    if (data[i * 4 + 3]! >= 128) { opaque[i] = 1; count++; }
+  }
+  if (!count) { opaque.fill(1); count = n; }
+  const Ls: number[] = [];
+  let sumL = 0, sumB = 0, sumC = 0;
+  for (let i = 0; i < n; i++) if (opaque[i]) { Ls.push(L[i]!); sumL += L[i]!; sumB += B[i]!; sumC += Math.hypot(A[i]!, B[i]!); }
+  Ls.sort((a, b) => a - b);
+  const q = (p: number) => Ls[Math.min(Ls.length - 1, Math.floor(p * Ls.length))]!;
+  const meanL = sumL / count;
+  let varL = 0;
+  for (let i = 0; i < n; i++) if (opaque[i]) varL += (L[i]! - meanL) ** 2;
+  const histogram: number[] = Array(8).fill(0);
+  for (const l of Ls) histogram[Math.min(7, Math.floor(Math.max(0, l) / 12.5))]!++;
+  const median = q(0.5);
+  const warmth = sumB / count, chroma = sumC / count;
+
+  // Palette with shares: the median-cut palette, then each opaque pixel assigned to its nearest colour.
+  const hexes = paletteFromRGBA([img], 5, { includeNeutrals: true });
+  const centres = hexes.map(hx => [parseInt(hx.slice(1, 3), 16), parseInt(hx.slice(3, 5), 16), parseInt(hx.slice(5, 7), 16)] as const);
+  const counts: number[] = new Array(centres.length).fill(0);
+  for (let i = 0; i < n; i++) {
+    if (!opaque[i]) continue;
+    let best = 0, bd = Infinity;
+    for (let k = 0; k < centres.length; k++) {
+      const c = centres[k]!, d = (data[i * 4]! - c[0]) ** 2 + (data[i * 4 + 1]! - c[1]) ** 2 + (data[i * 4 + 2]! - c[2]) ** 2;
+      if (d < bd) { bd = d; best = k; }
+    }
+    counts[best]!++;
+  }
+  const merged = new Map<string, number>();
+  hexes.forEach((hex, k) => merged.set(hex, (merged.get(hex) ?? 0) + counts[k]!));
+  const palette = [...merged].map(([hex, c]) => ({ hex, share: r3(c / count) })).filter(p => p.share > 0).sort((a, b) => b.share - a.share);
+
+  // Sobel gradient on L* for sharpness, detail and visual weight.
+  const grad = new Float32Array(n);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x;
+    const gx = L[i - w + 1]! + 2 * L[i + 1]! + L[i + w + 1]! - L[i - w - 1]! - 2 * L[i - 1]! - L[i + w - 1]!;
+    const gy = L[i + w - 1]! + 2 * L[i + w]! + L[i + w + 1]! - L[i - w - 1]! - 2 * L[i - w]! - L[i - w + 1]!;
+    grad[i] = Math.hypot(gx, gy);
+  }
+  const cellOf = (x: number, y: number) => Math.min(2, Math.floor((y / h) * 3)) * 3 + Math.min(2, Math.floor((x / w) * 3));
+  const weight: number[] = new Array(9).fill(0), sharp: number[] = new Array(9).fill(0), sharpN: number[] = new Array(9).fill(0);
+  let wx = 0, wy = 0, wsum = 0, edges = 0, inner = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (!opaque[i]) continue;
+    // Weight: departure from the mean tone, plus colourfulness, plus local detail.
+    const wt = Math.abs(L[i]! - meanL) + 0.5 * Math.hypot(A[i]!, B[i]!) + 0.25 * grad[i]!;
+    const c = cellOf(x, y);
+    weight[c]! += wt; wx += wt * (x + 0.5) / w; wy += wt * (y + 0.5) / h; wsum += wt;
+    if (x > 0 && y > 0 && x < w - 1 && y < h - 1) { inner++; sharp[c]! += grad[i]! ** 2; sharpN[c]!++; if (grad[i]! > 40) edges++; }
+  }
+  const thirds = weight.map(v => r3(wsum ? v / wsum : 1 / 9));
+  const sh = sharp.map((v, k) => (sharpN[k] ? v / sharpN[k]! : 0));
+  const shMax = Math.max(...sh) || 1;
+  const shMin = Math.max(1e-6, Math.min(...sh.map(v => Math.max(v, shMax * 1e-4))));
+  // Negative space: blocks with little tonal variation and no strong edge.
+  const bs = Math.max(4, Math.round(Math.max(w, h) / 16));
+  let quiet = 0, blocks = 0;
+  for (let by = 0; by < h; by += bs) for (let bx = 0; bx < w; bx += bs) {
+    let s = 0, s2 = 0, g = 0, k = 0;
+    for (let y = by; y < Math.min(h, by + bs); y++) for (let x = bx; x < Math.min(w, bx + bs); x++) {
+      const i = y * w + x;
+      if (!opaque[i]) continue;
+      s += L[i]!; s2 += L[i]! ** 2; g = Math.max(g, grad[i]!); k++;
+    }
+    if (!k) continue;
+    blocks++;
+    if (Math.sqrt(Math.max(0, s2 / k - (s / k) ** 2)) < 4 && g < 40) quiet++;
+  }
+  const heaviest = thirds.indexOf(Math.max(...thirds));
+  const sharpest = sh.indexOf(Math.max(...sh));
+  return {
+    version: 1, source: "local", width: src.width, height: src.height, palette,
+    luminance: { mean: r3(meanL), median: r3(median), p5: r3(q(0.05)), p95: r3(q(0.95)), key: median < 35 ? "low" : median > 65 ? "high" : "mid", histogram: histogram.map(v => r3(v / count)) },
+    contrast: { rms: r3(Math.sqrt(varL / count) / 100), range: r3(q(0.95) - q(0.05)) },
+    color: { warmth: r3(warmth), temperature: warmth > 8 ? "warm" : warmth < -4 ? "cool" : "neutral", chroma: r3(chroma), saturation: chroma < 15 ? "muted" : chroma > 40 ? "vivid" : "moderate" },
+    composition: { thirds, centroid: { x: r3(wsum ? wx / wsum : 0.5), y: r3(wsum ? wy / wsum : 0.5) }, heaviest: CELLS[heaviest]!, negativeSpace: r3(blocks ? quiet / blocks : 0) },
+    sharpness: { thirds: sh.map(v => r3(v / shMax)), sharpest: CELLS[sharpest]!, separation: r3(Math.min(9999, shMax / shMin)) },
+    detail: { edgeDensity: r3(inner ? edges / inner : 0) },
+  };
+}
+
+/** One short line an agent can read: the measurements, no verdict. */
+export function lookSummary(r: LookReading): string {
+  return `${r.luminance.key} key (L* median ${Math.round(r.luminance.median)}), contrast ${r.contrast.rms.toFixed(2)}, ${r.color.temperature}, ${r.color.saturation}; ` +
+    `weight ${r.composition.heaviest}, ${Math.round(r.composition.negativeSpace * 100)}% quiet; sharpest ${r.sharpness.sharpest} (${r.sharpness.separation >= 100 ? ">100" : r.sharpness.separation.toFixed(1)}x the softest); ` +
+    `palette ${r.palette.slice(0, 4).map(p => `${p.hex} ${Math.round(p.share * 100)}%`).join(", ")}`;
+}
+
+export interface DriftFlag { measure: string; anchor: string; take: string; note: string }
+
+/** Compare a take's reading with its anchor's. Coarse thresholds; identity of a face, character or
+ *  product cannot be measured here and needs a pairwise look. */
+export function lookDrift(take: LookReading, anchor: LookReading): DriftFlag[] {
+  const flags: DriftFlag[] = [];
+  const pal = (from: LookReading, to: LookReading) => from.palette.reduce((s, p) => s + p.share * Math.min(...to.palette.map(o => deltaE76(p.hex, o.hex))), 0);
+  const pd = (pal(take, anchor) + pal(anchor, take)) / 2;
+  if (pd > 15) flags.push({ measure: "palette", anchor: anchor.palette.slice(0, 3).map(p => p.hex).join(" "), take: take.palette.slice(0, 3).map(p => p.hex).join(" "), note: `palette moved (mean ΔE ${pd.toFixed(1)})` });
+  // Mean, not median: the median jumps between modes on a two-tone image.
+  if (Math.abs(take.luminance.mean - anchor.luminance.mean) > 12) flags.push({ measure: "key", anchor: `${anchor.luminance.key} (mean L* ${Math.round(anchor.luminance.mean)})`, take: `${take.luminance.key} (mean L* ${Math.round(take.luminance.mean)})`, note: "overall lightness changed" });
+  if (Math.abs(take.contrast.rms - anchor.contrast.rms) > 0.08) flags.push({ measure: "contrast", anchor: anchor.contrast.rms.toFixed(2), take: take.contrast.rms.toFixed(2), note: "contrast changed" });
+  if (Math.abs(take.color.warmth - anchor.color.warmth) > 8) flags.push({ measure: "temperature", anchor: `${anchor.color.temperature} (b* ${anchor.color.warmth.toFixed(0)})`, take: `${take.color.temperature} (b* ${take.color.warmth.toFixed(0)})`, note: "colour temperature moved" });
+  if (Math.abs(take.color.chroma - anchor.color.chroma) > 12) flags.push({ measure: "saturation", anchor: anchor.color.saturation, take: take.color.saturation, note: "saturation changed" });
+  return flags;
+}

@@ -209,7 +209,7 @@ test("handoff packages only approved images, with measured colours and lineage; 
   assert.match(pre.snapshot as string, /no approved image reaches this handoff/);
   const dir = graphDir(p, "hero");
   const take = (await readBoth(dir)).state.nodes.gen.takes[0];
-  await editGraph("hero", [{ op: "approve", take: `gen/${take.id}`, note: "this one" }], { project: p, actor: "marko" });
+  await editGraph("hero", [{ op: "approve", take: `gen/${take.id}`, note: "this one" }], { project: p, actor: "marko", human: true });
   await startRun(p, "hero", { actor: "t", detach: false, executors, scope: "hand" });
   const md = readFileSync(join(dir, "handoff", "hand", "handoff.md"), "utf8");
   assert.match(md, /## Intent\n\nLanding hero/);
@@ -272,6 +272,56 @@ test("view writes previews and the guide documents every node type", async () =>
   const g = guide();
   for (const t of ["prompt", "style", "list", "reference", "generate", "edit", "process", "gallery", "handoff", "implementation", "note"]) assert.match(g, new RegExp(`## ${t}\\n`));
   assert.match(g, /quality low/);
+});
+
+test("takes carry a reading, request deviations and a checklist; an agent must look before approving", async () => {
+  const p = project();
+  await createGraph({
+    name: "Craft",
+    nodes: [{ ref: "gen", type: "generate", settings: { prompt: "a moody low-key portrait lit by warm candle light, with a brass lamp" } }],
+    connections: [],
+  }, { project: p });
+  const { executors } = makeFakes();
+  const { encodePng } = await import("../dist/bgremove.js");
+  // A bright, cool image: the opposite of what the prompt asks for.
+  executors.generate = async (x: any) => {
+    const w = 64, h = 64, data = Buffer.alloc(w * h * 4);
+    for (let i = 0; i < w * h; i++) data.set([170, 205, 245, 255], i * 4);
+    const path = `${x.outBase}.png`;
+    writeFileSync(path, encodePng({ width: w, height: h, data }));
+    return { path, generations: 1, compiledPrompt: x.slot.text };
+  };
+  const r = await startRun(p, "craft", { actor: "t", detach: false, executors });
+  assert.equal(r.status, "done");
+  const dir = graphDir(p, "craft");
+  const take = (await readBoth(dir)).state.nodes.gen.takes[0];
+  assert.equal(take.reading?.source, "local");
+  assert.equal(take.reading?.version, 1);
+  const devs = (take.deviations ?? []).map((d: any) => d.measure).sort();
+  assert.deepEqual(devs, ["key", "temperature"], JSON.stringify(take.deviations));
+  assert.ok(take.checklist!.some((c: any) => /brass lamp/.test(c.question)), JSON.stringify(take.checklist));
+  assert.ok(take.checklist!.some((c: any) => c.from === "defects"));
+  const rec = JSON.parse(readFileSync(join(dir, "runs", `${r.job}.json`), "utf8"));
+  assert.ok(rec.sheet && existsSync(join(dir, rec.sheet)), rec.sheet);
+
+  const e = await refusal(editGraph("craft", [{ op: "approve", take: `gen/${take.id}` }], { project: p }), "NO_LOOK");
+  assert.match(e.fix ?? "", /op:"answer"/);
+  await refusal(editGraph("craft", [{ op: "answer", take: `gen/${take.id}`, answers: { c99: "yes" } }], { project: p }), "BAD_OP");
+  await editGraph("craft", [
+    { op: "answer", take: `gen/${take.id}`, answers: { c1: "no", c2: { answer: "unsure", note: "small" } } },
+    { op: "approve", take: `gen/${take.id}` },
+  ], { project: p });
+  const after = (await readBoth(dir)).state.nodes.gen.takes[0];
+  assert.equal(after.checklist![0].answer, "no");
+  assert.equal(after.checklist![1].note, "small");
+  assert.equal(after.verdict?.decision, "approved");
+  // A person approves without a recorded look.
+  await editGraph("craft", [{ op: "clear_verdict", take: `gen/${take.id}` }], { project: p });
+  await startRun(p, "craft", { actor: "t", detach: false, executors, newTake: true });
+  const second = (await readBoth(dir)).state.nodes.gen.takes[1];
+  await editGraph("craft", [{ op: "approve", take: `gen/${second.id}` }], { project: p, actor: "marko", human: true });
+  await editGraph("craft", [{ op: "critique", take: `gen/${second.id}`, summary: "same flat blue as t1", against: `gen/${take.id}`, preferred: `gen/${take.id}` }], { project: p });
+  assert.equal((await readBoth(dir)).state.nodes.gen.takes[1].critiques[0].preferred, `gen/${take.id}`);
 });
 
 test("a live holder that stalls past the stale limit keeps its lock; release deletes only its own lock", async () => {

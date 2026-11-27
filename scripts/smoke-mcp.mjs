@@ -55,7 +55,7 @@ try {
   const { encodePng } = await import(pathToFileURL(resolve('dist/bgremove.js')).href);
   const px = Buffer.alloc(32 * 32 * 4); for (let i = 0; i < 32 * 32; i++) px.set(i % 32 < 16 ? [200, 120, 40, 255] : [30, 60, 90, 255], i * 4);
   await writeFile(join(studioProject, 'img', 'mock.png'), encodePng({ width: 32, height: 32, data: px }));
-  const call = async (name, args) => { const r = await client.callTool({ name, arguments: { project: studioProject, ...args } }); assert.ok(!r.isError, `${name}: ${r.content?.[0]?.text}`); return r.content[0].text; };
+  const call = async (name, args, expectError = false) => { const r = await client.callTool({ name, arguments: { project: studioProject, ...args } }); assert.equal(Boolean(r.isError), expectError, `${name}: ${r.content?.[0]?.text}`); return r.content[0].text; };
   assert.match(await call('studio_guide', { topic: 'nodes' }), /## handoff/);
   const created = await call('studio_create', { name: 'Smoke', nodes: [{ ref: 'mock', type: 'reference', settings: { path: 'img/mock.png', role: 'subject' } }, { ref: 'pick', type: 'gallery' }, { ref: 'hand', type: 'handoff', settings: { intent: 'Smoke test package' } }], connections: [{ from: 'mock', to: 'pick' }, { from: 'pick', to: 'hand' }] });
   assert.match(created, /no approved image reaches this handoff/);
@@ -65,7 +65,9 @@ try {
     const c = spawn(process.execPath, [resolve('dist/cli.js'), 'studio', 'edit', 'smoke', '--project', studioProject, '--actor', 'cli-smoke', '--json', '--ops', JSON.stringify([{ op: 'note', on: 'hand', text: 'from the CLI' }])], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = ''; c.stdout.on('data', d => (out += d)); c.on('exit', code => (code === 0 ? res(JSON.parse(out)) : rej(new Error(out))));
   });
-  await call('studio_edit', { graph: 'smoke', ops: [{ op: 'approve', take: 'mock/t1', note: 'smoke' }] });
+  const noLook = await call('studio_edit', { graph: 'smoke', ops: [{ op: 'approve', take: 'mock/t1', note: 'smoke' }] }, true);
+  assert.match(noLook, /NO_LOOK[\s\S]*op:"critique"/);
+  await call('studio_edit', { graph: 'smoke', ops: [{ op: 'critique', take: 'mock/t1', summary: 'flat test swatch, fine for a smoke run' }, { op: 'approve', take: 'mock/t1', note: 'smoke' }] });
   const cli = await cliEdit;
   assert.equal(cli.ok, true);
   const got = await call('studio_get', { graph: 'smoke' });

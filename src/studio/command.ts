@@ -2,7 +2,7 @@
 // so every command can print machine-readable JSON (--json) and exits non-zero on refusal.
 
 import { readFile } from "node:fs/promises";
-import { createGraph, editGraph, getGraph, listGraphs, runGraph, statusReport, viewGraph } from "./api.js";
+import { createGraph, editGraph, getGraph, listGraphs, lookCloser, runGraph, statusReport, viewGraph } from "./api.js";
 import { guide, GUIDE_TOPICS, type GuideTopic } from "./guide.js";
 import { StudioError, graphDir, readEvents, resolveProject } from "./store.js";
 
@@ -18,11 +18,15 @@ Usage: gpt-image studio <command> [graph] [options]
   run <graph> [--scope all|id|id+] [--nodes a,b] [--new-take] [--concurrency 1-3]
               [--dry-run] [--resume] [--stop] [--wait seconds] [--foreground]
   status <graph> [--job id] [--wait seconds]
-  sheet <graph> [--nodes a,b] [--all-takes]   Labelled contact sheet + preview paths
+  sheet <graph> [--nodes a,b] [--all-takes] [--overlays grid,palette,histogram]
+                                               Labelled review sheet + preview paths
+  sheet <graph> --zoom gen/t3@bottom-right     Full-resolution crop (or @x,y,w,h fractions)
+  sheet <graph> --pair gen/t3,gen/t5           Blind A/B sheet for the judge_pair op
   events <graph> [--after seq] [--limit n]    Events after a sequence number (JSON)
   view [graph] [--port n] [--idle-exit minutes]   Read-only local viewer on 127.0.0.1
 
-Options: --project <dir> (default: cwd), --actor <name> (recorded on every write), --json
+Options: --project <dir> (default: cwd), --actor <name> (recorded on every write), --json,
+         --human (a person is acting, as ADE does; approvals need no recorded look)
 `;
 
 interface Flags { [k: string]: string | boolean | undefined }
@@ -30,7 +34,7 @@ interface Flags { [k: string]: string | boolean | undefined }
 function parse(argv: string[]): { pos: string[]; flags: Flags } {
   const pos: string[] = [];
   const flags: Flags = {};
-  const bools = new Set(["json", "raw", "new-take", "dry-run", "resume", "stop", "foreground", "all-takes", "help"]);
+  const bools = new Set(["human", "json", "raw", "new-take", "dry-run", "resume", "stop", "foreground", "all-takes", "help"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "-h") { flags.help = true; continue; }
@@ -78,7 +82,7 @@ export async function studioMain(argv: string[]): Promise<number> {
     json = Boolean(flags.json);
     const cmd = pos[0];
     if (!cmd || flags.help) { process.stderr.write(HELP); return flags.help ? 0 : 1; }
-    const who = { project: flags.project as string | undefined, actor: (flags.actor as string | undefined) ?? (process.env.GPT_IMAGE_STUDIO_ACTOR || "cli") };
+    const who = { human: Boolean(flags.human), project: flags.project as string | undefined, actor: (flags.actor as string | undefined) ?? (process.env.GPT_IMAGE_STUDIO_ACTOR || "cli") };
     const out = (data: unknown, human: string) => { process.stdout.write(json ? JSON.stringify({ ok: true, ...(data as object) }, null, 2) + "\n" : human + "\n"); };
     switch (cmd) {
       case "list": {
@@ -125,7 +129,14 @@ export async function studioMain(argv: string[]): Promise<number> {
         return 0;
       }
       case "sheet": {
-        const r = await viewGraph(need(pos, 1, "graph slug"), { ...who, nodes: list(flags.nodes), allTakes: Boolean(flags["all-takes"]) });
+        const slug = need(pos, 1, "graph slug");
+        if (flags.zoom || flags.pair) {
+          const zoom = typeof flags.zoom === "string" ? (() => { const [take, region] = (flags.zoom as string).split("@"); return { take: take!, region: region?.includes(",") ? region.split(",").map(Number) as [number, number, number, number] : region ?? "centre" }; })() : undefined;
+          const text = await lookCloser(slug, { ...who, zoom, pair: list(flags.pair) as [string, string] | undefined });
+          out({ text }, text);
+          return 0;
+        }
+        const r = await viewGraph(slug, { ...who, nodes: list(flags.nodes), allTakes: Boolean(flags["all-takes"]), overlays: list(flags.overlays) as any });
         out(r, r.text);
         return 0;
       }

@@ -23,6 +23,8 @@ export interface OpContext {
   events: EventInput[];
   feedback: Record<string, unknown>[];
   notes: string[];
+  /** A person acting (ADE, CLI --human). Agents must record a look before approving. */
+  human?: boolean;
 }
 
 export function nodeState(state: StateFile, id: string): NodeState {
@@ -178,7 +180,7 @@ export async function importPath(ctx: OpContext, raw: string, what: string): Pro
 // ---------------------------------------------------------------- ops
 
 export const OP_NAMES = ["add", "remove", "set", "prompt_edit", "connect", "disconnect", "group", "ungroup", "move", "layout", "rename",
-  "select", "pick", "approve", "reject", "clear_verdict", "predict", "note"] as const;
+  "select", "pick", "approve", "reject", "clear_verdict", "predict", "note", "answer", "critique", "judge_pair"] as const;
 
 type Op = Record<string, unknown> & { op: string };
 
@@ -211,6 +213,9 @@ export const OP_HELP: Record<string, string> = {
   clear_verdict: '{op:"clear_verdict", take:"gen/t4"}',
   predict: '{op:"predict", take:"gen/t4", decision:"approved"|"rejected"|"picked", reason:"..."} (an agent\'s call before the human decides)',
   note: '{op:"note", on:"gen", text:"warmer light", author?, take?:"gen/t4"}',
+  answer: '{op:"answer", take:"gen/t4", answers:{c1:"yes", c2:"no", c3:{answer:"unsure", note:"hand hidden"}}} (the checklist of the take, from studio_get node)',
+  critique: '{op:"critique", take:"gen/t4", summary:"...", criteria?:{composition:"...", lighting:"...", artefacts:"..."}, against?:"gen/t2", preferred?:"gen/t4", judge?}',
+  judge_pair: '{op:"judge_pair", pair:"p...", preferred:"A"|"B", reason:"...", criteria?} (a blind pair from studio_view pair)',
 };
 
 const KNOWN: Record<string, string[]> = {
@@ -219,15 +224,19 @@ const KNOWN: Record<string, string[]> = {
   disconnect: ["op", "from", "to", "to_handle"], group: ["op", "id", "label", "stage", "nodes"], ungroup: ["op", "id"], move: ["op", "node", "x", "y"],
   layout: ["op"], rename: ["op", "name"], select: ["op", "take"], pick: ["op", "node", "takes"], approve: ["op", "take", "note"], reject: ["op", "take", "note"],
   clear_verdict: ["op", "take"], predict: ["op", "take", "decision", "reason"], note: ["op", "on", "text", "author", "id", "take"],
+  answer: ["op", "take", "answers"], critique: ["op", "take", "summary", "criteria", "against", "preferred", "judge"], judge_pair: ["op", "pair", "preferred", "reason", "criteria"],
 };
 
 function freshId(graph: GraphFile, base: string): string {
   for (let i = 1; ; i++) if (!graph.nodes.some(n => n.id === `${base}${i}`)) return `${base}${i}`;
 }
 
+let humanAct = false;
 function takeFeedback(graph: GraphFile, node: GraphNode, take: Take, action: string, extra: Record<string, unknown> = {}) {
-  return { action, node: node.id, type: node.type, take: take.id, settings: take.settings, text: take.text?.prompt, reading: take.reading, graphRevision: graph.revision, ...extra };
+  return { action, human: humanAct, node: node.id, type: node.type, take: take.id, settings: take.settings, text: take.text?.prompt, reading: take.reading, deviations: take.deviations, graphRevision: graph.revision, ...extra };
 }
+
+const LOOK_FIX = (ref: string) => `First record a look: answer its checklist ({op:"answer", take:"${ref}", answers:{c1:"yes", ...}}; studio_get node shows the questions) or add a critique ({op:"critique", take:"${ref}", summary:"what you saw"}). Both can go in the same studio_edit call, before the approve. People approve freely.`;
 
 async function addNode(graph: GraphFile, state: StateFile, ctx: OpContext, spec: Record<string, unknown>, path: string, placed: Set<string>): Promise<GraphNode> {
   const id = spec.id ?? spec.ref;
@@ -309,6 +318,7 @@ export async function applyOps(graph: GraphFile, state: StateFile, ops: unknown[
   if (!Array.isArray(ops) || !ops.length) throw new StudioError("BAD_OP", "ops must be a non-empty array.", `Example: [${OP_HELP.set}].`);
   const placed = new Set<string>();
   const applied: string[] = [];
+  humanAct = Boolean(ctx.human);
   for (let i = 0; i < ops.length; i++) {
     const op = ops[i] as Op;
     const path = `ops[${i}]`;
@@ -466,6 +476,9 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
     case "approve":
     case "reject": {
       const { node, take } = parseTakeRef(graph, state, op.take, `${path}.take`);
+      if (op.op === "approve" && !ctx.human && !take.critiques?.length && !take.checklist?.some(c => c.answer)) {
+        throw new StudioError("NO_LOOK", `${path}: an agent cannot approve ${node.id}/${take.id} without a recorded look.`, LOOK_FIX(`${node.id}/${take.id}`));
+      }
       const decision = op.op === "approve" ? "approved" : "rejected";
       take.verdict = { decision, by: ctx.actor, at: now(), ...(typeof op.note === "string" ? { note: op.note } : {}) };
       ctx.events.push({ type: `take.${decision}`, node: node.id, take: take.id, note: op.note });
@@ -504,6 +517,55 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
       }
       ctx.events.push({ type: "note.added", node: node.id, on: target.id, author: settings.author, text: text.slice(0, 500), take: takeRef });
       return `noted on ${target.id} (${node.id})`;
+    }
+    case "answer": {
+      const { node, take } = parseTakeRef(graph, state, op.take, `${path}.take`);
+      const list = take.checklist ?? [];
+      if (!list.length) throw new StudioError("NO_CHECKLIST", `${path}: ${node.id}/${take.id} has no checklist.`, `Record a critique instead: ${OP_HELP.critique}`);
+      const answers = op.answers as Record<string, unknown>;
+      if (!answers || typeof answers !== "object" || Array.isArray(answers) || !Object.keys(answers).length) throw new StudioError("BAD_OP", `${path}.answers must be an object of checklist ids.`, OP_HELP.answer);
+      for (const [id, raw] of Object.entries(answers)) {
+        const item = list.find(c => c.id === id);
+        if (!item) throw new StudioError("BAD_OP", `${path}.answers: no checklist item "${id}".`, `Items: ${list.map(c => `${c.id} ${c.question}`).join(" | ")}`);
+        const a = typeof raw === "string" ? raw : (raw as any)?.answer;
+        if (!["yes", "no", "unsure"].includes(a)) throw new StudioError("BAD_OP", `${path}.answers.${id} must be yes, no or unsure.`, OP_HELP.answer);
+        Object.assign(item, { answer: a, by: ctx.actor, at: now(), ...(typeof (raw as any)?.note === "string" ? { note: (raw as any).note } : {}) });
+      }
+      const no = list.filter(c => c.answer === "no").map(c => c.id);
+      ctx.events.push({ type: "take.checked", node: node.id, take: take.id, answered: Object.keys(answers).length, no });
+      ctx.feedback.push(takeFeedback(graph, node, take, "checklist", { answers: list.filter(c => c.answer).map(c => ({ question: c.question, answer: c.answer })) }));
+      return `answered ${Object.keys(answers).length} checklist item(s) on ${node.id}/${take.id}${no.length ? ` (no: ${no.join(", ")})` : ""}`;
+    }
+    case "critique": {
+      const { node, take } = parseTakeRef(graph, state, op.take, `${path}.take`);
+      const summary = str(op, "summary", path)!;
+      let against: string | undefined, preferred: string | undefined;
+      if (op.against !== undefined) { const o = parseTakeRef(graph, state, op.against, `${path}.against`); against = `${o.node.id}/${o.take.id}`; }
+      if (op.preferred !== undefined) {
+        const p = parseTakeRef(graph, state, op.preferred, `${path}.preferred`);
+        preferred = `${p.node.id}/${p.take.id}`;
+        if (preferred !== `${node.id}/${take.id}` && preferred !== against) throw new StudioError("BAD_OP", `${path}.preferred must be the take or the one it is compared against.`, OP_HELP.critique);
+      }
+      if (op.criteria !== undefined && (typeof op.criteria !== "object" || Array.isArray(op.criteria))) throw new StudioError("BAD_OP", `${path}.criteria must be an object of short remarks.`, OP_HELP.critique);
+      const c = { id: `k${(take.critiques?.length ?? 0) + 1}`, judge: typeof op.judge === "string" ? op.judge : ctx.actor, at: now(), summary, ...(against ? { against } : {}), ...(preferred ? { preferred } : {}), ...(op.criteria ? { criteria: op.criteria as Record<string, string> } : {}) };
+      (take.critiques ??= []).push(c);
+      ctx.events.push({ type: "take.critiqued", node: node.id, take: take.id, judge: c.judge });
+      ctx.feedback.push(takeFeedback(graph, node, take, "critique", { judge: c.judge, summary, against, preferred }));
+      return `critique ${c.id} on ${node.id}/${take.id} by ${c.judge}`;
+    }
+    case "judge_pair": {
+      const id = str(op, "pair", path)!;
+      const { readPair } = await import("./craft.js");
+      const pair = await readPair(ctx.dir, id);
+      if (!pair) throw new StudioError("NO_PAIR", `${path}: no blind pair "${id}".`, 'Make one with studio_view {pair:["a/t1","b/t2"]}.');
+      const choice = str(op, "preferred", path)!;
+      if (choice !== "A" && choice !== "B") throw new StudioError("BAD_OP", `${path}.preferred must be "A" or "B".`, OP_HELP.judge_pair);
+      const win = parseTakeRef(graph, state, choice === "A" ? pair.A : pair.B, `${path}`), lose = choice === "A" ? pair.B : pair.A;
+      const c = { id: `k${(win.take.critiques?.length ?? 0) + 1}`, judge: ctx.actor, at: now(), summary: str(op, "reason", path)!, against: lose, preferred: `${win.node.id}/${win.take.id}`, blind: true, ...(op.criteria ? { criteria: op.criteria as Record<string, string> } : {}) };
+      (win.take.critiques ??= []).push(c);
+      ctx.events.push({ type: "pair.judged", pair: id, preferred: c.preferred, against: lose, judge: ctx.actor });
+      ctx.feedback.push(takeFeedback(graph, win.node, win.take, "pair", { against: lose, reason: c.summary, blind: true }));
+      return `blind pair ${id}: preferred ${c.preferred} over ${lose}`;
     }
   }
   throw new StudioError("BAD_OP", `${path}: unhandled op ${op.op}`);

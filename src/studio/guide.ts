@@ -4,7 +4,7 @@
 import { NODE_SPECS, NODE_TYPES, SHOT_DIMENSIONS } from "./nodes.js";
 import { OP_HELP } from "./graph.js";
 
-export const GUIDE_TOPICS = ["overview", "nodes", "ops", "run", "handoff", "shot", "example"] as const;
+export const GUIDE_TOPICS = ["overview", "nodes", "ops", "run", "review", "handoff", "shot", "example"] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number] | "all";
 
 const OVERVIEW = `# Studio: image work as a graph
@@ -18,11 +18,12 @@ How to work:
 1. studio_create with nodes (your own short ids) and connections. Handles are picked by type.
 2. studio_run starts a background job and returns its id (it waits up to wait_seconds, default 20).
    studio_status follows it (waits up to 30s per call). Runs survive client timeouts.
-3. Look: studio_view writes one labelled contact sheet and preview paths. Open them. Never judge an
-   image you have not opened.
+3. Look: the run result names a review sheet, measured deviations and a checklist per take; open the
+   sheet. studio_view makes more sheets, zooms and blind pairs. Never judge an image you have not
+   opened. Topic review explains what "better" means here.
 4. Revise with studio_edit ops (set, prompt_edit, connect...). Rerun: only slots whose inputs or
    settings changed are regenerated; everything else is reused. new_take:true adds another take.
-5. Approve the image you want (op approve), then run the handoff node to write a build package for
+5. Record what you saw (op answer or critique), approve the image you want (op approve), then run the handoff node to write a build package for
    the coding agent. When the build exists, attach its screenshot with an implementation node.
 
 Rules that save quota and mistakes:
@@ -73,9 +74,42 @@ studio_run {graph, scope?, nodes?, new_take?, concurrency?, dry_run?, resume?, s
   interrupted or stopped run.
 - Each run records how many generations it made (runs/<job>.json).`;
 
+const REVIEW = `# Looking and judging
+
+There is no absolute better, only better for the stated intent. Evidence, most reliable first:
+1. Checkable defects: warped hands or objects, garbled text, smears, extra limbs. Zoom in to see them.
+2. The request against the measured reading: asked for low key, measured high key.
+3. Measured drift from the anchor (palette, lightness, contrast, temperature, saturation).
+4. Blind pairwise critique. This is opinion, and model judges lean toward a generic polished look.
+5. Above all of these: the human's choice.
+
+What a run already gives you (studio_status): one review sheet labelled with the setting that differs,
+measured deviations first, a one-line reading per take, and each take's checklist.
+- Reading: palette with shares, lightness key, contrast, warm/cool, saturation, visual weight by
+  thirds, quiet space, where it is sharpest, edge density. Measurements, not a score.
+- Deviations: where the reading contradicts the request or drifts from the anchor image. Confirm them
+  by looking; a measurement can be wrong about intent.
+- Checklist: yes/no questions from the prompt and shot settings. Answer them after looking:
+  {op:"answer", take:"gen/t4", answers:{c1:"yes", c2:"no", c3:{answer:"unsure", note:"hand hidden"}}}
+
+Looking closer (studio_view):
+- overlays:["grid","palette","histogram"]: thirds grid with the visual-weight centre, colour shares, lightness.
+- zoom:{take:"gen/t4", region:"bottom-right"} (a thirds cell, or [x,y,w,h] fractions): full resolution.
+- pair:["gen/t3","gen/t5"]: a blind A/B sheet in random order; record it with
+  {op:"judge_pair", pair:"p...", preferred:"A", reason:"..."}.
+
+Recording a judgement:
+- {op:"critique", take, summary, criteria?, against?, preferred?}: what you saw, in words.
+- An agent cannot approve a take without a recorded look (a critique or checklist answers). Put the
+  look and the approve in the same studio_edit call. People approve freely.
+- Calibration: before the human decides, record your own call with {op:"predict", take,
+  decision:"approved"|"rejected"|"picked", reason}. It is compared with the human's decision later;
+  a prediction made after the human decided does not count.`;
+
 const HANDOFF = `# Handoff to a coding agent, and back
 
-1. Approve the image(s) to build from: {op:"approve", take:"gen/t4", note:"this one"}.
+1. Approve the image(s) to build from, after looking: {op:"critique", take:"gen/t4", summary:"..."},
+   then {op:"approve", take:"gen/t4", note:"this one"} (same call is fine).
 2. A handoff node (connected from the generator or a gallery) packages only approved images:
    handoff/<name>/handoff.md (intent, must match, flexible, measured colours, lineage, review notes),
    mock-N.png, cut-outs from upstream remove-background nodes, manifest.json.
@@ -109,17 +143,18 @@ studio_create {
   ]
 }
 studio_run {graph:"mug-lookbook"}                  -> 3 low-quality drafts (one per surface)
-studio_view {graph:"mug-lookbook"}                 -> open the contact sheet
+studio_view {graph:"mug-lookbook"}                 -> open the review sheet
 studio_edit {graph:"mug-lookbook", ops:[{op:"prompt_edit", node:"subject", find:"matte sage", replace:"glossy sage"}]}
 studio_run {graph:"mug-lookbook"}                  -> all three rerender (the shared text changed)
-studio_edit {graph:"mug-lookbook", ops:[{op:"approve", take:"draft/t5"}, {op:"pick", node:"pick", takes:["draft/t5"]}]}
+studio_edit {graph:"mug-lookbook", ops:[{op:"answer", take:"draft/t5", answers:{c1:"yes", c2:"yes", c3:"yes"}},
+  {op:"approve", take:"draft/t5"}, {op:"pick", node:"pick", takes:["draft/t5"]}]}
 studio_run {graph:"mug-lookbook", scope:"hand"}    -> writes handoff/hand/handoff.md
 
 Variations of an approved anchor: connect the approved generator to an edit node (to_handle "image")
 with a list of instructions, so each variation is an edit of the anchor, not a fresh generation.`;
 
 export function guide(topic: GuideTopic = "all"): string {
-  const parts: Record<string, () => string> = { overview: () => OVERVIEW, nodes: nodesSection, ops: opsSection, run: () => RUN, handoff: () => HANDOFF, shot: shotSection, example: () => EXAMPLE };
+  const parts: Record<string, () => string> = { overview: () => OVERVIEW, nodes: nodesSection, ops: opsSection, run: () => RUN, review: () => REVIEW, handoff: () => HANDOFF, shot: shotSection, example: () => EXAMPLE };
   if (topic !== "all") return parts[topic]!();
   return GUIDE_TOPICS.map(t => parts[t]!()).join("\n\n");
 }

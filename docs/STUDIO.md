@@ -49,6 +49,25 @@ cleanly so it can be resumed.
 - Verdicts: `approve` and `reject` record who decided and why. Only approved images
   reach a handoff package.
 
+## Looking and judging
+
+`studio_guide {topic:"review"}` is the full text. In short: there is no absolute
+better, only better for the stated intent. Evidence from most to least reliable:
+checkable defects, the request against the measured reading, drift from the
+anchor, blind pairwise critique (opinion), and above all the human's choice.
+
+Every saved image gets a local reading and, where the request or the anchor
+implies something measurable, deviations. Generate and edit takes also get a
+checklist of yes/no questions drawn from the prompt, the shot settings and the
+brief. A run writes one review sheet of its new images, labelled with the setting
+that differs, and `studio_status` lists sheet, deviations, readings and checklists.
+`studio_view` adds overlays (thirds grid with the visual-weight centre, palette,
+histogram), full-resolution zooms and blind A/B pairs.
+
+An agent cannot approve a take until it has recorded a look (checklist answers or
+a critique); the refusal names the op to send. People approve freely: ADE and the
+CLI pass `--human`. Readings measure; they do not prove an image is better.
+
 ## Handoff and implementation
 
 A handoff node writes `handoff/<name>/`:
@@ -128,8 +147,17 @@ Rules:
   `import-<hash>`, so no absolute path is ever stored. A cloned or moved project
   keeps working and its fingerprints stay valid.
 - Reserved: `_canon/` and `_lessons/` next to graph folders (slugs cannot start
-  with `_`). Take fields reserved for review: `reading`, `perception`, `checklist`,
-  `critiques`, `predictions`, `verdict`.
+  with `_`). `perception` on a take is reserved for an optional model-based
+  reading (`{version, source, ...}` per source); nothing writes it yet.
+- Review fields on a take, all optional: `reading` (local measurements,
+  `{version: 1, source: "local", palette, luminance, contrast, color, composition,
+  sharpness, detail}`), `deviations` (`{source: "anchor"|"request", measure,
+  expected, measured, note}`), `checklist` (`{id, question, from, answer?, by?,
+  at?, note?}`, answers yes/no/unsure), `critiques` (`{id, judge, at, summary,
+  criteria?, against?, preferred?, blind?}`), `predictions`, `verdict`. A run
+  record's `sheet` is the graph-relative path of its review sheet in `views/`.
+- Blind pairs: `views/pair-<id>.json` maps A and B to takes. The sheet hides the
+  order; the JSON does not, so blindness depends on the judge not opening it.
 
 Git: `<graph>/.gitignore` (written once, ours) ignores only transient files: locks,
 temp files, `.previews/`, `views/`, run logs and stop flags. Assets and handoffs

@@ -65,6 +65,8 @@ export interface Critique {
   /** Pairwise form: the other take compared against, and which one the judge preferred. */
   against?: string;
   preferred?: string;
+  /** True when judged from a blind A/B pair that hid which take was newer. */
+  blind?: boolean;
   /** Per-criterion remarks: composition, lighting, depth, colour, fidelity, consistency, artefacts. */
   criteria?: Record<string, string>;
   summary: string;
@@ -111,6 +113,8 @@ export interface Take {
   /** Optional-model readings (phase 1c), keyed by capability, each with its own source/version. */
   perception?: Record<string, Reading>;
   checklist?: ChecklistItem[];
+  /** Measured departures from the anchor image or from what the request asked for. */
+  deviations?: Array<{ source: "anchor" | "request"; measure: string; expected: string; measured: string; note: string }>;
 }
 
 export interface NodeError { message: string; fix?: string; at: string; job?: string }
@@ -174,6 +178,8 @@ export interface RunRecord {
   errors: Array<{ node: string; message: string; fix?: string }>;
   stopReason?: string;
   stopFix?: string;
+  /** Graph-relative path of the labelled review sheet of this run's new images. */
+  sheet?: string;
 }
 
 /**

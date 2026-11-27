@@ -20,7 +20,7 @@ function isBrandPixel(r: number, g: number, b: number, a: number): boolean {
   return true;
 }
 
-function collectPixels(img: RGBA): Pixel[] {
+function collectPixels(img: RGBA, all = false): Pixel[] {
   const scale = Math.max(img.width, img.height) / SAMPLE_EDGE;
   const small = scale > 1 ? resizeRGBA(img, Math.max(1, Math.round(img.width / scale)), Math.max(1, Math.round(img.height / scale))) : img;
   const out: Pixel[] = [];
@@ -30,7 +30,7 @@ function collectPixels(img: RGBA): Pixel[] {
     const g = small.data[o + 1]!;
     const b = small.data[o + 2]!;
     const a = small.data[o + 3]!;
-    if (isBrandPixel(r, g, b, a)) out.push([r, g, b]);
+    if (all ? a >= 128 : isBrandPixel(r, g, b, a)) out.push([r, g, b]);
   }
   return out;
 }
@@ -104,8 +104,8 @@ function averageHex(box: Box): string {
 }
 
 /** Extract the dominant brand colors from decoded RGBA (pure, unit-testable). */
-export function paletteFromRGBA(images: RGBA[], n = 4): string[] {
-  const pixels = images.flatMap(collectPixels);
+export function paletteFromRGBA(images: RGBA[], n = 4, opts: { includeNeutrals?: boolean } = {}): string[] {
+  const pixels = images.flatMap(img => collectPixels(img, opts.includeNeutrals));
   if (!pixels.length) return [];
   const boxes = medianCut(pixels, Math.max(1, n));
   return boxes
