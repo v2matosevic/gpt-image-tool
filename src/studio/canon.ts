@@ -124,6 +124,8 @@ export async function importCanon(graph: GraphFile, state: StateFile, project: s
       width: dim?.width, height: dim?.height, created: now(), job, graphRevision: graph.revision, inputs: [],
       settings: { canon: entry.name, role: ref.role, file: ref.file }, generations: 0, source: `canon:${entry.name}/${ref.file}`,
     };
+    const reading = await (await import("./craft.js")).readingOf(dest);
+    if (reading) take.reading = reading;
     ns.takes.push(take);
     created.push(take);
     selected.push(take.id);

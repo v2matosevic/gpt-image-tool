@@ -323,6 +323,9 @@ export async function importReference(graph: GraphFile, state: StateFile, projec
     width: dim?.width, height: dim?.height, created: now(), job, graphRevision: graph.revision, inputs: [], settings: { ...node.settings },
     generations: 0, source: String(node.settings.path),
   };
+  // References are the commonest anchor, and drift checks compare against the anchor's reading.
+  const reading = await (await import("./craft.js")).readingOf(dest);
+  if (reading) take.reading = reading;
   ns.takes.push(take);
   ns.selected = [take.id];
   return take;

@@ -608,3 +608,22 @@ test("review 2 #4: overlays draw on images without a stored reading, and unknown
   await createGraph({ name: "Ov", nodes: [{ ref: "ref", type: "reference", settings: { path: "images/ref.png" } }], connections: [] }, { project: p });
   await refusal(viewGraph("ov", { project: p, overlays: ["reading"] as any }), "BAD_OVERLAY");
 });
+
+test("review 2 #5: imported references carry a reading, so drift against them works", async () => {
+  const p = project();
+  await createGraph({ name: "Refr", nodes: [{ ref: "ref", type: "reference", settings: { path: "images/ref.png" } }, { ref: "ed", type: "edit", settings: { instruction: "make it night" } }], connections: [{ from: "ref", to: "ed", to_handle: "image" }] }, { project: p });
+  const dir = graphDir(p, "refr");
+  const ref = (await readBoth(dir)).state.nodes.ref.takes[0];
+  assert.equal(ref.reading?.source, "local");
+  const { executors } = makeFakes();
+  executors.edit = async (x: any) => {
+    const { encodePng } = await import("../dist/bgremove.js");
+    const data = Buffer.alloc(64 * 64 * 4);
+    for (let i = 0; i < 64 * 64; i++) data.set([10, 12, 40, 255], i * 4);
+    writeFileSync(`${x.outBase}.png`, encodePng({ width: 64, height: 64, data }));
+    return { path: `${x.outBase}.png`, generations: 1 };
+  };
+  await startRun(p, "refr", { actor: "t", detach: false, executors });
+  const take = (await readBoth(dir)).state.nodes.ed.takes[0];
+  assert.ok(take.deviations?.some((d: any) => d.source === "anchor"), JSON.stringify(take.deviations));
+});
