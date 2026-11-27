@@ -671,3 +671,14 @@ test("review 2 #7: a sweep with a subject anchor renders as edits of it; without
   assert.match(text, /loose: sweep without an anchor, so the subject may vary/);
   assert.doesNotMatch(text, /\bgen: sweep without an anchor/);
 });
+
+test("review 2 #8: a nested typo names the bad key, suggests the nearest and lists that object's keys", async () => {
+  const p = project();
+  await createGraph({ name: "Typo", nodes: [{ ref: "look", type: "style", settings: { shot: { lens: "85mm" } } }], connections: [] }, { project: p });
+  const e = await refusal(editGraph("typo", [{ op: "set", node: "look", settings: { shot: { keylight: "backlight" } } }], { project: p }), "BAD_SETTINGS");
+  const i = e.issues![0]!;
+  assert.equal(i.message, 'unknown shot key "shot.keylight"');
+  assert.match(i.fix, /^Did you mean "shot.key_light" \(not "keylight"\)\? Shot dimensions: .*key_light/);
+  const b = await refusal(editGraph("typo", [{ op: "set", node: "look", settings: { brief: { audiance: "x" } } }], { project: p }), "BAD_SETTINGS");
+  assert.match(b.issues![0]!.fix, /Did you mean "brief.audience"/);
+});

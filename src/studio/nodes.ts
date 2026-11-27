@@ -224,6 +224,13 @@ export function typeIssue(type: string, path: string): Issue | null {
   return { path, message: `unknown node type "${type}"`, fix: `${c ? `Did you mean "${c}"? ` : ""}Types: ${NODE_TYPES.join(", ")}.` };
 }
 
+function nestedKeys(parent: string): string[] {
+  if (parent === "shot") return Object.keys(SHOT_DIMENSIONS);
+  if (parent === "style") return [...STYLE_DIMS];
+  if (parent === "brief") return Object.keys((creativeBriefSchema as unknown as { shape?: object }).shape ?? {});
+  return [];
+}
+
 /** Validate settings strictly, translating zod errors into messages that name the fix. */
 export function validateSettings(type: NodeType, settings: unknown, path: string): Issue[] {
   const spec = NODE_SPECS[type];
@@ -232,6 +239,14 @@ export function validateSettings(type: NodeType, settings: unknown, path: string
   const valid = Object.keys(spec.docs);
   return parsed.error.issues.map(i => {
     const at = [path, ...i.path].join(".");
+    if (i.code === "unrecognized_keys" && i.path.length) {
+      // A typo inside shot/style/brief: name the bad key and list that object's own keys.
+      const parent = String(i.path[0]);
+      const keys = nestedKeys(parent);
+      const sugg = i.keys.map(k => [k, closest(k, keys)] as const).filter(([, c]) => c).map(([k, c]) => `Did you mean "${parent}.${c}" (not "${k}")? `).join("");
+      return { path: at, message: `unknown ${parent} key${i.keys.length > 1 ? "s" : ""} ${i.keys.map(k => `"${parent}.${k}"`).join(", ")}`,
+        fix: `${sugg}${parent === "shot" ? "Shot dimensions" : `Valid ${parent} keys`}: ${keys.join(", ")}.` };
+    }
     if (i.code === "unrecognized_keys") {
       return { path: at, message: `unknown setting${i.keys.length > 1 ? "s" : ""} ${i.keys.map(k => `"${k}"`).join(", ")} for ${type}`,
         fix: `${i.keys.map(k => closest(k, valid)).filter(Boolean).map(c => `Did you mean "${c}"? `).join("")}Valid ${type} settings: ${valid.join(", ") || "(none)"}.` };
