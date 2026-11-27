@@ -1,0 +1,25 @@
+{
+  "name": "Product lookbook",
+  "nodes": [
+    { "ref": "subject", "type": "prompt", "group": "concept", "settings": { "text": "a small round ceramic teapot with a cream glaze, product photograph, on {{item}}" } },
+    { "ref": "surfaces", "type": "list", "group": "concept", "settings": { "items": ["white marble", "dark slate", "oiled oak"] } },
+    { "ref": "look", "type": "style", "group": "concept", "settings": { "shot": { "size": "medium close-up", "lens": "85mm", "key_light": "soft window light from camera left", "palette": "warm neutrals" } } },
+    { "ref": "draft", "type": "generate", "group": "concept", "settings": { "quality": "low", "size": "1024x1024" } },
+    { "ref": "anchor", "type": "gallery", "group": "concept" },
+    { "ref": "glazes", "type": "list", "group": "art", "settings": { "items": ["change only the glaze to deep cobalt blue", "change only the glaze to celadon green"] } },
+    { "ref": "variant", "type": "edit", "group": "art", "settings": { "quality": "low" } },
+    { "ref": "review", "type": "gallery", "group": "art" },
+    { "ref": "hand", "type": "handoff", "group": "art", "settings": { "intent": "Product hero for a shop landing page", "target": "Next.js hero section, 1440px wide", "must_match": ["the teapot's shape and glaze colour", "soft light from the left"], "flexible": ["background crop"] } }
+  ],
+  "connections": [
+    { "from": "subject", "to": "surfaces" },
+    { "from": "surfaces", "to": "draft" },
+    { "from": "look", "to": "draft" },
+    { "from": "draft", "to": "anchor" },
+    { "from": "anchor", "to": "variant", "to_handle": "image" },
+    { "from": "glazes", "to": "variant" },
+    { "from": "variant", "to": "review" },
+    { "from": "review", "to": "hand" }
+  ],
+  "groups": [{ "id": "concept", "stage": "concept" }, { "id": "art", "stage": "art" }]
+}

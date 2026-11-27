@@ -54,6 +54,13 @@ cleanly so it can be resumed.
 - Verdicts: `approve` and `reject` record who decided and why. Only approved images
   reach a handoff package.
 
+An example spec to start from is
+[examples/studio/product-lookbook.json](../examples/studio/product-lookbook.json):
+`gpt-image studio create --spec @examples/studio/product-lookbook.json`, or pass its
+contents to `studio_create`. Run `draft`, pick one image in `anchor`
+(`{op:"pick", node:"anchor", takes:["draft/t2"]}`), then run the rest; without a
+pick every draft is edited.
+
 ## Looking and judging
 
 `studio_guide {topic:"review"}` is the full text. In short: there is no absolute
