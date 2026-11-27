@@ -3,7 +3,7 @@
 
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { applyOps, buildGraph, type OpContext } from "./graph.js";
 import { nodeDetail, snapshot } from "./snapshot.js";
 import { StudioError, createGraphFiles, emptyState, graphDir, listGraphSlugs, mutate, now, paths, readBoth, readGraph, readJson, resolveProject, slugify, checkSlug, toPosix } from "./store.js";
@@ -238,6 +238,29 @@ export async function viewGraph(slug: string, opts: Who & { nodes?: string[]; al
   const text = [sheet ? `Review sheet (open this first): ${sheet}` : "", "Images (ref, label, preview path, full path):",
     ...items.map(i => `  ${i.ref}  ${i.label}${i.status === "stale" ? " (stale)" : ""}\n    preview ${i.preview ?? "(none)"}\n    full    ${i.path}`), ...notes].filter(Boolean).join("\n");
   return { project, slug, sheet, images: items, text };
+}
+
+/** Study an admired image (a file path or a take ref): its reading plus shot language from one
+ *  vision request, returned as a ready style node op. Works without a graph. */
+export async function studyImage(target: string, opts: Who & { graph?: string; ask?: import("./craft.js").VisionAsk } = {}) {
+  const project = resolveProject(opts.project);
+  let path: string;
+  if (opts.graph && /^[a-z0-9][a-z0-9-]*\/t\d+$/.test(target)) {
+    const dir = graphDir(project, opts.graph);
+    const { graph, state } = await readBoth(dir);
+    const { parseTakeRef } = await import("./graph.js");
+    path = resolve(dir, parseTakeRef(graph, state, target, "study").take.asset);
+  } else {
+    path = isAbsolute(target) ? target : resolve(project, target);
+    if (!existsSync(path)) throw new StudioError("NO_FILE", `study: file not found: ${path}`, "Pass an image path (project-relative or absolute), or a take ref like \"ref/t1\" together with graph.");
+  }
+  const { studyReference } = await import("./craft.js");
+  const r = await studyReference(path, opts.ask);
+  const op = { op: "add", id: "studied-look", type: "style", settings: { shot: r.shot } };
+  const text = [`Study of ${path}`, `Measured: ${r.summary}`,
+    Object.keys(r.shot).length ? `Shot language (vision, an opinion; check it against the image):\n${Object.entries(r.shot).map(([k, v]) => `  ${k}: ${v}`).join("\n")}` : "",
+    r.note ?? "", Object.keys(r.shot).length ? `Ready to use: ${JSON.stringify(op)} then connect it to a generator's style input. It describes the look to learn from; it does not copy the subject.` : ""].filter(Boolean).join("\n");
+  return { path, reading: r.reading, shot: r.shot, op, text };
 }
 
 /** Look closer: a full-resolution region of one take, or a blind A/B pair of two takes. */

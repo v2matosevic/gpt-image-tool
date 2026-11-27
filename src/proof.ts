@@ -66,18 +66,18 @@ export function parseVerdict(raw: string): ProofVerdict {
   return { pass: true, issues: [], unverified: true };
 }
 
-function buildBody(imageB64: string, mime: string, question: string): unknown {
+function buildBody(images: Array<{ b64: string; mime: string }>, question: string, instructions = "You are a meticulous image proofreader. Answer with the exact JSON requested."): unknown {
   return {
     model: configuredModels().proof,
     stream: true,
-    instructions: "You are a meticulous image proofreader. Answer with the exact JSON requested.",
+    instructions,
     input: [
       {
         type: "message",
         role: "user",
         content: [
           { type: "input_text", text: question },
-          { type: "input_image", image_url: `data:${mime};base64,${imageB64}` },
+          ...images.map(i => ({ type: "input_image", image_url: `data:${i.mime};base64,${i.b64}` })),
         ],
       },
     ],
@@ -119,7 +119,21 @@ async function consumeText(body: ReadableStream<Uint8Array>): Promise<string> {
  * case, not the rare one). Never throws — a final failure returns an unverified pass.
  */
 export async function proofImage(imageBytes: Buffer, mime: string, req: ProofRequest): Promise<ProofVerdict> {
-  const body = buildBody(imageBytes.toString("base64"), mime, proofQuestion(req));
+  try {
+    return parseVerdict(await askVision([{ bytes: imageBytes, mime }], proofQuestion(req)));
+  } catch (e) {
+    console.error(`[gpt-image] proofread skipped (${e instanceof Error ? e.message : e}) — image NOT verified.`);
+    return { pass: true, issues: [], unverified: true };
+  }
+}
+
+/**
+ * Ask the subscription vision model about one or more images and return its text reply. Retries
+ * transient throttles like the proofreader; throws after the last attempt (callers decide whether
+ * to fail open). Used by Studio for reference studies, checklist answers and blind pair judging.
+ */
+export async function askVision(images: Array<{ bytes: Buffer; mime: string }>, question: string, instructions?: string): Promise<string> {
+  const body = buildBody(images.map(i => ({ b64: i.bytes.toString("base64"), mime: i.mime })), question, instructions);
   let lastErr: unknown;
   for (let attempt = 0; attempt <= PROOF_RETRIES; attempt++) {
     const controller = new AbortController();
@@ -137,8 +151,8 @@ export async function proofImage(imageBytes: Buffer, mime: string, req: ProofReq
         await sleep(retryAfterMs(res) ?? backoffMs(attempt));
         continue;
       }
-      if (!res.ok || !res.body) throw new Error(`proof request failed: HTTP ${res.status}`);
-      return parseVerdict(await consumeText(res.body));
+      if (!res.ok || !res.body) throw new Error(`vision request failed: HTTP ${res.status}`);
+      return await consumeText(res.body);
     } catch (e) {
       lastErr = e;
       if (isNetworkError(e, controller.signal.aborted) && attempt < PROOF_RETRIES) {
@@ -150,6 +164,5 @@ export async function proofImage(imageBytes: Buffer, mime: string, req: ProofReq
       clearTimeout(timer);
     }
   }
-  console.error(`[gpt-image] proofread skipped (${lastErr instanceof Error ? lastErr.message : lastErr}) — image NOT verified.`);
-  return { pass: true, issues: [], unverified: true };
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }

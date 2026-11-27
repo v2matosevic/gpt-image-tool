@@ -173,7 +173,7 @@ Node-graph workflows, subscription only. Full guide, storage contract and CLI: [
 | `studio_edit` | Apply ops together or not at all | `graph`, `ops`, `expect_revision` |
 | `studio_run` | Start a background run; unchanged slots are reused | `graph`, `scope`, `nodes`, `new_take`, `concurrency`, `dry_run`, `resume`, `stop`, `wait_seconds` |
 | `studio_status` | Progress, generations spent, new take paths, errors with fixes | `graph`, `job`, `wait_seconds` |
-| `studio_view` | Labelled contact sheet and preview paths; `serve` starts the read-only viewer | `graph`, `nodes`, `all_takes`, `serve` |
+| `studio_view` | Labelled review sheet and preview paths; zoom, blind pair, study an admired image; `serve` starts the read-only viewer | `graph`, `nodes`, `all_takes`, `overlays`, `zoom`, `pair`, `study`, `serve` |
 
 Studio quality is `low` (default), `medium` or `high`; it always sends `backend: "subscription"` and `image_model: "auto"`.
 

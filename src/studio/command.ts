@@ -22,6 +22,7 @@ Usage: gpt-image studio <command> [graph] [options]
                                                Labelled review sheet + preview paths
   sheet <graph> --zoom gen/t3@bottom-right     Full-resolution crop (or @x,y,w,h fractions)
   sheet <graph> --pair gen/t3,gen/t5           Blind A/B sheet for the judge_pair op
+  study <image|take> [--graph g]              Reading + shot language of an admired image (1 vision request)
   events <graph> [--after seq] [--limit n]    Events after a sequence number (JSON)
   view [graph] [--port n] [--idle-exit minutes]   Read-only local viewer on 127.0.0.1
 
@@ -147,6 +148,12 @@ ${memory}` : "");
         out(r, r.text);
         return 0;
       }
+      case "study": {
+        const { studyImage } = await import("./api.js");
+        const r = await studyImage(need(pos, 1, "image path or take ref"), { ...who, graph: flags.graph as string | undefined });
+        out({ path: r.path, shot: r.shot, op: r.op, reading: r.reading }, r.text);
+        return 0;
+      }
       case "events": {
         const project = resolveProject(who.project);
         const events = await readEvents(graphDir(project, need(pos, 1, "graph slug")), num(flags.after) ?? 0, num(flags.limit) ?? 200);
@@ -164,7 +171,7 @@ ${memory}` : "");
         return 0;
       }
       default:
-        throw new StudioError("BAD_ARGS", `Unknown studio command "${cmd}".`, "Commands: list, guide, get, create, edit, run, status, sheet, events, view.");
+        throw new StudioError("BAD_ARGS", `Unknown studio command "${cmd}".`, "Commands: list, guide, get, create, edit, run, status, sheet, study, events, view.");
     }
   } catch (e) {
     const err = e instanceof StudioError ? { code: e.code, message: e.message, fix: e.fix, issues: e.issues } : { code: "ERROR", message: e instanceof Error ? e.message : String(e) };

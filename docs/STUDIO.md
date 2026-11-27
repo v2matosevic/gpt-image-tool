@@ -103,6 +103,11 @@ An agent cannot approve a take until it has recorded a look (checklist answers o
 a critique); the refusal names the op to send. People approve freely: ADE and the
 CLI pass `--human`. Readings measure; they do not prove an image is better.
 
+Study an image someone admires with `studio_view {study: "path"}` (or a take ref
+plus `graph`; CLI `gpt-image studio study`): the local reading, plus shot language
+from one subscription vision request, returned as a ready style node. If the
+vision request fails, the reading still comes back.
+
 ## Memory: lessons, taste and calibration
 
 Lessons are claims settled by at least two takes, written with the `lesson` op:

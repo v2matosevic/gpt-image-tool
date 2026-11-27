@@ -113,6 +113,11 @@ Keeping things the same across images:
   studio_list shows the project's canon.
 - Identity of a face, character or product is not measured; check it with a blind pair.
 
+Learning from an image someone admires: studio_view {study:"images/admired.png"} (or a take ref with
+graph) returns its measurements plus the look in shot language from one vision request, as a ready
+{op:"add", type:"style", ...}. It names the dimensions of a look to learn from; it is not a copy
+function, and the vision part is an opinion to check against the image.
+
 Recording a judgement:
 - {op:"critique", take, summary, criteria?, against?, preferred?}: what you saw, in words.
 - An agent cannot approve a take without a recorded look (a critique or checklist answers). Put the

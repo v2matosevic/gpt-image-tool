@@ -518,3 +518,22 @@ test("lessons need two takes and are superseded, not edited; taste and calibrati
     assert.match(created.snapshot, /matched the person's later decision: 1 of 2 here, 1 of 2 overall/);
   } finally { delete process.env.GPT_IMAGE_STUDIO_HOME; }
 });
+
+test("study returns the reading and vision shot language as a ready style node, and degrades to the reading", async () => {
+  const p = project();
+  const { studyImage } = await import("../dist/studio/api.js");
+  const ask = async (_imgs: unknown, q: string) => {
+    assert.match(q, /key_light/);
+    return 'Sure: {"key_light":"soft window light from camera left","palette":"warm creams","bogus":"x","lens":""}';
+  };
+  const r = await studyImage("images/ref.png", { project: p, ask });
+  assert.deepEqual(r.shot, { key_light: "soft window light from camera left", palette: "warm creams" });
+  assert.equal(r.op.type, "style");
+  assert.match(r.text, /Measured: .*key/);
+  assert.match(r.text, /Ready to use: \{"op":"add"/);
+  await createGraph({ name: "Use", nodes: [{ ref: "look", type: "style", settings: r.op.settings }], connections: [] }, { project: p });
+  const failed = await studyImage("images/ref.png", { project: p, ask: async () => { throw new Error("offline"); } });
+  assert.deepEqual(failed.shot, {});
+  assert.match(failed.text, /Vision description failed \(offline\)/);
+  await refusal(studyImage("images/nope.png", { project: p }), "NO_FILE");
+});

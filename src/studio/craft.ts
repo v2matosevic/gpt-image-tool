@@ -201,3 +201,32 @@ export async function readPair(dir: string, id: string): Promise<{ A: string; B:
   if (!/^p[a-z0-9]+$/.test(id)) return null;
   try { return JSON.parse(await readFile(resolve(dir, "views", `pair-${id}.json`), "utf8")); } catch { return null; }
 }
+
+// ---------------------------------------------------------------- study a reference
+
+export type VisionAsk = (images: Array<{ bytes: Buffer; mime: string }>, question: string) => Promise<string>;
+
+/** Read an admired image and describe its look in shot language, as a ready style node. It names
+ *  the dimensions of a look to learn from; it does not copy the image. One vision request. */
+export async function studyReference(path: string, ask?: VisionAsk): Promise<{ reading?: Reading; summary: string; shot: Record<string, string>; note?: string }> {
+  const { SHOT_DIMENSIONS } = await import("./nodes.js");
+  const reading = await readingOf(path);
+  const summary = await summaryOf(reading);
+  const keys = Object.keys(SHOT_DIMENSIONS);
+  const question = "Describe the photographic and artistic look of this image as shot language, so another image can learn from it without copying its subject. " +
+    `Reply with ONLY minified JSON with these keys, each a short phrase (max 12 words), or omit a key you cannot judge: ${keys.join(", ")}. ` +
+    `Meaning of each key: ${keys.map(k => `${k} = ${(SHOT_DIMENSIONS as Record<string, string>)[k]}`).join(" ")} ` +
+    `Measured facts you can rely on: ${summary}.`;
+  try {
+    const bytes = await readFile(path);
+    const mime = /\.jpe?g$/i.test(path) ? "image/jpeg" : /\.webp$/i.test(path) ? "image/webp" : "image/png";
+    const raw = await (ask ?? (await import("../proof.js")).askVision)([{ bytes, mime }], question);
+    const m = /\{[\s\S]*\}/.exec(raw);
+    const parsed = m ? JSON.parse(m[0]) as Record<string, unknown> : {};
+    const shot: Record<string, string> = {};
+    for (const k of keys) if (typeof parsed[k] === "string" && (parsed[k] as string).trim()) shot[k] = (parsed[k] as string).trim().slice(0, 120);
+    return { reading, summary, shot, ...(Object.keys(shot).length ? {} : { note: "The vision reply had no usable shot fields; only the reading is available." }) };
+  } catch (e) {
+    return { reading, summary, shot: {}, note: `Vision description failed (${e instanceof Error ? e.message : e}); only the local reading is available.` };
+  }
+}
