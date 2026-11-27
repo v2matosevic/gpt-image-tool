@@ -249,7 +249,12 @@ export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalCont
         const pairs: Array<{ item: TextItem; image?: ImageRef }> = images.length > 1 ? images.map(im => ({ item: items[0]!, image: im })) : items.map(it => ({ item: it, image: images[0] }));
         // A sweep varies one look dimension across values; it replaces fan-out, so it needs one pair.
         const sw = s.sweep as { dim: string; values: string[] } | undefined;
-        if (sw && pairs.length > 1) { ev.issues.push({ message: `sweep needs one prompt and one image, but this node fans out to ${pairs.length}`, fix: "Sweep one thing at a time: disconnect the list (or pick one image in a gallery), or remove settings.sweep." }); break; }
+        if (sw && pairs.length > 1) {
+          ev.issues.push(isGen
+            ? { message: `a sweep needs a single prompt, but this node fans out to ${pairs.length} slots`, fix: `Give ${id} one prompt (disconnect the list), or remove the sweep: {op:"set", node:"${id}", settings:{sweep:null}}.` }
+            : { message: `a sweep needs a single image and a single instruction, but this node fans out to ${pairs.length} slots`, fix: `Pick one image in the upstream gallery ({op:"pick", node:"<gallery>", takes:["<node>/<take>"]}) or use one instruction, or remove the sweep: {op:"set", node:"${id}", settings:{sweep:null}}.` });
+          break;
+        }
         const looks: Array<{ look: Look; label?: string }> = sw ? sw.values.map(v => ({ look: sweepLook(look, sw.dim, v), label: `${sw.dim}: ${v}` })) : [{ look }];
         const fan = sw ? looks.map(l => ({ ...pairs[0]!, ...l })) : pairs.map(p => ({ ...p, look, label: undefined as string | undefined }));
         if (fan.length * variants > MAX_SLOTS) { ev.issues.push({ message: `${fan.length * variants} slots (max ${MAX_SLOTS})`, fix: "Reduce takes, sweep values or list items." }); break; }

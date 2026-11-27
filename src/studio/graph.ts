@@ -346,8 +346,22 @@ export async function applyOps(graph: GraphFile, state: StateFile, ops: unknown[
     if (extra.length) throw new StudioError("BAD_OP", `${path}: unknown field${extra.length > 1 ? "s" : ""} ${extra.join(", ")} for "${op.op}".`, `Shape: ${OP_HELP[op.op]}`);
     applied.push(await applyOne(graph, state, op, path, ctx, placed));
   }
+  checkSweeps(graph);
   placeNodes(graph, placed);
   return applied;
+}
+
+/** A sweep replaces fan-out, so a generator fed by a list cannot also sweep. Checked after all
+ *  ops, because a sweep and a connection can arrive in either order. */
+function checkSweeps(graph: GraphFile) {
+  for (const n of graph.nodes) {
+    if ((n.type !== "generate" && n.type !== "edit") || !n.settings.sweep) continue;
+    const src = inputsOf(graph, n.id, "prompt").map(e => graph.nodes.find(x => x.id === e.from)).find(x => x?.type === "list");
+    if (!src) continue;
+    const what = n.type === "generate" ? "a single prompt" : "a single instruction";
+    throw new StudioError("SWEEP_FANOUT", `${n.id}: a sweep needs ${what}, but its ${n.type === "generate" ? "prompt" : "instruction"} comes from list "${src.id}", which already makes one slot per item.`,
+      `Sweep one thing at a time: disconnect the list ({op:"disconnect", from:"${src.id}", to:"${n.id}"}) and give ${n.id} one ${n.type === "generate" ? "prompt" : "instruction"}, or remove the sweep ({op:"set", node:"${n.id}", settings:{sweep:null}}).`);
+  }
 }
 
 async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string, ctx: OpContext, placed: Set<string>): Promise<string> {

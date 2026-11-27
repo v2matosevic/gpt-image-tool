@@ -432,13 +432,16 @@ test("a sweep varies one look dimension per slot, reuses unchanged values and re
   assert.equal(again.calls.length, 1, "only the changed value renders");
   const bad = await refusal(editGraph("sweep", [{ op: "set", node: "gen", settings: { sweep: { dim: "shot.keylight", values: ["a", "b"] } } }], { project: p }), "BAD_SETTINGS");
   assert.match(String(bad.issues?.[0]?.message), /Did you mean "shot.key_light"/);
-  await editGraph("sweep", [
+  // Review 2 #3: a sweep on a list-fed generator is refused when the edit is made, in either order.
+  const fan = await refusal(editGraph("sweep", [
     { op: "set", node: "gen", settings: { prompt: null } },
     { op: "add", id: "kinds", type: "list", settings: { items: ["red", "blue"] } },
     { op: "connect", from: "kinds", to: "gen" },
-  ], { project: p });
-  const snap = (await getGraph("sweep", { project: p })).snapshot as string;
-  assert.match(snap, /sweep needs one prompt and one image/);
+  ], { project: p }), "SWEEP_FANOUT");
+  assert.match(fan.message, /a sweep needs a single prompt, but its prompt comes from list "kinds"/);
+  assert.match(fan.fix ?? "", /\{op:"disconnect", from:"kinds", to:"gen"\}/);
+  await editGraph("sweep", [{ op: "set", node: "gen", settings: { sweep: null, prompt: null } }, { op: "add", id: "kinds", type: "list", settings: { items: ["red", "blue"] } }, { op: "connect", from: "kinds", to: "gen" }], { project: p });
+  await refusal(editGraph("sweep", [{ op: "set", node: "gen", settings: { sweep: { dim: "shot.lens", values: ["35mm", "85mm"] } } }], { project: p }), "SWEEP_FANOUT");
 });
 
 test("a canon entry saved in one project is used from another; its description reaches the compiled prompt verbatim", async () => {
