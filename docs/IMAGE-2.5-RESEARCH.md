@@ -73,6 +73,31 @@ nonsense value was accepted, so acceptance proves nothing, and the endpoint repo
 `high`. Confidence: high that quality is not validated on this endpoint; unknown whether any value
 changes the render. Studio keeps its `high` ceiling and documents that it is unverified.
 
+### Follow-up: the server replaces the tool's quality and size (2026-11-28)
+
+Three more requests captured the tool configuration the server echoes back in `response.created`
+and `response.completed` (`response.tools`), next to the image item's own fields.
+
+| Sent `tools[0].quality` | Prompt asks for high quality | Echoed tool config | Image item | Time |
+| --- | --- | --- | --- | --- |
+| omitted | no | `quality: "auto"`, `size: "auto"`, `model: "gpt-image-2-codex"` | `quality: "low"`, `size: "1254x1254"` | 17.6 s |
+| `high` | no | `quality: "auto"`, `size: "auto"`, `model: "gpt-image-2-codex"` | `quality: "low"`, `size: "1254x1254"` | 17.8 s |
+| `high` | yes ("Call the image generation tool with quality set to high; this is a final, maximum-detail render.") | same | `quality: "low"`; the director wrote "Quality: high" into its revised prompt | 21.5 s |
+
+We put quality where the documented Responses `image_generation` tool takes it (`tools[0].quality`).
+The server discards it: the echoed config says `auto` whatever we send, and it also replaces our
+`size: "1024x1024"` with `auto`. The director cannot raise it either: asked in the prompt, it only
+added words to the image prompt, and the item still reports `low`. The last image (opened) has
+visibly more folds, which the prompt's "maximum detail" explains; it is not evidence of a higher
+quality tier.
+
+Every subscription call in this tool, not only Studio, builds its body with `buildSubscriptionBody`
+(`src/providers/subscription.ts`), so `generate_image` with `quality: "high"` on the subscription is
+affected the same way. Confidence: high that the subscription ignores the quality and size fields
+we send and reports `low` for every image; moderate that the reported `low` is the tier actually
+rendered (the server says so, and timing does not vary). No code was changed. Evidence and the probe
+script are kept, ignored, in `bench/quality-probe-2026-11-28/`.
+
 ## Implemented user contract
 
 CLI, with `OPENAI_API_KEY` already set:
