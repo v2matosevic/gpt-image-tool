@@ -45,7 +45,7 @@ inline copy too.
 | `imageqa.ts` / `contactsheet.ts` | Actual size/alpha/color diagnostics, small-icon measurements and review sheets. |
 | `imageinfo.ts` | Dependency-free PNG/JPEG/WebP dimension reader. |
 | `mcp.ts` / `cli.ts` | The two entry points (MCP stdio server / CLI). |
-| `studio/` | Node-graph workflows ([STUDIO.md](STUDIO.md)): `store` (paths, lock, atomic writes, events), `nodes` (types, handles, settings schemas), `graph` (ops, connection rules, layout), `evaluate` (slots, fingerprints, status), `runner` (jobs, run lock, worker, resume), `execute` / `handoff` (node work), `snapshot`, `api`, `mcp-tools`, `command` (CLI), `viewer`, `guide`. |
+| `studio/` | Node-graph workflows ([STUDIO.md](STUDIO.md)): `store` (paths, lock, atomic writes, events), `nodes` (types, handles, settings schemas), `graph` (ops, connection rules, layout), `evaluate` (slots, fingerprints, status), `runner` (jobs, run lock, worker, resume), `execute` / `handoff` (node work), `snapshot`, `api`, `mcp-tools`, `command` (CLI), `viewer`, `guide`; Craft: `craft` (readings, deviations, checklists, review sheets, zoom, blind pairs, study), `canon` (shared named entries), `memory` (lessons, taste, calibration), `recipes`. Look readings live in `imageqa.ts`; the vision call in `proof.ts` (`askVision`). |
 
 ## Image renderer selection
 
