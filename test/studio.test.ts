@@ -627,3 +627,21 @@ test("review 2 #5: imported references carry a reading, so drift against them wo
   const take = (await readBoth(dir)).state.nodes.ed.takes[0];
   assert.ok(take.deviations?.some((d: any) => d.source === "anchor"), JSON.stringify(take.deviations));
 });
+
+test("review 2 #6: the CLI guide and create say what memory holds, including nothing yet", async () => {
+  const home = mkdtempSync(join(tmpdir(), "studio-home-"));
+  const p = project();
+  const cli = (args: string[]) => new Promise<string>((res, rej) => {
+    const c = spawn(process.execPath, [fixture("../../dist/cli.js"), "studio", ...args, "--project", p], { env: { ...process.env, GPT_IMAGE_STUDIO_HOME: home } });
+    let out = ""; c.stdout.on("data", d => (out += d)); c.stderr.on("data", d => (out += d)); c.on("exit", code => (code === 0 ? res(out) : rej(new Error(out))));
+  });
+  const empty = await cli(["guide", "review"]);
+  assert.match(empty, /Lessons: none recorded yet/);
+  assert.match(empty, /Owner's taste: no decisions by a person recorded yet\. Only a person's approve/);
+  assert.match(empty, /Prediction agreement: nothing to compare yet/);
+  const created = await cli(["create", "--spec", JSON.stringify({ name: "G", nodes: [{ ref: "gen", type: "generate", settings: { prompt: "x" } }], connections: [] })]);
+  assert.match(created, /Lessons: none recorded yet/);
+  await startRun(p, "g", { actor: "t", detach: false, executors: makeFakes().executors });
+  await cli(["edit", "g", "--human", "--actor", "marko", "--ops", JSON.stringify([{ op: "approve", take: "gen/t1" }])]);
+  assert.match(await cli(["guide", "review"]), /From 1 human decision\(s\) in this project; counts appear once an attribute has two or more decisions\./);
+});

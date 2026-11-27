@@ -179,9 +179,13 @@ export async function memoryBrief(project: string, maxLessons = 5): Promise<stri
   const lines: string[] = [];
   const lessons = await activeLessons(project).catch(() => []);
   if (lessons.length) lines.push("Lessons (most supported first; renderer may have changed since):", ...lessons.slice(0, maxLessons).map(l => `  ${lessonLine(l)}`));
+  else lines.push('Lessons: none recorded yet in this project or your user store (write one with {op:"lesson"} once 2+ takes settle something).');
   const taste = await tasteSummary(project).catch(() => []);
-  if (taste.length) lines.push(taste[0]!, ...taste.slice(1).map(t => `  ${t}`));
+  if (taste.length > 1) lines.push(taste[0]!, ...taste.slice(1).map(t => `  ${t}`));
+  else if (taste.length) lines.push(`${taste[0]!.replace(/ \(counts, not rules\):$/, "")}; counts appear once an attribute has two or more decisions.`);
+  else lines.push("Owner's taste: no decisions by a person recorded yet. Only a person's approve, reject and pick count (ADE, or the CLI with --human); an agent's approvals do not.");
   const cal = await calibration(project).catch(() => undefined);
   if (cal && cal.project.total) lines.push(`Agent predictions that matched the person's later decision: ${cal.project.agree} of ${cal.project.total} here${cal.overall?.total ? `, ${cal.overall.agree} of ${cal.overall.total} overall` : ""}.`);
+  else lines.push("Prediction agreement: nothing to compare yet (an agent's predict must come before a person's decision on the same take).");
   return lines.join("\n");
 }
