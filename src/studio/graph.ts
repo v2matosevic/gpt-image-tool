@@ -12,8 +12,12 @@ import type { GraphEdge, GraphFile, GraphNode, Issue, NodeState, NodeType, State
 
 const ID_RE = /^[a-z][a-z0-9_-]{0,39}$/i;
 export const NODE_W = 240;
-export const COL_W = 320;
+export const COL_W = 340;
 export const ROW_H = 220;
+/** Nodes that show an image get a taller row, so the image can dominate the node. */
+export const IMAGE_ROW_H = 420;
+const IMAGE_TYPES = new Set(["reference", "generate", "edit", "process", "gallery", "implementation"]);
+const rowH = (n: GraphNode) => (IMAGE_TYPES.has(n.type) ? IMAGE_ROW_H : ROW_H);
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 
 export interface OpContext {
@@ -134,20 +138,21 @@ export function placeNodes(graph: GraphFile, ids?: Set<string>, all = false): vo
     const parents = inputsOf(graph, id).map(e => depth.get(e.from) ?? 0);
     depth.set(id, parents.length ? Math.max(...parents) + 1 : 0);
   }
-  const colBottom = new Map<number, number>();
+  // Next free y per column: below the bottom of every node already placed there.
+  const colNext = new Map<number, number>();
   for (const n of graph.nodes) {
     if (!n.position || n.type === "note") continue;
     if (all && !n.position.pinned) continue;
     const col = Math.round(n.position.x / COL_W);
-    colBottom.set(col, Math.max(colBottom.get(col) ?? -ROW_H, n.position.y));
+    colNext.set(col, Math.max(colNext.get(col) ?? 0, n.position.y + rowH(n)));
   }
   for (const n of graph.nodes) {
     if (n.type === "note") continue;
     const want = all ? !n.position?.pinned : !n.position && (!ids || ids.has(n.id));
     if (!want) continue;
     const col = depth.get(n.id) ?? 0;
-    const y = (colBottom.get(col) ?? -ROW_H) + ROW_H;
-    colBottom.set(col, y);
+    const y = colNext.get(col) ?? 0;
+    colNext.set(col, y + rowH(n));
     n.position = { x: col * COL_W, y };
   }
   for (const n of graph.nodes) {
