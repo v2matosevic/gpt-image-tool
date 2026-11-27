@@ -16,6 +16,15 @@ The API uses native PNG/WebP transparency; subscription keeps the existing chrom
 
 Run `node dist/cli.js --check` to see configured models and validate the subscription session. It does not generate an image or establish access to either API model. The v0.5.0 model-selection work passed 97 offline tests and the real MCP smoke; paid API generation was not run. Version 0.6.0 retains those model/billing boundaries and adds the branding workflow; see [release verification](RELEASE-VERIFICATION.md) for current checks. Rebuild and reconnect existing MCP processes to load changes.
 
+## Correction, 2026-11-28
+
+The subscription renders with gpt-image-2 (`gpt-image-2-codex` in the server's echoed tool config), not
+Images 2.5. It also replaces the quality and size we send with `auto` and reports every image as
+quality `low`. OpenAI's image-generation page for Codex says built-in generation uses gpt-image-2.
+Images 2.5 and 2.6 are API-only here; this tool does not know 2.6 yet. Evidence and sources, with our
+checks kept apart from community reports: [IMAGE-2.5-RESEARCH.md](IMAGE-2.5-RESEARCH.md#correction-2026-11-28-the-subscription-renders-with-gpt-image-2-not-images-25).
+The section below is kept as written on 2026-09-11; its reading of the 2.5 announcement was wrong.
+
 ## Subscription recheck, 2026-09-11
 
 OpenAI's [September 8 announcement](https://openai.com/index/introducing-chatgpt-images-2-5/) says Images 2.5 is available to ChatGPT and Codex users. The announcement was opened in a real browser on September 11. Confidence: high for official availability; unknown for the renderer used by an individual request through our undocumented endpoint.

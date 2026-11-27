@@ -2,9 +2,49 @@
 
 Research checked 2026-09-09 UTC; implementation completed across September 9–10 local time. This analysis underpins v0.5.0. Publication and exact source/CI evidence are tracked separately in [release verification](RELEASE-VERIFICATION.md).
 
+## Correction, 2026-11-28: the subscription renders with gpt-image-2, not Images 2.5
+
+Earlier text in this document (the September 11 update below) read OpenAI's Images 2.5 announcement as
+meaning our subscription path follows Images 2.5. The evidence does not support that. What is known now,
+our own checks kept apart from other sources:
+
+Our own checks (2026-11-27/28, subscription Responses path, `bench/quality-probe-2026-11-28/`):
+- The server echoes the image tool configuration it actually used: `model: "gpt-image-2-codex"`,
+  `quality: "auto"`, `size: "auto"`, whatever quality and size we send. The image item reports
+  `quality: "low"` and `size: "1254x1254"` every time. Details in the quality sections below.
+- C2PA on unstripped output: `softwareAgent {name: "ChatGPT", version: "gpt-image"}` (no number),
+  `claim_generator_info.name: "OpenAI Media Service API"`, actions `c2pa.created` (trainedAlgorithmicMedia),
+  `c2pa.converted`, `c2pa.watermarked.unbound`. It names no model generation.
+
+Official source: learn.chatgpt.com/docs/image-generation, read in a browser on 2026-11-28 by the
+orchestrating agent (not by this check): "Built-in image generation uses gpt-image-2 and counts toward
+your general Codex usage limits."
+
+Community reports (openai/codex GitHub issues, read 2026-11-28 by the orchestrating agent; not
+reproduced here except where noted):
+- #28723 (open, labelled bug, since 2026-06-16): the Codex OAuth image path ignores size and quality and
+  returns model `gpt-image-2-codex`, quality `auto`, size `auto`; 1254x1254 outputs. Our checks match.
+- #43965: users report C2PA `softwareAgent` "gpt-image" version 2.0 on Codex outputs, and quote OpenAI
+  Support saying Codex uses gpt-image-2 while ChatGPT Images uses the newer model. Our C2PA shows
+  "gpt-image" without a number.
+- #59890: Images 2.6 (`gpt-image-2.6-flare`, `gpt-image-2.6-sunburst`) launched on the API on
+  2026-11-04; on the OAuth path model, complexity and svg are accepted and ignored. The official client
+  now uses a native route, `POST chatgpt.com/backend-api/codex/images/generations`, instead of the
+  Responses tool. This tool has not tested that route.
+- #49214: image generation has its own roughly 24-hour cap, shared with ChatGPT Images and separate
+  from the Codex usage meter; a Plus user hit it after 97 images. The 429 body carries `resets_at` and
+  `resets_in_seconds`.
+
+Conclusion: the subscription path renders with gpt-image-2 (Codex variant) at a server-chosen
+quality the server reports as low. Confidence: high (official page, our echoed tool config and the
+matching bug report). Images 2.5 and 2.6 are reachable only through the paid API backend.
+
+Follow-ups, not done: this tool does not know Images 2.6 (`gpt-image-2.6-*`) yet; adding it is
+separate work. The native images route from #59890 is untested.
+
 ## Finding and recommendation
 
-September 11 subscription update: OpenAI's [September 8 announcement](https://openai.com/index/introducing-chatgpt-images-2-5/) establishes Images 2.5 availability in Codex. Keep this tool's default subscription backend with `image_model: "auto"`; it does not pin an older renderer and needs no local model change to follow OpenAI's selection. Confidence: high for official availability; unknown for the renderer behind an individual request. This does not invalidate the selector negative control below or establish Flare/Sunburst selection through the subscription endpoint. [Installed configuration and focused verification](MODELS.md#subscription-recheck-2026-09-11).
+Superseded in part by the correction above. September 11 subscription update (kept as written then): OpenAI's [September 8 announcement](https://openai.com/index/introducing-chatgpt-images-2-5/) establishes Images 2.5 availability in Codex. Keep this tool's default subscription backend with `image_model: "auto"`; it does not pin an older renderer and needs no local model change to follow OpenAI's selection. Confidence: high for official availability; unknown for the renderer behind an individual request. This does not invalidate the selector negative control below or establish Flare/Sunburst selection through the subscription endpoint. [Installed configuration and focused verification](MODELS.md#subscription-recheck-2026-09-11).
 
 Both Image 2.5 models are officially documented. Offer Flare for speed and Sunburst for precision, with independent quality controls. Keep Sunburst as the explicit API backend's default. Confidence: high for the documented models and integration contract; their relative results on our actual production briefs have not been benchmarked.
 

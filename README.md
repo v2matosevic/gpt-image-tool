@@ -79,7 +79,7 @@ The board combines generated imagery with local typography, declared colors and 
 
 ## Choose an Image 2.5 model
 
-OpenAI [announced Images 2.5 availability in ChatGPT and Codex](https://openai.com/index/introducing-chatgpt-images-2-5/) on September 8, 2026. This tool's default subscription backend leaves image model selection to OpenAI and does not pin an older renderer. No local model change is needed to follow that selection. The subscription endpoint does not report the renderer version, so we cannot certify Image 2.5 for an individual request. Keep `backend: "subscription"` and `image_model: "auto"` for subscription usage.
+The subscription backend renders with gpt-image-2: OpenAI's Codex image page says built-in generation uses gpt-image-2, and the server's own echoed tool configuration names `gpt-image-2-codex` (checked 2026-11-28). It also replaces the quality and size you send with `auto` and reports every image as quality `low`. Images 2.5 is reachable here only through the paid API backend below. [Evidence](docs/IMAGE-2.5-RESEARCH.md#correction-2026-11-28-the-subscription-renders-with-gpt-image-2-not-images-25). Keep `backend: "subscription"` and `image_model: "auto"` for subscription usage.
 
 Use `flare` for speed or `sunburst` for editing precision. Both require the explicitly selected, separately billed API backend and `OPENAI_API_KEY`:
 
