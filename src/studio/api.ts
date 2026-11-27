@@ -75,7 +75,9 @@ export async function createGraph(input: CreateInput, w: Who = {}) {
   await createGraphFiles(dir, graph, state, actor);
   await writeFile(paths(dir).events, JSON.stringify({ seq: 1, ts, type: "graph.created", actor, graphRevision: 1, nodes: graph.nodes.length, copiedFrom: source }) + "\n");
   const snap = await snapshot(project, dir, graph, state);
-  return { project, slug, dir, revision: graph.revision, notes: ctx.notes, copiedFrom: source, snapshot: snap.text };
+  const { memoryBrief } = await import("./memory.js");
+  const memory = await memoryBrief(project).catch(() => "");
+  return { project, slug, dir, revision: graph.revision, notes: ctx.notes, copiedFrom: source, snapshot: snap.text + (memory ? `\n\n${memory}` : "") };
 }
 
 export async function editGraph(slug: string, ops: unknown[], opts: Who & { expectRevision?: number } = {}) {
@@ -92,6 +94,11 @@ export async function editGraph(slug: string, ops: unknown[], opts: Who & { expe
     ctx.events.push({ type: "ops.applied", count: applied.length, summary: applied.slice(0, 20) });
     return { result: applied, events: ctx.events, feedback: ctx.feedback };
   });
+  if (ctx.human) {
+    const decided = ctx.feedback.filter(f => ["approve", "reject", "pick"].includes(String(f.action))).map(f => `${f.node}/${f.take}`);
+    const { recordCalibration } = await import("./memory.js");
+    await recordCalibration(project, slug, decided).catch(() => {});
+  }
   const { graph, state } = await readBoth(dir);
   const snap = await snapshot(project, dir, graph, state);
   return { project, slug, revision: res.revision, stateRevision: res.stateRevision, applied: res.result, notes: ctx.notes, snapshot: snap.text };

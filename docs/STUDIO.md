@@ -103,6 +103,26 @@ An agent cannot approve a take until it has recorded a look (checklist answers o
 a critique); the refusal names the op to send. People approve freely: ADE and the
 CLI pass `--human`. Readings measure; they do not prove an image is better.
 
+## Memory: lessons, taste and calibration
+
+Lessons are claims settled by at least two takes, written with the `lesson` op:
+`{claim, dimension, evidence: [{graph, takes}], support, date, by, renderer,
+scope, supersedes?}`, one file each in `_lessons/` (project) or
+`~/.gptimage/studio/_lessons/` (user; `GPT_IMAGE_STUDIO_HOME` moves it). This
+tool had no user-level config before, so the user store mirrors the project
+layout under the home folder. A lesson is never edited: a newer one names it in
+`supersedes`, and only lessons nobody superseded are active. Ranking is support,
+halved every 90 days, because OpenAI can change the routed renderer.
+
+Taste is counted from people's decisions (`human: true` in `feedback.jsonl`, set
+by ADE and the CLI's `--human`): how many low-key, warm, centred, or a given shot
+value they kept or dropped, reported only for buckets with two or more decisions,
+as counts. Calibration compares each `predict` made before a person's first
+decision on that take with the decision; the project rate comes from the
+project's feedback, and the overall rate from `calibration.jsonl` in the user
+store. `studio_create` and `studio_guide` return the active lessons, the taste
+counts and the agreement rate without being asked.
+
 ## Handoff and implementation
 
 A handoff node writes `handoff/<name>/`:

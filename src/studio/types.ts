@@ -51,7 +51,11 @@ export interface TakeInput {
 }
 
 /** A human or agent decision on a take. Approve and reject are exclusive; the latest wins. */
-export interface Verdict { decision: "approved" | "rejected"; by: string; at: string; note?: string }
+export interface Verdict {
+  decision: "approved" | "rejected"; by: string; at: string; note?: string;
+  /** True when a person decided (ADE, CLI --human); counts for taste and calibration. */
+  human?: boolean;
+}
 
 /** An agent's verdict recorded before the human decides, for calibration (agreement over time). */
 export interface Prediction { by: string; at: string; decision: "approved" | "rejected" | "picked"; reason: string }

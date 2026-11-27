@@ -117,6 +117,11 @@ Recording a judgement:
 - {op:"critique", take, summary, criteria?, against?, preferred?}: what you saw, in words.
 - An agent cannot approve a take without a recorded look (a critique or checklist answers). Put the
   look and the approve in the same studio_edit call. People approve freely.
+- Lessons: when a sweep or several takes settle something, record it so later sessions start from
+  it: {op:"lesson", claim, dimension, takes:[2+ takes], scope?:"project"|"user", supersedes?}. One
+  take is never a lesson. Lessons are superseded, never edited; old ones weigh less because the
+  routed renderer can change. studio_create and studio_guide list the active ones, with the owner's
+  taste in counts (what people kept and dropped) and the prediction agreement rate.
 - Calibration: before the human decides, record your own call with {op:"predict", take,
   decision:"approved"|"rejected"|"picked", reason}. It is compared with the human's decision later;
   a prediction made after the human decided does not count.`;

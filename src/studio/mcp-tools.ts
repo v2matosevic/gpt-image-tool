@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createGraph, editGraph, getGraph, listGraphs, lookCloser, runGraph, serveDetached, statusReport, viewGraph } from "./api.js";
 import { guide, GUIDE_TOPICS } from "./guide.js";
-import { StudioError } from "./store.js";
+import { StudioError, resolveProject } from "./store.js";
 
 const project = z.string().optional().describe("Project folder. Default: this project. Pass another project's path to read or copy from it.");
 const graph = z.string().describe("Graph slug (studio_list shows them).");
@@ -32,8 +32,12 @@ export function registerStudioTools(server: McpServer) {
   server.registerTool("studio_guide", {
     title: "Studio guide: node graphs for image work",
     description: "How Studio works: node types and their exact settings, edit ops, running, handoff to code, shot language and a worked example. Read it before your first studio_create.",
-    inputSchema: { topic: z.enum([...GUIDE_TOPICS, "all"]).optional().describe("Default all.") },
-  }, wrap(async a => guide(a.topic ?? "all")));
+    inputSchema: { topic: z.enum([...GUIDE_TOPICS, "all"]).optional().describe("Default all."), project },
+  }, wrap(async a => {
+    const { memoryBrief } = await import("./memory.js");
+    const memory = await memoryBrief(resolveProject(a.project)).catch(() => "");
+    return guide(a.topic ?? "all") + (memory ? `\n\n# What this project has learned\n\n${memory}` : "");
+  }));
 
   server.registerTool("studio_list", {
     title: "List Studio graphs",

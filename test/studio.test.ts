@@ -480,3 +480,41 @@ test("a canon entry saved in one project is used from another; its description r
   assert.equal(again.calls.length, 1, "a replaced description re-renders the user");
   assert.ok((await readBoth(gdir)).state.nodes.gen.takes[1].text.prompt.includes("Always smiling."));
 });
+
+test("lessons need two takes and are superseded, not edited; taste and calibration come back with create", async () => {
+  const home = mkdtempSync(join(tmpdir(), "studio-home-"));
+  process.env.GPT_IMAGE_STUDIO_HOME = home;
+  try {
+    const p = project();
+    await createGraph({ name: "Mem", nodes: [{ ref: "gen", type: "generate", settings: { prompt: "a glass bottle", takes: 3, shot: { key_light: "backlight" } } }], connections: [] }, { project: p });
+    await startRun(p, "mem", { actor: "t", detach: false, executors: makeFakes().executors });
+    await refusal(editGraph("mem", [{ op: "lesson", claim: "x", dimension: "shot.key_light", takes: ["gen/t1"] }], { project: p }), "ONE_TAKE");
+    const first = await editGraph("mem", [{ op: "lesson", claim: "backlight makes glass glow", dimension: "shot.key_light", takes: ["gen/t1", "gen/t2"] }], { project: p });
+    const id = /lesson (l[a-z0-9]+)/.exec(first.applied[0]!)![1]!;
+    await editGraph("mem", [{ op: "lesson", claim: "backlight makes glass glow but hides the label", dimension: "shot.key_light", takes: ["gen/t1", "gen/t2", "gen/t3"], supersedes: id }], { project: p });
+    await refusal(editGraph("mem", [{ op: "lesson", claim: "y", dimension: "d", takes: ["gen/t1", "gen/t2"], supersedes: id }], { project: p }), "ALREADY_SUPERSEDED");
+    await editGraph("mem", [{ op: "lesson", claim: "users like warm light", dimension: "temperature", takes: ["gen/t1", "gen/t3"], scope: "user" }], { project: p });
+    const { activeLessons, allLessons } = await import("../dist/studio/memory.js");
+    assert.equal((await allLessons(p)).length, 3, "the superseded lesson is kept");
+    const active = await activeLessons(p);
+    assert.deepEqual(active.map((l: any) => l.claim).sort(), ["backlight makes glass glow but hides the label", "users like warm light"]);
+    assert.equal(active[0]!.support, 3, "most supported first");
+    assert.ok(existsSync(join(home, ".gptimage", "studio", "_lessons")), "user lessons live in the user store");
+
+    // Calibration: predictions before the person's decision count; one after does not.
+    await editGraph("mem", [{ op: "predict", take: "gen/t1", decision: "approved", reason: "clean glow" }, { op: "predict", take: "gen/t2", decision: "rejected", reason: "flat" }], { project: p, actor: "agent-a" });
+    await editGraph("mem", [{ op: "approve", take: "gen/t1" }, { op: "approve", take: "gen/t2" }, { op: "reject", take: "gen/t3" }], { project: p, actor: "marko", human: true });
+    await editGraph("mem", [{ op: "predict", take: "gen/t3", decision: "rejected", reason: "late" }], { project: p, actor: "agent-a" });
+    const { calibration, tasteSummary } = await import("../dist/studio/memory.js");
+    const cal = await calibration(p);
+    assert.deepEqual(cal.project, { agree: 1, total: 2 });
+    assert.deepEqual(cal.overall, { agree: 1, total: 2 });
+    const taste = await tasteSummary(p);
+    assert.match(taste[0]!, /From 3 human decision/);
+    assert.ok(taste.some((l: string) => /shot\.key_light "backlight": kept 2 of 3/.test(l)), taste.join("\n"));
+    const created = await createGraph({ name: "Next", nodes: [{ ref: "a", type: "prompt", settings: { text: "x" } }], connections: [] }, { project: p });
+    assert.match(created.snapshot, /Lessons \(most supported first/);
+    assert.match(created.snapshot, /hides the label/);
+    assert.match(created.snapshot, /matched the person's later decision: 1 of 2 here, 1 of 2 overall/);
+  } finally { delete process.env.GPT_IMAGE_STUDIO_HOME; }
+});

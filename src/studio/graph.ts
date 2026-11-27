@@ -185,7 +185,7 @@ export async function importPath(ctx: OpContext, raw: string, what: string): Pro
 // ---------------------------------------------------------------- ops
 
 export const OP_NAMES = ["add", "remove", "set", "prompt_edit", "connect", "disconnect", "group", "ungroup", "move", "layout", "rename",
-  "select", "pick", "approve", "reject", "clear_verdict", "predict", "note", "answer", "critique", "judge_pair", "canon_save"] as const;
+  "select", "pick", "approve", "reject", "clear_verdict", "predict", "note", "answer", "critique", "judge_pair", "canon_save", "lesson"] as const;
 
 type Op = Record<string, unknown> & { op: string };
 
@@ -221,6 +221,7 @@ export const OP_HELP: Record<string, string> = {
   answer: '{op:"answer", take:"gen/t4", answers:{c1:"yes", c2:"no", c3:{answer:"unsure", note:"hand hidden"}}} (the checklist of the take, from studio_get node)',
   critique: '{op:"critique", take:"gen/t4", summary:"...", criteria?:{composition:"...", lighting:"...", artefacts:"..."}, against?:"gen/t2", preferred?:"gen/t4", judge?}',
   judge_pair: '{op:"judge_pair", pair:"p...", preferred:"A"|"B", reason:"...", criteria?} (a blind pair from studio_view pair)',
+  lesson: '{op:"lesson", claim:"backlight reads as premium for glass", dimension:"shot.key_light", takes:["gen/t2","gen/t5"], scope?:"project"|"user", supersedes?:"l..."} (2+ takes as evidence)',
   canon_save: '{op:"canon_save", name:"teapot", takes:["variant/t5"], description:"a small round ceramic teapot, deep cobalt glaze, ...", kind?:"character"|"place"|"product"|"look", role?:"subject", replace?:true} (approved takes only)',
 };
 
@@ -230,7 +231,7 @@ const KNOWN: Record<string, string[]> = {
   disconnect: ["op", "from", "to", "to_handle"], group: ["op", "id", "label", "stage", "nodes"], ungroup: ["op", "id"], move: ["op", "node", "x", "y"],
   layout: ["op"], rename: ["op", "name"], select: ["op", "take"], pick: ["op", "node", "takes"], approve: ["op", "take", "note"], reject: ["op", "take", "note"],
   clear_verdict: ["op", "take"], predict: ["op", "take", "decision", "reason"], note: ["op", "on", "text", "author", "id", "take"],
-  answer: ["op", "take", "answers"], critique: ["op", "take", "summary", "criteria", "against", "preferred", "judge"], judge_pair: ["op", "pair", "preferred", "reason", "criteria"], canon_save: ["op", "name", "takes", "description", "kind", "role", "replace"],
+  answer: ["op", "take", "answers"], critique: ["op", "take", "summary", "criteria", "against", "preferred", "judge"], judge_pair: ["op", "pair", "preferred", "reason", "criteria"], canon_save: ["op", "name", "takes", "description", "kind", "role", "replace"], lesson: ["op", "claim", "dimension", "takes", "scope", "supersedes"],
 };
 
 function freshId(graph: GraphFile, base: string): string {
@@ -491,7 +492,7 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
         throw new StudioError("NO_LOOK", `${path}: an agent cannot approve ${node.id}/${take.id} without a recorded look.`, LOOK_FIX(`${node.id}/${take.id}`));
       }
       const decision = op.op === "approve" ? "approved" : "rejected";
-      take.verdict = { decision, by: ctx.actor, at: now(), ...(typeof op.note === "string" ? { note: op.note } : {}) };
+      take.verdict = { decision, by: ctx.actor, at: now(), ...(ctx.human ? { human: true } : {}), ...(typeof op.note === "string" ? { note: op.note } : {}) };
       ctx.events.push({ type: `take.${decision}`, node: node.id, take: take.id, note: op.note });
       ctx.feedback.push(takeFeedback(graph, node, take, op.op, { note: op.note }));
       return `${decision} ${node.id}/${take.id}`;
@@ -563,6 +564,19 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
       ctx.events.push({ type: "take.critiqued", node: node.id, take: take.id, judge: c.judge });
       ctx.feedback.push(takeFeedback(graph, node, take, "critique", { judge: c.judge, summary, against, preferred }));
       return `critique ${c.id} on ${node.id}/${take.id} by ${c.judge}`;
+    }
+    case "lesson": {
+      const claim = str(op, "claim", path)!;
+      const dimension = str(op, "dimension", path)!;
+      if (!Array.isArray(op.takes)) throw new StudioError("BAD_OP", `${path}.takes must list the takes that support it.`, OP_HELP.lesson);
+      const refs = [...new Set((op.takes as unknown[]).map((r, i) => { const x = parseTakeRef(graph, state, r, `${path}.takes[${i}]`); return `${x.node.id}/${x.take.id}`; }))];
+      const scope = op.scope === undefined ? "project" : op.scope;
+      if (scope !== "project" && scope !== "user") throw new StudioError("BAD_OP", `${path}.scope must be "project" or "user".`, OP_HELP.lesson);
+      const { writeLesson } = await import("./memory.js");
+      const l = await writeLesson(ctx.project, { claim, dimension, evidence: [{ graph: graph.slug, takes: refs }], support: refs.length, by: ctx.actor, scope,
+        ...(typeof op.supersedes === "string" ? { supersedes: op.supersedes } : {}), ...(scope === "user" ? { project: ctx.project } : {}) });
+      ctx.events.push({ type: "lesson.written", id: l.id, scope, supersedes: l.supersedes });
+      return `lesson ${l.id} (${scope}, ${l.support} takes)${l.supersedes ? `, supersedes ${l.supersedes}` : ""}`;
     }
     case "canon_save": {
       const name = str(op, "name", path)!;
