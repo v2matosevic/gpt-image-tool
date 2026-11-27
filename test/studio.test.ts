@@ -273,3 +273,35 @@ test("view writes previews and the guide documents every node type", async () =>
   for (const t of ["prompt", "style", "list", "reference", "generate", "edit", "process", "gallery", "handoff", "implementation", "note"]) assert.match(g, new RegExp(`## ${t}\\n`));
   assert.match(g, /quality low/);
 });
+
+test("a live holder that stalls past the stale limit keeps its lock; release deletes only its own lock", async () => {
+  const p = project();
+  await createGraph({ name: "Locky", nodes: [{ ref: "a", type: "prompt", settings: { text: "x" } }], connections: [] }, { project: p });
+  const dir = graphDir(p, "locky");
+  const env = { ...process.env, GPT_IMAGE_STUDIO_LOCK_STALE_MS: "200" };
+  const run = (hold: string, name: string) => spawn(process.execPath, [fixture("studio-slowlock.mjs"), dir, hold, name], { stdio: ["ignore", "pipe", "inherit"], env });
+  const exited = (c: ReturnType<typeof spawn>) => new Promise<number | null>(res => c.on("exit", res));
+  const slow = run("1500", "slow");
+  const slowDone = exited(slow);
+  await new Promise<void>(res => slow.stdout!.once("data", () => res()));
+  const t0 = Date.now();
+  const fast = run("0", "fast");
+  assert.equal(await exited(fast), 0);
+  // The second writer waited for the live holder instead of stealing the lock after 200 ms.
+  assert.ok(Date.now() - t0 > 900, `waited ${Date.now() - t0} ms`);
+  assert.equal(await slowDone, 0);
+  const { state } = await readBoth(dir);
+  assert.ok(state.nodes.slow && state.nodes.fast, `both writes kept: ${Object.keys(state.nodes)}`);
+  const { releaseLock, paths } = await import("../dist/studio/store.js");
+
+  const lock = paths(dir).lock;
+  writeFileSync(lock, JSON.stringify({ token: "peer", pid: 1, host: "h", actor: "p", at: "" }));
+  await releaseLock(lock, "mine");
+  assert.ok(existsSync(lock), "a peer's lock is left alone");
+  writeFileSync(lock, "");
+  await releaseLock(lock, "mine");
+  assert.ok(existsSync(lock), "an unreadable lock (a peer mid-write) is left alone");
+  writeFileSync(lock, JSON.stringify({ token: "mine", pid: process.pid, host: "h", actor: "me", at: "" }));
+  await releaseLock(lock, "mine");
+  assert.ok(!existsSync(lock));
+});

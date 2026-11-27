@@ -3,7 +3,7 @@
 // CLI) goes through mutate(), so two processes never interleave a read-modify-write.
 
 import { existsSync, statSync } from "node:fs";
-import { appendFile, link, mkdir, open, readFile, readdir, rename, stat, unlink } from "node:fs/promises";
+import { appendFile, link, mkdir, open, readFile, readdir, rename, stat, unlink, utimes } from "node:fs/promises";
 import { hostname } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -116,8 +116,12 @@ export function pidAlive(pid: number): boolean {
 }
 
 interface LockBody { token: string; pid: number; host: string; actor: string; at: string }
-const LOCK_STALE_MS = 30_000;
+const LOCK_STALE_MS = Number(process.env.GPT_IMAGE_STUDIO_LOCK_STALE_MS) || 30_000; // env override for tests only
 const LOCK_WAIT_MS = 20_000;
+/** A same-host holder whose process is alive is never taken over on age alone, except after this
+ *  long, which only a lock leaked by a long-lived process (an MCP server) can reach. */
+const LOCK_LEAK_MS = 10 * 60_000;
+const LOCK_REFRESH_MS = 5_000;
 
 async function readLock(path: string): Promise<{ body?: LockBody; mtimeMs: number } | null> {
   try {
@@ -133,8 +137,11 @@ async function stealIfStale(path: string, staleMs: number): Promise<boolean> {
   const cur = await readLock(path);
   if (!cur) return true; // vanished: retry the create
   const age = Date.now() - cur.mtimeMs;
-  const dead = cur.body && cur.body.host === hostname() && !pidAlive(cur.body.pid);
-  if (age < staleMs && !dead) return false;
+  const sameHost = cur.body?.host === hostname();
+  const alive = sameHost && pidAlive(cur.body!.pid);
+  // A live holder on this host keeps its lock even when slow (the B: drive has stalled past 30 s).
+  // Age decides only for other hosts, unreadable bodies, and leaks older than LOCK_LEAK_MS.
+  if (alive ? age < LOCK_LEAK_MS : sameHost ? false : age < staleMs) return false;
   const aside = `${path}.stale-${randomBytes(4).toString("hex")}`;
   try { await rename(path, aside); } catch { return true; }
   let moved: LockBody | undefined;
@@ -166,11 +173,28 @@ export async function withLock<T>(path: string, actor: string, fn: () => Promise
       await sleep(15 + Math.random() * 40);
     }
   }
+  // Refresh the lock's mtime while held, so a holder on another host is not taken for stale.
+  const refresh = setInterval(() => { const t = new Date(); utimes(path, t, t).catch(() => {}); }, LOCK_REFRESH_MS);
+  refresh.unref();
   try {
     return await fn();
   } finally {
+    clearInterval(refresh);
+    await releaseLock(path, token);
+  }
+}
+
+/** Delete the lock only when it is provably ours. An unreadable body is usually a peer writing a
+ *  lock it has just taken, so it is retried and then left alone, never deleted. */
+export async function releaseLock(path: string, token: string) {
+  for (let i = 0; i < 10; i++) {
     const cur = await readLock(path);
-    if (!cur?.body || cur.body.token === token) await unlink(path).catch(() => {});
+    if (!cur) return;
+    if (cur.body) {
+      if (cur.body.token === token) await unlink(path).catch(() => {});
+      return;
+    }
+    await sleep(20);
   }
 }
 
