@@ -355,3 +355,42 @@ test("a live holder that stalls past the stale limit keeps its lock; release del
   await releaseLock(lock, "mine");
   assert.ok(!existsSync(lock));
 });
+
+test("a run started over MCP finishes after the MCP server is closed the way ToolHub closes it", async () => {
+  const p = project();
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+  const transport = new StdioClientTransport({
+    command: process.execPath, args: [fixture("../../dist/mcp.js")], cwd: p, stderr: "ignore",
+    env: { ...process.env, GPT_IMAGE_STUDIO_CLI: fixture("studio-fake-cli.mjs"), FAKE_DELAY_MS: "1200" } as Record<string, string>,
+  });
+  const client = new Client({ name: "studio-close-test", version: "1.0.0" });
+  await client.connect(transport);
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const r: any = await client.callTool({ name, arguments: { project: p, ...args } });
+    assert.ok(!r.isError, r.content?.[0]?.text);
+    return r.content[0].text as string;
+  };
+  await call("studio_create", { name: "Survive", nodes: [
+    { ref: "subj", type: "prompt", settings: { text: "a {{item}} cup" } },
+    { ref: "kinds", type: "list", settings: { items: ["red", "green", "blue"] } },
+    { ref: "gen", type: "generate" }], connections: [{ from: "subj", to: "kinds" }, { from: "kinds", to: "gen" }] });
+  const started = await call("studio_run", { graph: "survive", wait_seconds: 0 });
+  const job = /r\d{8}-\d{6}-[0-9a-f]{4}/.exec(started)![0];
+  const serverPid = transport.pid!;
+  await client.close(); // stdin end, then SIGTERM: what the SDK client close (and so ToolHub) does
+  const { pidAlive } = await import("../dist/studio/store.js");
+  assert.equal(pidAlive(serverPid), false, "the MCP server is gone");
+  const dir = graphDir(p, "survive");
+  const before = JSON.parse(readFileSync(join(dir, "runs", `${job}.json`), "utf8"));
+  assert.ok(before.progress.slotsDone < 3, `still mid-run when the server closed (${before.progress.slotsDone}/3)`);
+  let rec: any;
+  for (let i = 0; i < 100; i++) {
+    rec = JSON.parse(readFileSync(join(dir, "runs", `${job}.json`), "utf8"));
+    if (!["starting", "running"].includes(rec.status)) break;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  assert.equal(rec.status, "done", JSON.stringify(rec.errors));
+  assert.equal(rec.takes.length, 3);
+  assert.notEqual(rec.pid, serverPid, "the worker is its own process");
+});
