@@ -77,6 +77,12 @@ to a generator's references it adds them with their roles and appends the
 description to the prompt word for word. A replaced entry re-renders its users on
 the next run.
 
+Recipes build a ready graph from a subject: `studio_create {name, recipe, subject,
+path?}` with `lookbook`, `character-sheet`, `product-set` (needs `path`, the
+product photo), `storyboard` or `page-mock`. Each follows the working order in
+`studio_guide {topic:"recipes"}`: cheap thumbnails for composition, then lighting
+and value, then colour, then one final; variations are edits of an anchor.
+
 An example spec to start from is
 [examples/studio/product-lookbook.json](../examples/studio/product-lookbook.json):
 `gpt-image studio create --spec @examples/studio/product-lookbook.json`, or pass its

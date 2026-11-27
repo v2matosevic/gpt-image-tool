@@ -169,7 +169,7 @@ Node-graph workflows, subscription only. Full guide, storage contract and CLI: [
 | `studio_guide` | Node types with every setting, ops, running, handoff, shot language, worked example | `topic` |
 | `studio_list` | Graphs in a project | `project` |
 | `studio_get` | Text snapshot, or one node in full with take paths | `graph`, `node` |
-| `studio_create` | Create from nodes (your refs) and connections, all or nothing; or `copy_from` another graph | `name`, `nodes`, `connections`, `groups`, `copy_from` |
+| `studio_create` | Create from nodes (your refs) and connections, all or nothing; or `copy_from` another graph; or a `recipe` | `name`, `nodes`, `connections`, `groups`, `copy_from`, `recipe`, `subject`, `path` |
 | `studio_edit` | Apply ops together or not at all | `graph`, `ops`, `expect_revision` |
 | `studio_run` | Start a background run; unchanged slots are reused | `graph`, `scope`, `nodes`, `new_take`, `concurrency`, `dry_run`, `resume`, `stop`, `wait_seconds` |
 | `studio_status` | Progress, generations spent, new take paths, errors with fixes | `graph`, `job`, `wait_seconds` |

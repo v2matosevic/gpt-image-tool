@@ -3,8 +3,9 @@
 
 import { NODE_SPECS, NODE_TYPES, SHOT_DIMENSIONS } from "./nodes.js";
 import { OP_HELP } from "./graph.js";
+import { recipesGuide } from "./recipes.js";
 
-export const GUIDE_TOPICS = ["overview", "nodes", "ops", "run", "review", "handoff", "shot", "example"] as const;
+export const GUIDE_TOPICS = ["overview", "nodes", "ops", "run", "review", "handoff", "shot", "recipes", "example"] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number] | "all";
 
 const OVERVIEW = `# Studio: image work as a graph
@@ -185,7 +186,7 @@ Variations of an approved anchor: connect the approved generator to an edit node
 with a list of instructions, so each variation is an edit of the anchor, not a fresh generation.`;
 
 export function guide(topic: GuideTopic = "all"): string {
-  const parts: Record<string, () => string> = { overview: () => OVERVIEW, nodes: nodesSection, ops: opsSection, run: () => RUN, review: () => REVIEW, handoff: () => HANDOFF, shot: shotSection, example: () => EXAMPLE };
+  const parts: Record<string, () => string> = { overview: () => OVERVIEW, nodes: nodesSection, ops: opsSection, run: () => RUN, review: () => REVIEW, handoff: () => HANDOFF, shot: shotSection, recipes: recipesGuide, example: () => EXAMPLE };
   if (topic !== "all") return parts[topic]!();
   return GUIDE_TOPICS.map(t => parts[t]!()).join("\n\n");
 }

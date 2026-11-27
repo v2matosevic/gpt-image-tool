@@ -41,6 +41,10 @@ export interface CreateInput {
   groups?: unknown[];
   /** Copy another graph's definition, possibly from another project. References are copied in. */
   copy_from?: { project?: string; graph: string };
+  /** Build from a saved recipe (recipes.ts) instead of nodes. */
+  recipe?: string;
+  subject?: string;
+  path?: string;
 }
 
 async function copyOps(input: CreateInput["copy_from"]) {
@@ -67,7 +71,15 @@ export async function createGraph(input: CreateInput, w: Who = {}) {
   const state = emptyState();
   const ctx: OpContext = { project, dir, actor, events: [], feedback: [], notes: [] };
   let source: string | undefined;
-  const body = input.copy_from ? await copyOps(input.copy_from) : input;
+  let recipeNext: string | undefined;
+  let body: any = input.copy_from ? await copyOps(input.copy_from) : input;
+  if (input.recipe) {
+    if (input.copy_from || input.nodes?.length) throw new StudioError("BAD_INPUT", "Pass recipe, copy_from or nodes, not several.", 'studio_create {name:"...", recipe:"lookbook", subject:"a ceramic teapot"}');
+    const { recipeSpec } = await import("./recipes.js");
+    const spec = recipeSpec(input.recipe, { subject: input.subject ?? "", path: input.path });
+    recipeNext = spec.next;
+    body = { name: input.name, nodes: spec.nodes, connections: spec.connections, groups: spec.groups };
+  }
   if (input.copy_from) source = (body as any).source;
   await buildGraph(graph, state, body, ctx);
   state.eventSeq = 1;
@@ -77,7 +89,7 @@ export async function createGraph(input: CreateInput, w: Who = {}) {
   const snap = await snapshot(project, dir, graph, state);
   const { memoryBrief } = await import("./memory.js");
   const memory = await memoryBrief(project).catch(() => "");
-  return { project, slug, dir, revision: graph.revision, notes: ctx.notes, copiedFrom: source, snapshot: snap.text + (memory ? `\n\n${memory}` : "") };
+  return { project, slug, dir, revision: graph.revision, notes: ctx.notes, copiedFrom: source, snapshot: snap.text + (recipeNext ? `\nRecipe "${input.recipe}": ${recipeNext}` : "") + (memory ? `\n\n${memory}` : "") };
 }
 
 export async function editGraph(slug: string, ops: unknown[], opts: Who & { expectRevision?: number } = {}) {

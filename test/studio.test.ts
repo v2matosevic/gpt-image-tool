@@ -537,3 +537,25 @@ test("study returns the reading and vision shot language as a ready style node, 
   assert.match(failed.text, /Vision description failed \(offline\)/);
   await refusal(studyImage("images/nope.png", { project: p }), "NO_FILE");
 });
+
+test("every recipe builds a valid graph that plans a run; bad recipe input names its fix", async () => {
+  const p = project();
+  const { RECIPE_NAMES } = await import("../dist/studio/recipes.js");
+  for (const recipe of RECIPE_NAMES) {
+    const c = await createGraph({ name: `R ${recipe}`, recipe, subject: "a ceramic teapot", path: "images/ref.png" } as any, { project: p });
+    assert.match(c.snapshot, new RegExp(`Recipe "${recipe}"`));
+    const plan: any = await startRun(p, c.slug, { actor: "t", detach: false, dryRun: true });
+    assert.ok(plan.plan.generations > 0 || plan.plan.localSteps > 0, `${recipe}: ${JSON.stringify(plan.plan)}`);
+  }
+  await refusal(createGraph({ name: "x", recipe: "nope", subject: "s" } as any, { project: p }), "NO_RECIPE");
+  await refusal(createGraph({ name: "y", recipe: "lookbook" } as any, { project: p }), "BAD_INPUT");
+  await refusal(createGraph({ name: "z", recipe: "product-set", subject: "s" } as any, { project: p }), "BAD_INPUT");
+  // The lookbook flows once an anchor is picked.
+  const fakes = makeFakes();
+  await startRun(p, "r-lookbook", { actor: "t", detach: false, executors: fakes.executors, scope: "thumbs" });
+  await editGraph("r-lookbook", [{ op: "pick", node: "anchor", takes: ["thumbs/t2"] }], { project: p });
+  const r: any = await startRun(p, "r-lookbook", { actor: "t", detach: false, executors: fakes.executors });
+  assert.equal(r.status, "done");
+  assert.equal((await readBoth(graphDir(p, "r-lookbook"))).state.nodes.variants.takes.length, 2);
+  assert.match(guide("recipes"), /Composition: many low-quality thumbnails/);
+});

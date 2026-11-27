@@ -61,17 +61,20 @@ export function registerStudioTools(server: McpServer) {
 
   server.registerTool("studio_create", {
     title: "Create a Studio graph",
-    description: "Create a graph from nodes (with your own refs) and connections; handles are chosen by type. All or nothing: any error names its fix and nothing is written. Or copy_from another graph, including from another project.",
+    description: "Create a graph from nodes (with your own refs) and connections; handles are chosen by type. All or nothing: any error names its fix and nothing is written. Or copy_from another graph, including from another project. Or recipe (lookbook, character-sheet, product-set, storyboard, page-mock) with subject (and path for product-set): a ready graph to edit.",
     inputSchema: {
       name: z.string(), slug: z.string().optional().describe("Default: from the name."),
       nodes: z.array(nodeShape).optional(),
       connections: z.array(z.object({ from: z.string(), to: z.string(), to_handle: z.string().optional(), from_handle: z.string().optional() })).optional(),
       groups: z.array(z.object({ id: z.string(), stage: z.string().describe("concept | sketch | art | final | free text"), label: z.string().optional() })).optional(),
       copy_from: z.object({ graph: z.string(), project: z.string().optional() }).optional(),
+      recipe: z.string().optional().describe("lookbook | character-sheet | product-set | storyboard | page-mock (studio_guide topic recipes)."),
+      subject: z.string().optional().describe("What the recipe's images are of."),
+      path: z.string().optional().describe("product-set: the product photo."),
       project,
     },
   }, wrap(async a => {
-    const r = await createGraph({ name: a.name, slug: a.slug, nodes: a.nodes, connections: a.connections, groups: a.groups, copy_from: a.copy_from }, { project: a.project });
+    const r = await createGraph({ name: a.name, slug: a.slug, nodes: a.nodes, connections: a.connections, groups: a.groups, copy_from: a.copy_from, recipe: a.recipe, subject: a.subject, path: a.path }, { project: a.project });
     return `Created graph "${r.slug}" at ${r.dir}${r.copiedFrom ? ` (copied from ${r.copiedFrom})` : ""}.${r.notes.length ? `\n${r.notes.join("\n")}` : ""}\n\n${r.snapshot}`;
   }));
 
