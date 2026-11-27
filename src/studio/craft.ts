@@ -8,6 +8,7 @@ import { randomBytes } from "node:crypto";
 import type { ChecklistItem, Reading, Take } from "./types.js";
 import type { Look } from "./evaluate.js";
 import { SHOT_DIMENSIONS } from "./nodes.js";
+import { StudioError } from "./store.js";
 
 export type LookReadingT = import("../imageqa.js").LookReading;
 
@@ -98,7 +99,16 @@ export function briefChecklist(text: string | undefined, look: Look | undefined,
 // ---------------------------------------------------------------- review sheets
 
 export interface SheetItem { path: string; title: string; detail?: string; reading?: Reading }
-export type Overlay = "grid" | "palette" | "histogram";
+export const OVERLAYS = ["grid", "palette", "histogram"] as const;
+export type Overlay = (typeof OVERLAYS)[number];
+
+export function checkOverlays(list: unknown): Overlay[] | undefined {
+  if (list === undefined) return undefined;
+  const arr = Array.isArray(list) ? list : [list];
+  const bad = arr.filter(o => !(OVERLAYS as readonly string[]).includes(String(o)));
+  if (bad.length) throw new StudioError("BAD_OVERLAY", `Unknown overlay${bad.length > 1 ? "s" : ""}: ${bad.join(", ")}.`, `Overlays: ${OVERLAYS.join(", ")}.`);
+  return arr as Overlay[];
+}
 
 /** Flattened settings differences across takes: the one setting that differs is the label. */
 export function differingSettings(takes: Array<{ settings: Record<string, unknown>; text?: Take["text"] }>): string[][] {
@@ -127,6 +137,8 @@ export async function reviewSheet(items: SheetItem[], out: string, overlays: Ove
     const it = items[i]!;
     const x = (i % cols) * cellW + pad, y = top + Math.floor(i / cols) * cellH + pad;
     const src = await decodeRGBA(await readFile(it.path));
+    // Overlays need a reading; takes saved before readings existed (and imported references) may lack one.
+    if (!it.reading && (overlays.includes("palette") || overlays.includes("histogram") || overlays.includes("grid"))) it.reading = await readingOf(it.path);
     const fit = fitTo(src, imgW, imgH, "contain", [255, 255, 255, 255]);
     parts.push(`<rect x="${x}" y="${y}" width="${imgW}" height="${imgH}" fill="#FFFFFF"/>`, `<image x="${x}" y="${y}" width="${imgW}" height="${imgH}" href="data:image/png;base64,${encodePng(fit).toString("base64")}"/>`);
     if (overlays.includes("grid")) {

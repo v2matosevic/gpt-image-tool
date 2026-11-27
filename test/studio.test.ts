@@ -584,3 +584,27 @@ test("review 2 #2: a dry run lists nodes it skips with their fix, and Next says 
   assert.match(r.message, /Skipped gen: generate needs a prompt\. Fix: Connect a prompt/);
   assert.match(r.message, /Nothing in scope can run until the skipped nodes are fixed/);
 });
+
+test("review 2 #4: overlays draw on images without a stored reading, and unknown overlays are refused", async () => {
+  const { reviewSheet } = await import("../dist/studio/craft.js");
+  const { encodePng } = await import("../dist/bgremove.js");
+  const { decodeRGBA } = await import("../dist/imageops.js");
+  const dir = mkdtempSync(join(tmpdir(), "studio-overlay-"));
+  const data = Buffer.alloc(64 * 64 * 4);
+  for (let i = 0; i < 64 * 64; i++) data.set([220, 30, 30, 255], i * 4);
+  writeFileSync(join(dir, "red.png"), encodePng({ width: 64, height: 64, data }));
+  const px = (img: any, x: number, y: number) => [...img.data.subarray((y * img.width + x) * 4, (y * img.width + x) * 4 + 3)];
+  // Cell geometry: pad 14, image 420x420 at (14,14), strip from y = 14 + 420 + 4.
+  const only = await decodeRGBA(readFileSync(await reviewSheet([{ path: join(dir, "red.png"), title: "red" }], join(dir, "p.png"), ["palette"])));
+  const strip = px(only, 40, 446);
+  assert.ok(strip[0]! > 180 && strip[1]! < 80, `palette strip is red: ${strip}`);
+  const all = await decodeRGBA(readFileSync(await reviewSheet([{ path: join(dir, "red.png"), title: "red" }], join(dir, "a.png"), ["grid", "palette", "histogram"])));
+  const gridHits = [...Array(40).keys()].map(y => px(all, 153, 60 + y)).filter(c => c[0]! > 200 && c[1]! < 120 && c[2]! > 70);
+  assert.ok(gridHits.length >= 10, `thirds grid line is drawn (${gridHits.length} of 40 px)`);
+  assert.ok(px(all, 40, 446)[0]! > 180, "palette strip with histogram on");
+  const hist = [...Array(40).keys()].map(i => px(all, 318 + i * 2.8 | 0, 450)).filter(c => Math.abs(c[0]! - c[1]!) < 10 && c[0]! < 235);
+  assert.ok(hist.length >= 1, "a grey histogram bar is drawn");
+  const p = project();
+  await createGraph({ name: "Ov", nodes: [{ ref: "ref", type: "reference", settings: { path: "images/ref.png" } }], connections: [] }, { project: p });
+  await refusal(viewGraph("ov", { project: p, overlays: ["reading"] as any }), "BAD_OVERLAY");
+});

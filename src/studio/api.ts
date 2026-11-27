@@ -211,6 +211,7 @@ export async function ensurePreview(dir: string, rel: string, size = 384): Promi
 
 export async function viewGraph(slug: string, opts: Who & { nodes?: string[]; allTakes?: boolean; overlays?: Array<"grid" | "palette" | "histogram"> } = {}) {
   const project = resolveProject(opts.project);
+  const overlays = (await import("./craft.js")).checkOverlays(opts.overlays);
   const dir = graphDir(project, slug);
   const { graph, state } = await readBoth(dir);
   const evals = await evaluate(graph, state, { dir, project });
@@ -242,7 +243,7 @@ export async function viewGraph(slug: string, opts: Who & { nodes?: string[]; al
       path: i.path, reading: i.take.reading,
       title: `${i.ref}${i.verdict ? ` ${i.verdict}` : ""}${i.status === "stale" ? " (stale)" : ""}${i.take.deviations?.length ? `  ⚠ ${i.take.deviations.map(d => d.measure).join(",")}` : ""}`,
       detail: diffs[k]!.join(" · ") || i.take.text?.item || "",
-    })), join(paths(dir).views, `sheet-${now().replace(/[:.]/g, "-")}.png`), opts.overlays ?? ["palette"], `${graph.name ?? slug}`);
+    })), join(paths(dir).views, `sheet-${now().replace(/[:.]/g, "-")}.png`), overlays ?? ["palette"], `${graph.name ?? slug}`);
   } catch (e) {
     notes.push(`No contact sheet (${e instanceof Error ? e.message : e}); open the preview paths instead.`);
   }
