@@ -24,6 +24,14 @@ import { cutoutPath, removeBackgroundFile } from "./imageops.js";
 import type { PromptOverrides } from "./presets/index.js";
 import type { ImageFormat, ImageQuality, ImageSize } from "./providers/types.js";
 
+// `gpt-image studio ...` is a separate command family (node-graph workflows); see docs/STUDIO.md.
+if (process.argv[2] === "studio") {
+  const { studioMain } = await import("./studio/command.js");
+  const code = await studioMain(process.argv.slice(3));
+  await new Promise<void>(r => process.stdout.write("", () => r())); // flush piped JSON before exiting
+  process.exit(code);
+}
+
 interface CliArgs {
   preview?: boolean;
   logoKit?: string;

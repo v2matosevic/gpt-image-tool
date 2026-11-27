@@ -33,6 +33,7 @@ import { creativeBriefSchema, referenceSchema } from "./brief.js";
 import { brandSchema } from "./branding.js";
 import { logoKitSchema, exportLogoKit } from "./logo.js";
 import { brandBoardSchema, createBrandBoard } from "./brandboard.js";
+import { registerStudioTools } from "./studio/mcp-tools.js";
 
 const INLINE = process.env.GPT_IMAGE_INLINE === "1";
 
@@ -807,6 +808,8 @@ server.registerTool(
     return { content: [{ type: "text", text: JSON.stringify({ ...cat, platforms: PLATFORM_CATALOG }, null, 2) }] } as any;
   },
 );
+
+registerStudioTools(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

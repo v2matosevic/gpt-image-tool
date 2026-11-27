@@ -4,12 +4,14 @@
 // Unbundled, a start reads ~270 module files; from a busy spinning disk that took up to 32s and
 // sometimes passed the client's start limit, so every call failed with "Request timed out".
 // One file reads in a single sequential pass. Other dist/*.js files stay unbundled for the
-// tests and the CLI. sharp stays external: it is native and loaded lazily only when needed.
+// tests. sharp stays external: it is native and loaded lazily only when needed.
+// dist/cli.js is bundled the same way since Studio: ADE calls `gpt-image studio ...` for every edit
+// and run, and the MCP server starts the run worker through it, so its cold start matters too.
 import { build } from "esbuild";
 
-await build({
-  entryPoints: ["src/mcp.ts"],
-  outfile: "dist/mcp.js",
+for (const name of ["mcp", "cli"]) await build({
+  entryPoints: [`src/${name}.ts`],
+  outfile: `dist/${name}.js`,
   bundle: true,
   platform: "node",
   format: "esm",
