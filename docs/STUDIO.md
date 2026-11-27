@@ -21,10 +21,15 @@ provider call passes `backend: "subscription"` and `image_model: "auto"`
 explicitly, so neither a project profile nor `GPT_IMAGE_BACKEND` can move a run onto
 API billing. The renderer is whatever OpenAI routes.
 
-Quality is the one lever: `low` (the default, for drafts), `medium`, `high`.
-`xhigh` and `max` are refused, because this tool only allows them with an explicitly
-selected API renderer. `high` was accepted by a live subscription request on
-2026-11-27; the provider does not report which quality it actually applied.
+Studio accepts quality `low` (the default, for drafts), `medium` and `high`, and
+sends it. Whether the subscription honours it is unknown. A negative control on
+2026-11-28 sent `high`, `max` and a nonsense value (`banana-quality-probe`): all
+three returned HTTP 200 and a comparable 1254-square image in 17 to 20 seconds,
+and the output item reported `quality: "low"` for every one of them. The field is
+not validated, and the only signal the endpoint gives says low. Confidence: high
+that the value is not validated; unknown whether it changes the render. So `xhigh`
+and `max` stay refused (no evidence they do anything), and `high` should not be
+described as producing a better image on the subscription.
 
 Runs spend the account's usage. Agents may run any graph without asking; each run
 records how many generations it made, and a quota or rate-limit error stops the run

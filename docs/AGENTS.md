@@ -29,7 +29,8 @@ When a task needs more than one or two images (a lookbook, variations of an appr
 a design that becomes code), use Studio instead of separate calls: `studio_guide` once, then
 `studio_create`, `studio_run`, `studio_view`, revise with `studio_edit`, approve, and run the
 handoff node for the coding agent. Unchanged images are reused, not regenerated, and every image
-keeps its lineage. Draft at quality `low`; finish at `high`. [STUDIO.md](STUDIO.md).
+keeps its lineage. Quality `low` is the default; on the subscription `high` is sent but not
+shown to change the result ([Account and quota](STUDIO.md#account-and-quota)). [STUDIO.md](STUDIO.md).
 
 ## Choosing the image model
 

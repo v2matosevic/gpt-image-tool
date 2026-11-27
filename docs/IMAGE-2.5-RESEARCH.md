@@ -57,6 +57,22 @@ Confidence: high that the endpoint accepted all three requests; unknown which im
 
 Consequently this integration rejects explicit renderer choices on `subscription` before sending requests. It never silently switches to API billing. `auto` preserves subscription behavior. Local probe records and inspected images are under `.playwright-mcp/image-2.5/`; they are scratch evidence, not public model-comparison assets.
 
+## The subscription quality field failed its negative control (2026-11-28)
+
+Same method as above: Astra as director, PNG, 1024-square requested, prompt "a single orange folded
+paper bird on a plain ivory background, no text", `image_model` auto, only `tools[0].quality` varied.
+
+| Requested quality | HTTP | Reported `quality` on the output item | Time | Saved |
+| --- | --- | --- | --- | --- |
+| `banana-quality-probe` | 200 | `low` | 20.0 s | 1254-square, 1,483,456 bytes |
+| `max` | 200 | `low` | 17.1 s | 1254-square, 1,868,730 bytes |
+| `high` | 200 | `low` | 16.9 s | 1254-square, 1,408,917 bytes |
+
+All three images were opened: one orange folded paper bird on ivory, no text, similar detail. The
+nonsense value was accepted, so acceptance proves nothing, and the endpoint reported `low` even for
+`high`. Confidence: high that quality is not validated on this endpoint; unknown whether any value
+changes the render. Studio keeps its `high` ceiling and documents that it is unverified.
+
 ## Implemented user contract
 
 CLI, with `OPENAI_API_KEY` already set:
