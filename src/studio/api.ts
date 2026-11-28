@@ -315,6 +315,17 @@ export async function viewGraph(slug: string, opts: Who & { nodes?: string[]; al
   return { project, slug, sheet, images: items, text };
 }
 
+/** A self-contained static comparison page (studio page): takes grouped by case, side by side,
+ *  readings, deviations and costs, optional matching crops, no verdicts. Default folder: views/. */
+export async function pageGraph(slug: string, opts: Who & { nodes?: string[]; zoom?: string[]; out?: string; title?: string } = {}) {
+  const project = resolveProject(opts.project);
+  const dir = graphDir(project, slug);
+  const { writePage, parseZoom, defaultPageDir } = await import("./page.js");
+  const stamp = now();
+  const out = opts.out ? resolve(project, opts.out) : defaultPageDir(dir, stamp);
+  return writePage(project, dir, slug, { nodes: opts.nodes, zoom: (opts.zoom ?? []).map(parseZoom), out, title: opts.title, now: stamp });
+}
+
 /** Study an admired image (a file path or a take ref): its reading plus shot language from one
  *  vision request, returned as a ready style node op. Works without a graph. */
 export async function studyImage(target: string, opts: Who & { graph?: string; ask?: import("./craft.js").VisionAsk } = {}) {

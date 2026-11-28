@@ -121,3 +121,38 @@ test("status lists takes by slot with the item, and subscription takes say what 
   assert.match(text, /g\/t\d+ \(slot 2: a blue bowl\)/);
   assert.match(text, /subscription gpt-image-2 \(server-chosen\), saved \d+x\d+, no API cost/);
 });
+
+test("studio page: cases side by side with readable names, crops, costs and no verdicts; never overwrites a foreign page", async () => {
+  const { pageGraph } = await import("../dist/studio/api.js");
+  const { readFileSync, existsSync, mkdirSync } = await import("node:fs");
+  const p = mkdtempSync(join(tmpdir(), "studio-review-"));
+  writeFileSync(join(p, ".secrets"), "OPENAI_API_KEY=sk-test-page-000\n");
+  await createGraph({ name: "page test", nodes: [
+    { ref: "items", type: "list", settings: { items: ["A red cup on a table.", "A blue bowl, studio light."] } },
+    { ref: "sub", type: "generate", settings: {} },
+    { ref: "api", type: "generate", settings: { renderer: "api", model: "flare", quality: "low", size: "1536x1024" } },
+  ], connections: [{ from: "items", to: "sub" }, { from: "items", to: "api" }] }, { project: p });
+  await startRun(p, "page-test", { actor: "t", detach: false, executors: makeFakes().executors } as any);
+  const { readBoth, graphDir } = await import("../dist/studio/store.js");
+  const apiTake = (await readBoth(graphDir(p, "page-test"))).state.nodes.api!.takes[0]!.id;
+  await editGraph("page-test", [{ op: "approve", take: `api/${apiTake}` }], { project: p, human: true, actor: "owner" });
+  const r = await pageGraph("page-test", { project: p, out: "cmp", zoom: ["0,0,0.5,0.5=left corner", "2:0.5,0.5,0.5,0.5"] });
+  const html = readFileSync(r.path, "utf8");
+  assert.equal(r.cases, 2);
+  assert.equal(r.images, 4);
+  for (const f of ["img/01-a-red-cup-on-a-sub.png", "img/01-a-red-cup-on-a-api.png", "img/02-a-blue-bowl-studio-light-api-left-corner.png", "img/02-a-blue-bowl-studio-light-sub-crop2.png"]) assert.ok(existsSync(join(p, "cmp", f)), f);
+  assert.ok(!existsSync(join(p, "cmp", "img/01-a-red-cup-on-a-sub-crop2.png")), "a case-limited crop only in its case");
+  assert.equal((html.match(/<section /g) ?? []).length, 2);
+  assert.equal((html.match(/<div class="row c2">/g) ?? []).length, 5, "two pairs, three crop pairs");
+  assert.match(html, /<h2>1\. A red cup on a table\.<\/h2>/);
+  assert.match(html, /\$0\.0305 from the usage the API reported \(1000 output tokens/);
+  assert.match(html, /no API cost \(subscription allowance\)/);
+  assert.match(html, /<a href="img\/01-a-red-cup-on-a-api\.png" target="_blank"/);
+  assert.doesNotMatch(html, /approved|critique|verdict:/i, "no verdict text, even for an approved take");
+  // A folder holding someone else's index.html is left alone.
+  mkdirSync(join(p, "mine"));
+  writeFileSync(join(p, "mine", "index.html"), "<p>hand made</p>");
+  await assert.rejects(pageGraph("page-test", { project: p, out: "mine" }), (e: any) => e.code === "PAGE_EXISTS");
+  assert.equal(readFileSync(join(p, "mine", "index.html"), "utf8"), "<p>hand made</p>");
+  await assert.rejects(pageGraph("page-test", { project: p, zoom: ["0.8,0,0.5,0.5"] }), (e: any) => e.code === "BAD_ZOOM");
+});
