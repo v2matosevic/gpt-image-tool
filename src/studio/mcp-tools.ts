@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createGraph, createText, editGraph, editText, getGraph, listGraphs, lookCloser, runGraph, serveDetached, statusReport, studyImage, viewGraph } from "./api.js";
 import { guide, GUIDE_TOPICS } from "./guide.js";
-import { StudioError, resolveProject } from "./store.js";
+import { StudioError, refusalText, resolveProject } from "./store.js";
 
 const project = z.string().optional().describe("Project folder. Default: this project. Pass another project's path to read or copy from it.");
 const graph = z.string().describe("Graph slug (studio_list shows them).");
@@ -13,8 +13,7 @@ const graph = z.string().describe("Graph slug (studio_list shows them).");
 function text(t: string) { return { content: [{ type: "text" as const, text: t }] }; }
 function failure(e: unknown) {
   if (e instanceof StudioError) {
-    const extra = e.issues?.length && e.issues.length > 1 ? `\n${e.issues.map(i => `- ${i.path ? `${i.path}: ` : ""}${i.message}${i.fix ? `. Fix: ${i.fix}` : ""}`).join("\n")}` : "";
-    return { isError: true, content: [{ type: "text" as const, text: `Studio refused [${e.code}]: ${e.message}${e.fix ? `\nFix: ${e.fix}` : ""}${extra}\nNothing was changed.` }] };
+    return { isError: true, content: [{ type: "text" as const, text: `Studio refused [${e.code}]: ${refusalText(e)}\nNothing was changed.` }] };
   }
   return { isError: true, content: [{ type: "text" as const, text: `Studio failed: ${e instanceof Error ? e.message : String(e)}` }] };
 }

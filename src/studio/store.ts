@@ -16,6 +16,14 @@ export class StudioError extends Error {
   }
 }
 
+/** A refusal as text, the same for MCP and the CLI: the message, then every issue with its own
+ *  fix (or the single fix when there are no issues). */
+export function refusalText(e: StudioError): string {
+  const issues = e.issues ?? [];
+  if (!issues.length) return `${e.message}${e.fix ? `\nFix: ${e.fix}` : ""}`;
+  return [e.message, ...issues.map(i => `- ${i.path ? `${i.path}: ` : ""}${i.message}.${i.fix ? ` Fix: ${i.fix}` : ""}`)].join("\n");
+}
+
 export const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 export const now = () => new Date().toISOString();
 export const toPosix = (p: string) => p.split(sep).join("/");

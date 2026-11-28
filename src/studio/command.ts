@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 import { createGraph, editGraph, getGraph, listGraphs, lookCloser, createText, editText, runGraph, statusReport, viewGraph } from "./api.js";
 import { guide, GUIDE_TOPICS, type GuideTopic } from "./guide.js";
 import { setDialect } from "./say.js";
-import { StudioError, graphDir, readEvents, resolveProject } from "./store.js";
+import { StudioError, refusalText, graphDir, readEvents, resolveProject } from "./store.js";
 
 const HELP = `gpt-image studio: node-graph image workflows (subscription only)
 
@@ -179,7 +179,7 @@ ${memory}` : "");
   } catch (e) {
     const err = e instanceof StudioError ? { code: e.code, message: e.message, fix: e.fix, issues: e.issues } : { code: "ERROR", message: e instanceof Error ? e.message : String(e) };
     if (json) process.stdout.write(JSON.stringify({ ok: false, error: err }, null, 2) + "\n");
-    process.stderr.write(`✗ ${err.message}${"fix" in err && err.fix ? `\n  Fix: ${err.fix}` : ""}\n`);
+    process.stderr.write(`✗ ${(e instanceof StudioError ? refusalText(e) : err.message).replace(/\n/g, "\n  ")}\n`);
     return 1;
   }
 }

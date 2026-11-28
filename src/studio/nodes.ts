@@ -253,6 +253,36 @@ export function validateSettings(type: NodeType, settings: unknown, path: string
     }
     if (i.code === "invalid_enum_value") return { path: at, message: `invalid value ${JSON.stringify(i.received)}`, fix: `Use one of: ${i.options.join(", ")}.` };
     if (i.code === "invalid_type" && i.received === "undefined") return { path: at, message: `missing required setting "${i.path.join(".")}"`, fix: spec.docs[String(i.path[0])] ?? "" };
-    return { path: at, message: i.message, fix: spec.docs[String(i.path[0])] };
+    return ruleIssue(i, at, settings, spec.docs[String(i.path[0])]);
   });
+}
+
+/** "items[1]" for the path ["items", 1]. */
+const keyName = (p: Array<string | number>) => p.map((x, k) => (typeof x === "number" ? `[${x}]` : k ? `.${x}` : x)).join("");
+
+/** Say which rule broke, with the value's actual size, and a fix that repairs it (the setting's
+ *  description follows as context). zod's own wording ("String must contain at most 8000
+ *  character(s)") names neither the setting nor the actual size. */
+function ruleIssue(i: z.ZodIssue, at: string, settings: unknown, doc?: string): Issue {
+  const key = keyName(i.path as Array<string | number>);
+  const value = (i.path as Array<string | number>).reduce<any>((v, k) => (v == null ? v : v[k]), settings);
+  const about = doc ? ` (${key.split(/[.[]/)[0]}: ${doc})` : "";
+  if (i.code === "too_big" || i.code === "too_small") {
+    const big = i.code === "too_big";
+    const limit = Number(big ? (i as any).maximum : (i as any).minimum);
+    if (i.type === "string") {
+      const len = typeof value === "string" ? value.length : 0;
+      if (!big && limit <= 1) return { path: at, message: `"${key}" is empty`, fix: `Give it some text, or remove it.${about}` };
+      return { path: at, message: `"${key}" is ${len} characters; ${big ? "the most" : "the least"} allowed is ${limit}`, fix: `${big ? "Shorten" : "Lengthen"} it to ${big ? "at most" : "at least"} ${limit} characters.${about}` };
+    }
+    if (i.type === "array") {
+      const n = Array.isArray(value) ? value.length : 0;
+      return { path: at, message: `"${key}" has ${n} item${n === 1 ? "" : "s"}; ${big ? "the most" : "the least"} allowed is ${limit}`, fix: `Give ${big ? `at most ${limit}` : `at least ${limit}`} item${limit === 1 ? "" : "s"}.${about}` };
+    }
+    if (i.type === "number") return { path: at, message: `"${key}" is ${JSON.stringify(value)}; ${big ? "the most" : "the least"} allowed is ${limit}`, fix: `Use a number ${big ? "no higher" : "no lower"} than ${limit}.${about}` };
+  }
+  if (i.code === "invalid_type") {
+    return { path: at, message: `"${key}" must be ${i.expected === "array" ? "a list" : `a ${i.expected}`}, not ${i.received === "null" ? "null" : `a ${i.received}`} (${JSON.stringify(value)})`, fix: `Give "${key}" a ${i.expected} value.${about}` };
+  }
+  return { path: at, message: `"${key}": ${i.message}`, fix: doc ?? "" };
 }

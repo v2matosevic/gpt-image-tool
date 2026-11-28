@@ -874,3 +874,22 @@ test("review 3 #3: the plus sits on the count that is uncertain", async () => {
   assert.equal(r.plan.generationsEstimate, false);
   assert.equal(r.plan.localStepsEstimate, true);
 });
+
+test("review 3 #5: a settings refusal says which rule broke, with the actual size, for every bad value", async () => {
+  const { validateSettings } = await import("../dist/studio/nodes.js");
+  const long = validateSettings("prompt", { text: "x".repeat(8001) }, "s");
+  assert.equal(long[0].message, '"text" is 8001 characters; the most allowed is 8000');
+  assert.match(long[0].fix, /^Shorten it to at most 8000 characters\./);
+  assert.equal(validateSettings("list", { items: [] }, "s")[0].message, '"items" has 0 items; the least allowed is 1');
+  assert.equal(validateSettings("list", { items: Array(41).fill("a") }, "s")[0].message, '"items" has 41 items; the most allowed is 40');
+  const mixed = validateSettings("list", { items: [1, null, ""] }, "s").map((i: any) => i.message);
+  assert.deepEqual(mixed, ['"items[0]" must be a string, not a number (1)', '"items[1]" must be a string, not null (null)', '"items[2]" is empty']);
+  assert.equal(validateSettings("generate", { takes: 0 }, "s")[0].message, '"takes" is 0; the least allowed is 1');
+  const p = project();
+  await createGraph({ name: "V", nodes: [{ ref: "l", type: "list", settings: { items: ["a"] } }], connections: [] }, { project: p });
+  const e = await refusal(editGraph("v", [{ op: "set", node: "l", settings: { items: [1, null, ""] } }], { project: p }), "BAD_SETTINGS");
+  const { refusalText } = await import("../dist/studio/store.js");
+  const t = refusalText(e as any);
+  assert.equal(t.split("\n").length, 4, t);
+  assert.match(t, /items\.2: "items\[2\]" is empty\. Fix: Give it some text, or remove it\./);
+});
