@@ -80,6 +80,29 @@ export function sizeForLongEdge(width: number | undefined, height: number | unde
   return `${w}x${h}`;
 }
 
+/** The largest size with the image's aspect (to within 16 px rounding) that the API accepts, with
+ *  the long edge at most `maxLong`. */
+export function sameAspectSize(width: number, height: number, maxLong: number): string | undefined {
+  for (let long = Math.floor(maxLong / 16) * 16; long >= 512; long -= 16) {
+    const s = sizeForLongEdge(width, height, long);
+    if (!customSizeProblem(s)) return s;
+  }
+  return undefined;
+}
+
+/** A finish size whose aspect differs from its draft's by more than 2 percent: the model has to
+ *  widen or crop the frame, though the finish instruction asks it to keep the framing. */
+export function aspectNote(size: string | undefined, width: number | undefined, height: number | undefined): string | undefined {
+  const m = /^(\d+)x(\d+)$/.exec(size ?? "");
+  if (!m || !width || !height) return undefined;
+  const w = Number(m[1]), h = Number(m[2]);
+  if (Math.abs(Math.log((w / h) / (width / height))) <= 0.02) return undefined;
+  const same = sameAspectSize(width, height, Math.max(w, h));
+  const ratio = (a: number, b: number) => (a / b).toFixed(2);
+  return `${size} has aspect ${ratio(w, h)} but the draft (${width}x${height}) has ${ratio(width, height)}, so the frame will be widened or cropped although the finish keeps the framing.` +
+    (same ? ` The nearest size with the draft's aspect is ${same}.` : "");
+}
+
 /** The size the compiler will use for a generate slot, made explicit so the estimate and the
  *  request agree: node or style size, then the API default, platform, preset, 1024x1024. */
 export function generateSize(settings: Record<string, any>, preset: string | undefined, apiDefault?: string): string {

@@ -203,7 +203,10 @@ async function summarize(dir: string, rec: RunRecord) {
   if (rec.takes.length) {
     const { state } = await readBoth(dir);
     const { summaryOf } = await import("./craft.js");
-    const shown = rec.takes.slice(-24).map(t => ({ ref: `${t.node}/${t.take}`, path: resolve(dir, t.asset), take: state.nodes[t.node]?.takes.find(x => x.id === t.take) }));
+    // Grouped by node in run order, then by slot (the list item order), not by completion time.
+    const nodeOrder = [...new Set(rec.takes.map(t => t.node))];
+    const shown = rec.takes.slice(-24).map(t => ({ ref: `${t.node}/${t.take}`, path: resolve(dir, t.asset), take: state.nodes[t.node]?.takes.find(x => x.id === t.take) }))
+      .sort((a, b) => nodeOrder.indexOf(a.ref.split("/")[0]!) - nodeOrder.indexOf(b.ref.split("/")[0]!) || (a.take?.slot ?? 0) - (b.take?.slot ?? 0) || (a.take?.variant ?? 0) - (b.take?.variant ?? 0));
     if (rec.sheet) lines.push(`Review sheet (open this first; labels show what differs): ${resolve(dir, rec.sheet)}`);
     const devs = shown.filter(x => x.take?.deviations?.length);
     if (devs.length) {
@@ -214,7 +217,9 @@ async function summarize(dir: string, rec: RunRecord) {
     for (const node of loose) lines.push(`${node}: sweep without an anchor, so the subject may vary between takes and differences cannot be pinned on the swept setting. Pick one take, then sweep again as edits of it (an edit node with that image, or a subject reference).`);
     lines.push("New takes:");
     for (const x of shown) {
-      lines.push(`  ${x.ref}  ${x.path}`);
+      const item = x.take?.text?.item;
+      lines.push(`  ${x.ref}${x.take ? ` (slot ${x.take.slot + 1}${item ? `: ${item.length > 50 ? `${item.slice(0, 47)}...` : item}` : ""})` : ""}  ${x.path}`);
+      if (x.take?.render?.renderer === "subscription") lines.push(`    subscription ${x.take.render.model}${x.take.width ? `, saved ${x.take.width}x${x.take.height}` : ""}, no API cost`);
       if (x.take?.render?.renderer === "api") {
         const { dollars } = await import("../pricing.js");
         const { renderLabel } = await import("./render.js");

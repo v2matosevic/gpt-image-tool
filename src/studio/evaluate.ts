@@ -9,7 +9,7 @@ import { NODE_SPECS, MAX_SLOTS, SHOT_DIMENSIONS, workOf, type ShotKey } from "./
 import { inputsOf, topoOrder } from "./graph.js";
 import { paths } from "./store.js";
 import { ENGINE_VERSION, type GraphFile, type GraphNode, type Issue, type NodeState, type RenderInfo, type StateFile, type Take, type TakeInput } from "./types.js";
-import { apiRender, studioProfile, type StudioProfile } from "./render.js";
+import { apiRender, aspectNote, studioProfile, type StudioProfile } from "./render.js";
 import { cmd } from "./say.js";
 
 export interface ImageRef { node: string; take: string; asset: string; sha256: string; current: boolean; verdict?: "approved" | "rejected"; role?: string; instruction?: string }
@@ -23,6 +23,8 @@ export interface Slot {
   sweep?: { dim: string; value: string; anchor?: ImageRef };
   /** Set when the slot renders on the paid API (renderer "api" or a finish node). Absent = subscription. */
   render?: RenderInfo;
+  /** A warning the plan shows before this slot runs (a finish that changes the aspect). */
+  note?: string;
 }
 export type SlotStatus = "current" | "pinned" | "stale" | "missing";
 export interface SlotView { slot: Slot; take?: Take; status: SlotStatus }
@@ -325,7 +327,7 @@ export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalCont
           const t = takeOf(im);
           const render = apiRender("finish", s, studio(), { image: { width: t?.width, height: t?.height } })!;
           ev.slots.push({ index, variant: 0, fingerprint: hashOf({ e: ENGINE_VERSION, t: "finish", s: pick(s, ["instruction", "format"]), api: render, image: im.sha256 }), image: im, refs: [], render,
-            label: `${im.node}/${im.take} → ${render.size}`, inputs: [{ handle: "image", node: im.node, take: im.take, sha256: im.sha256 }] });
+            label: `${im.node}/${im.take} → ${render.size}`, ...(((n) => (n ? { note: `${id} (${im.node}/${im.take}): ${n}` } : {}))(aspectNote(render.size, t?.width, t?.height))), inputs: [{ handle: "image", node: im.node, take: im.take, sha256: im.sha256 }] });
         });
         finishSlots();
         break;

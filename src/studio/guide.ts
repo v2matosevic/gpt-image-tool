@@ -85,9 +85,22 @@ never does. The renderer and model are part of each slot's fingerprint and recor
 
 What it costs (OpenAI's calculator for GPT-Image-2.6, output tokens only, checked 2026-11-28):
 low 1024x1024 about 2.5 cents, medium 4.3, high 5.3, xhigh 9.4, max 21; high 2048x2048 about 11 cents;
-high 3840x2160 about 10 cents. Text and image inputs add a little (seven images measured 42 cents,
-about 9 percent above the output-only figures). Every API take records the usage the API reported and
-its cost; a dry run shows the estimate; the run result shows what was actually spent.
+high 3840x2160 about 10 cents. That last one is not a typo: the calculator's token count depends on the
+aspect as well as the pixel count, and a 16:9 image starts from fewer base tokens than a square, enough
+to outweigh the extra pixels here (3336 against 3568 output tokens; two 4K finishes on 2026-11-28
+reported exactly 3336 each). Text and image inputs add a
+little (seven images measured 42 cents, about 9 percent above the output-only figures). Every API take
+records the usage the API reported and its cost; a dry run shows the estimate; the run result shows
+what was actually spent.
+
+Bars: a wide "cinematic" or "anamorphic" prompt can come back letterboxed (one 1536x1024 image on
+2026-11-28 had 74 px black bars top and bottom). Every take's reading measures bars on opposite edges,
+and a deviation is raised unless the request asked for them. OpenAI's image generation guide and its
+image prompting guide (checked 2026-11-28) document no request field that prevents bars and do not
+mention letterboxing; the prompting guide says to state the composition and aspect ratio, and for wide
+or cinematic scenes to describe scale, atmosphere and colour rather than lean on mood words. Saying
+"full frame, no letterbox bars" in the prompt is untested. If a take comes back barred, re-render it
+with that wording, or crop the bars (the reading gives their size).
 
 Spend limits (the owner's defaults, 2026-11-28): 2 dollars per run (a resumed run keeps counting against
 the same limit) and 10 dollars per day per project, checked before every API request across every run
@@ -169,10 +182,12 @@ There is no absolute better, only better for the stated intent. Evidence, most r
 What a run already gives you (${tool("status")}): one review sheet labelled with the setting that differs,
 measured deviations first, a one-line reading per take, and each take's checklist.
 - Reading: palette with shares, lightness key, contrast, warm/cool, saturation, visual weight by
-  thirds, quiet space, where it is sharpest, edge density. Measurements, not a score.
+  thirds, quiet space, where it is sharpest, edge density, and letterbox or pillarbox bars with their
+  size. Measurements, not a score.
 - Deviations: where the reading contradicts the request or drifts from the anchor image. Confirm them
   by looking; a measurement can be wrong about intent.
-- Checklist: yes/no questions from the prompt and shot settings. Answer them after looking:
+- Checklist: yes/no questions from the checkable parts of the prompt (subject, counts, stated
+  positions, layers, quoted text, exclusions) and the shot settings. Answer them after looking:
   {op:"answer", take:"gen/t4", answers:{c1:"yes", c2:"no", c3:{answer:"unsure", note:"hand hidden"}}}
 
 Looking closer:

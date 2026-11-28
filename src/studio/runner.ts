@@ -53,6 +53,8 @@ export interface PlanNode { node: string; type: string; work: "local" | "provide
   renderer?: string; cost?: number }
 /** estimate: some count is a lower bound; generationsEstimate / localStepsEstimate say which. */
 export interface Plan { scope: string; nodes: PlanNode[]; generations: number; localSteps: number; slots: number; estimate: boolean; generationsEstimate: boolean; localStepsEstimate: boolean; skipped: Array<{ node: string; reason: string; fix?: string }>; staleAfter: string[];
+  /** Warnings about slots that will run (a finish that changes the aspect). */
+  notes?: string[];
   /** Paid API work in the plan: slots and estimated dollars (pricing.ts). lowerBound when a count
    *  waits on upstream images this run makes. */
   api: { slots: number; cost: number; lowerBound: boolean } }
@@ -99,6 +101,7 @@ export async function planRun(project: string, dir: string, graph: GraphFile, st
       const todo = upstreamChanges ? ev.slots : slotsToRun(ev, state.nodes[id], newTake, done);
       toRun = todo.length;
       cost = todo.reduce((a, sl) => a + slotEstimate(sl), 0);
+      for (const sl of todo) if (sl.note) (plan.notes ??= []).push(sl.note);
     }
     if (toRun) changed.add(id);
     const renderer = work === "provider" ? (isApi ? renderLabel(ev.slots[0]?.render ?? { renderer: "api", model: String(node.settings.model ?? "sunburst") }) : "subscription") : undefined;
@@ -404,7 +407,7 @@ async function dryRunPrompts(project: string, dir: string, graph: GraphFile, sta
   const evals = await evaluate(graph, state, { dir, project });
   const out: Array<{ node: string; slot: string; prompt: string }> = [];
   for (const n of plan.nodes) {
-    if (n.work !== "provider" || n.estimate) continue;
+    if (n.work !== "provider" || n.estimate || !n.toRun) continue;
     const ev = evals.get(n.node);
     const slot = ev?.slots[0];
     if (!ev || !slot) continue;
@@ -430,6 +433,7 @@ function planMessage(plan: Plan, dry: boolean): string {
   const est = plan.nodes.filter(n => n.estimate);
   if (est.length) lines.push(`"+" means at least: ${est.map(n => `${n.node} (${n.work === "provider" ? "generation" : "local step"})`).join(", ")} wait${est.length === 1 ? "s" : ""} on upstream images this run makes, so ${est.length === 1 ? "its" : "their"} count is known only then.`);
   for (const s of plan.skipped) lines.push(`Skipped ${s.node}: ${s.reason}.${s.fix ? ` Fix: ${s.fix}` : ""}`);
+  for (const n of plan.notes ?? []) lines.push(`Note: ${n}`);
   return lines.join("\n");
 }
 

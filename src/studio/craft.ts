@@ -113,10 +113,92 @@ export function requestText(take: Pick<Take, "text" | "settings">): string {
   return [take.text?.prompt, s.instruction, ...Object.values(s.shot ?? {}), ...Object.entries(s.style ?? {}).filter(([k]) => k !== "avoid" && k !== "text").map(([, v]) => v)].filter(x => typeof x === "string").join(" · ");
 }
 
+/** Palette shares that read clearly warm (red/orange/yellow-leaning) and clearly cool (blue/cyan-leaning). */
+function temperatureShares(r: LookReadingT): { warm: number; cool: number } {
+  let warm = 0, cool = 0;
+  for (const p of r.palette) {
+    const n = parseInt(p.hex.slice(1), 16), R = n >> 16, G = (n >> 8) & 255, B = n & 255;
+    if (R - B > 24 && R >= G - 10) warm += p.share; else if (B - R > 16) cool += p.share;
+  }
+  return { warm, cool };
+}
+
 export function requestDeviations(reading: Reading | undefined, request: string): Deviation[] {
   if (!reading) return [];
   const r = reading as unknown as LookReadingT;
-  return EXPECT.filter(e => e.re.test(request) && !e.ok(r)).map(e => ({ source: "request" as const, measure: e.measure, expected: e.expected, measured: e.measured(r), note: `asked for ${e.expected}` }));
+  const asked = EXPECT.filter(e => e.re.test(request));
+  const out: Deviation[] = [];
+  // Warm and cool asked together (blue hour with lamplight, a teal and amber grade) is one request for
+  // mixed temperature, not two misses: it is met when the palette holds both a warm and a cool share.
+  const mixed = asked.some(e => e.expected === "warm") && asked.some(e => e.expected === "cool");
+  for (const e of asked) {
+    if (mixed && e.measure === "temperature") continue;
+    if (!e.ok(r)) out.push({ source: "request", measure: e.measure, expected: e.expected, measured: e.measured(r), note: `asked for ${e.expected}` });
+  }
+  if (mixed) {
+    const t = temperatureShares(r);
+    if (t.warm < 0.05 || t.cool < 0.05) out.push({ source: "request", measure: "temperature", expected: "mixed warm and cool", measured: `palette warm ${Math.round(t.warm * 100)}%, cool ${Math.round(t.cool * 100)}% (overall b* ${r.color.warmth.toFixed(0)})`, note: "asked for warm and cool together" });
+  }
+  // Bars nobody asked for: the picture does not fill the frame it was paid for.
+  if (r.frame && !/letterbox|pillarbox|black bars|\bbars\b|border|framed|frame around/i.test(request)) {
+    const f = r.frame;
+    out.push({ source: "request", measure: "frame", expected: "the picture fills the frame",
+      measured: `${f.kind}ed: ${f.colour} bars ${f.kind === "letterbox" ? `${f.top} px top, ${f.bottom} px bottom` : `${f.left} px left, ${f.right} px right`}; picture ${f.picture.width}x${f.picture.height} of ${r.width}x${r.height}`,
+      note: "bars were not asked for" });
+  }
+  return out;
+}
+
+const NUMBER = "(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|[2-9]|1[0-9])";
+const MEDIUM = /\b(?:photograph|photo|illustration|render|painting|drawing|still life|portrait|poster|mock-?up|screenshot|sheet|shot|logo|mark|icon|diagram|map)\b/i;
+const art = (p: string) => (/^(?:a|an|the|one|two|three|four|five|six|seven|eight|nine|ten|\d)\b/i.test(p) ? p : `${/^[aeiou]/i.test(p) ? "an" : "a"} ${p.charAt(0).toLowerCase()}${p.slice(1)}`);
+const lowerFirst = (p: string) => p.replace(/^(A|An|The)\b/, m => m.toLowerCase());
+
+/** Yes/no questions an agent can answer by looking, from the parts of a prompt that are checkable:
+ *  the subject, counted objects, stated positions, layers, literal text and exclusions. Anything else
+ *  is left out: a clause fragment turned into a question is worse than no question. */
+export function promptQuestions(t: string): Array<{ question: string; from: string }> {
+  const out: Array<{ question: string; from: string }> = [];
+  const add = (question: string, from: string) => {
+    const q = question.replace(/\s+/g, " ").trim();
+    if (q.split(" ").length <= 28 && /^(?:Is|Are|Does|Do|In)\b.*\?$/.test(q) && !out.some(x => x.question === q)) out.push({ question: q, from });
+  };
+  const text = t.replace(/\s+/g, " ").trim();
+  const sentences = text.split(/(?<=[.!?])\s+(?=[A-Z])/);
+  // 1. The subject: the first clause of the first sentence.
+  const first = (sentences[0] ?? "").replace(/^(?:foreground|midground|background)\s*:\s*/i, "");
+  const clause = first.split(/[,;:]|\s[-–—]\s|\.$/)[0]!.replace(/\s+(?:with|shown as|set in|lit by)\s.*$/i, m => (/^\s+lit by/i.test(m) ? m : "")).trim();
+  if (clause && clause.split(" ").length >= 2 && clause.split(" ").length <= 18) {
+    add(MEDIUM.test(clause) ? `Does it read as ${art(lowerFirst(clause))}?` : `Does the image show ${art(lowerFirst(clause))}?`, "prompt.subject");
+  }
+  // 2. Counted things: "exactly five objects", "three full-body views", "three cards".
+  for (const m of text.matchAll(new RegExp(String.raw`\b(exactly |only )?(${NUMBER})\s+((?:[a-z][a-z-]*\s){0,2}?[a-z][a-z-]*s)\b`, "gi"))) {
+    if (/\b(?:times|percent|years|minutes|hours|seconds|pixels)$/i.test(m[3]!)) continue;
+    add(`Are there exactly ${m[2]!.toLowerCase()} ${m[3]}?`, "prompt.count");
+  }
+  for (const m of text.matchAll(/\bboth ([a-z][a-z-]*s)\b/gi)) add(`Are both ${m[1]} visible?`, "prompt.count");
+  // 3. Stated positions: "a closed red notebook in the top left corner", "a pencil below the glasses".
+  const where = "in the (?:(?:top|bottom|upper|lower)[ -](?:left|right)(?: corner)?|centre|center|middle|(?:top|bottom|left|right)(?: edge| corner)?)|(?:directly )?(?:below|above|under|beneath|behind|beside|next to|in front of|(?:to the )?(?:left|right) of) (?:the|a|an) [a-z][a-z -]{1,30}?";
+  for (const m of text.matchAll(new RegExp(String.raw`\b(?:a|an|the)\s+((?:[a-z][a-z-]*\s){0,6}?[a-z][a-z-]*)\s+(${where})(?=[,.;]|$|\s+and\b)`, "gi"))) {
+    add(`Is the ${m[1]} ${m[2]}?`, "prompt.position");
+  }
+  // 4. Labelled layers: "Foreground: a bicycle leaning on a lamp post, sharp."
+  // Only as a label at the start of a sentence, not "a plain light background: front view, ...".
+  for (const m of text.matchAll(/(?:^|[.;]\s*)(foreground|midground|background)\s*:\s*([^.;]+)/gi)) {
+    const thing = m[2]!.split(",")[0]!.trim();
+    if (thing.split(" ").length <= 14) add(`In the ${m[1]!.toLowerCase()}, ${/^(?:a|an|one)\b/i.test(thing) ? "is there" : "are there"} ${lowerFirst(thing)}?`, "prompt.layer");
+  }
+  // 5. Literal text, one question per sentence that quotes words.
+  for (const sen of sentences) {
+    const quoted = [...sen.matchAll(/(?:^|[\s(])(?:'([^']{1,60})'|"([^"]{1,60})"|‘([^’]{1,60})’|“([^”]{1,60})”)(?=[\s,.;:)!?]|$)/g)].map(m => m[1] ?? m[2] ?? m[3] ?? m[4]!);
+    if (quoted.length) add(`Does the image contain the text ${quoted.map(q => `"${q}"`).join(", ")}, each spelled exactly?`, "prompt.text");
+  }
+  // 6. Things named after "with" in the first sentence ("..., with a brass lamp").
+  for (const m of first.matchAll(/\bwith (an? [a-z][a-z -]{2,40}?)(?=[,.;]|$)/gi)) add(`Is there ${m[1]}?`, "prompt.with");
+  // 7. Exclusions: "no text, no gradients", "without people", "nothing else on the desk".
+  for (const m of text.matchAll(/\b(?:no|without)\s+([a-z][a-z -]{1,40}?)(?=[,.;]|$)/gi)) add(`Is it free of ${m[1]}?`, "prompt.exclude");
+  for (const m of text.matchAll(/\bnothing else ([a-z][a-z ]{1,40}?)(?=[,.;]|$)/gi)) add(`Is there nothing else ${m[1]}, besides what the prompt names?`, "prompt.exclude");
+  return out.slice(0, 10);
 }
 
 /** Concrete yes/no questions derived from the request, answered by looking (TIFA/DSG-style). */
@@ -128,14 +210,7 @@ export function briefChecklist(text: string | undefined, look: Look | undefined,
     if (t) add(`Was this change made: "${t}"?`, "instruction");
     add("Is everything not mentioned in the instruction unchanged from the source image?", "instruction");
   } else if (t) {
-    const parts = t.split(/,|;|\.\s|\bwith\b|\band\b|\bon\b|\bin front of\b/i).map(x => x.trim()).filter(x => x.split(/\s+/).length >= 2 && x.length <= 80);
-    for (const raw of parts.slice(0, 5)) {
-      const p = raw.replace(/^(A|An|The)\b/, m => m.toLowerCase());
-      const neg = /^(?:no|without)\s+(.+)$/i.exec(p);
-      add(neg ? `Is it free of ${neg[1]}?` : /\b(?:photograph|photo|illustration|render|painting|drawing|still life|portrait|poster)\b/i.test(p) && !/\bof\b/i.test(p)
-        ? `Does it read as ${/^(a|an|the)\s/i.test(p) ? p : `a ${p}`}?` : `Does the image show ${p}?`, "prompt");
-    }
-    if (!parts.length) add(`Does the image show ${t}?`, "prompt");
+    for (const x of promptQuestions(t)) add(x.question, x.from);
   }
   const shot = (look?.shot ?? {}) as Record<string, string>;
   const ask: Partial<Record<keyof typeof SHOT_DIMENSIONS, (v: string) => string>> = {

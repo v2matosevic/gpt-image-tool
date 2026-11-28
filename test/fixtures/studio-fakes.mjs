@@ -15,12 +15,14 @@ export function fakePng(seed, w = 48, h = 32) {
   return encodePng({ width: w, height: h, data });
 }
 
-/** calls: array that records [kind, node, text, renderer]; delayMs per provider slot; fail(x) may
+/** calls: array that records [kind, node, text, renderer]; delayMs per provider slot (a number, or
+ *  a function of the slot index so concurrent slots can finish out of order); fail(x) may
  *  throw. usage(x) returns the API usage a paid slot reports (default 1000 output tokens = $0.03;
  *  return undefined to simulate an API that reports none). Never touches the network. */
 export function makeFakes({ calls = [], delayMs = 0, fail, usage = () => ({ input_tokens: 100, output_tokens: 1000, total_tokens: 1100, input_tokens_details: { text_tokens: 100, image_tokens: 0 } }) } = {}) {
   const provider = kind => async x => {
-    if (delayMs) await new Promise(r => setTimeout(r, delayMs));
+    const ms = typeof delayMs === "function" ? delayMs(x.slot.index) : delayMs;
+    if (ms) await new Promise(r => setTimeout(r, ms));
     if (fail) fail(x, calls);
     calls.push([kind, x.node.id, x.slot.text ?? x.slot.label, x.slot.render ? `api ${x.slot.render.model}` : "subscription"]);
     const path = `${x.outBase}.png`;

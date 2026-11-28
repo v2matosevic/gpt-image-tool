@@ -119,6 +119,54 @@ export interface LookReading {
   hues?: Record<HueFamily, number>;
   /** Share of opaque pixels per 5-degree hue bin (72 bins from 0), same saturation and value floor. */
   hueHistogram?: number[];
+  /** Uniform bars on two opposite edges with a straight boundary (letterbox top and bottom, pillarbox
+   *  left and right), in pixels of the full image. Absent when there are none. Readings stored before
+   *  2026-11-28 never have it. */
+  frame?: FrameBars;
+}
+
+export interface FrameBars { kind: "letterbox" | "pillarbox"; top: number; bottom: number; left: number; right: number; colour: string; picture: { width: number; height: number } }
+
+/** Find letterbox or pillarbox bars: runs of uniform dark rows (or columns) at both opposite edges,
+ *  each ending in a straight boundary into the picture. A white background around a
+ *  centred logo is not a bar: its first non-uniform row is still mostly background. */
+export function frameBars(img: RGBA): FrameBars | undefined {
+  const { width: w, height: h, data } = img;
+  if (w < 128 || h < 128) return undefined;
+  const px = (x: number, y: number) => { const i = (y * w + x) * 4; return [data[i]!, data[i + 1]!, data[i + 2]!] as const; };
+  const near = (a: readonly number[], b: readonly number[], tol = 36) => Math.abs(a[0]! - b[0]!) + Math.abs(a[1]! - b[1]!) + Math.abs(a[2]! - b[2]!) <= tol;
+  /** Share of a line (row or column) close to colour c. */
+  const share = (horizontal: boolean, at: number, c: readonly number[]) => {
+    const len = horizontal ? w : h, step = Math.max(1, Math.floor(len / 512));
+    let hit = 0, all = 0;
+    for (let k = 0; k < len; k += step) { all++; if (near(horizontal ? px(k, at) : px(at, k), c)) hit++; }
+    return hit / all;
+  };
+  const run = (horizontal: boolean, fromEnd: boolean) => {
+    const len = horizontal ? h : w;
+    const at = (k: number) => (fromEnd ? len - 1 - k : k);
+    const c = horizontal ? px(w >> 1, at(0)) : px(at(0), h >> 1);
+    let k = 0;
+    while (k < len && share(horizontal, at(k), c) >= 0.99) k++;
+    const alpha = data[((horizontal ? at(0) * w + (w >> 1) : (h >> 1) * w + at(0)) * 4) + 3]!;
+    if (k === 0 || k >= len / 2 || Math.max(...c) > 48 || alpha < 250) return { size: 0, c };
+    // A straight boundary into a picture: across a band past the bar (not just one line, which a
+    // drawn frame line would pass), most of each line differs from the bar colour.
+    const band = Math.max(3, Math.round(len * 0.02));
+    for (let j = k; j < Math.min(len, k + band); j++) if (share(horizontal, at(j), c) > 0.4) return { size: 0, c };
+    return { size: k, c };
+  };
+  const hex = (c: readonly number[]) => `#${c.map(v => v.toString(16).padStart(2, "0")).join("")}`;
+  for (const horizontal of [true, false]) {
+    const a = run(horizontal, false), b = run(horizontal, true);
+    const len = horizontal ? h : w, min = Math.max(4, Math.round(len * 0.01));
+    if (a.size >= min && b.size >= min && near(a.c, b.c, 24) && Math.abs(a.size - b.size) <= Math.max(4, 0.25 * Math.max(a.size, b.size))) {
+      return horizontal
+        ? { kind: "letterbox", top: a.size, bottom: b.size, left: 0, right: 0, colour: hex(a.c), picture: { width: w, height: h - a.size - b.size } }
+        : { kind: "pillarbox", top: 0, bottom: 0, left: a.size, right: b.size, colour: hex(a.c), picture: { width: w - a.size - b.size, height: h } };
+    }
+  }
+  return undefined;
 }
 
 export const HUE_FAMILIES = ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "pink"] as const;
@@ -254,6 +302,7 @@ export function readLook(src: RGBA): LookReading {
     sharpness: { thirds: sh.map(v => r3(v / shMax)), sharpest: CELLS[sharpest]!, separation: r3(Math.min(9999, shMax / shMin)) },
     detail: { edgeDensity: r3(inner ? edges / inner : 0) },
     ...hueReading(img),
+    ...((): { frame?: FrameBars } => { const f = frameBars(src); return f ? { frame: f } : {}; })(),
   };
 }
 
@@ -261,7 +310,8 @@ export function readLook(src: RGBA): LookReading {
 export function lookSummary(r: LookReading): string {
   return `${r.luminance.key} key (L* median ${Math.round(r.luminance.median)}), contrast ${r.contrast.rms.toFixed(2)}, ${r.color.temperature}, ${r.color.saturation}; ` +
     `weight ${r.composition.heaviest}, ${Math.round(r.composition.negativeSpace * 100)}% quiet; sharpest ${r.sharpness.sharpest} (${r.sharpness.separation >= 100 ? ">100" : r.sharpness.separation.toFixed(1)}x the softest); ` +
-    `palette ${r.palette.slice(0, 4).map(p => `${p.hex} ${Math.round(p.share * 100)}%`).join(", ")}`;
+    `palette ${r.palette.slice(0, 4).map(p => `${p.hex} ${Math.round(p.share * 100)}%`).join(", ")}` +
+    (r.frame ? `; ${r.frame.kind}ed: ${r.frame.colour} bars ${r.frame.kind === "letterbox" ? `${r.frame.top}/${r.frame.bottom} px top/bottom` : `${r.frame.left}/${r.frame.right} px left/right`}, picture ${r.frame.picture.width}x${r.frame.picture.height}` : "");
 }
 
 export interface DriftFlag { measure: string; anchor: string; take: string; note: string }
