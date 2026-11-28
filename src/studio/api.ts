@@ -218,7 +218,7 @@ async function summarize(dir: string, rec: RunRecord) {
       if (x.take?.render?.renderer === "api") {
         const { dollars } = await import("../pricing.js");
         const { renderLabel } = await import("./render.js");
-        lines.push(`    ${renderLabel(x.take.render)}${x.take.width ? `, saved ${x.take.width}x${x.take.height}` : ""}${x.take.cost ? `, cost ${dollars(x.take.cost.dollars)} (${x.take.usage?.output_tokens ?? "?"} output tokens; estimate was ${dollars(x.take.cost.estimate)}${x.take.cost.funding !== "limit" ? `; paid from ${x.take.cost.funding}` : ""})` : ""}`);
+        lines.push(`    ${renderLabel(x.take.render)}${x.take.width ? `, saved ${x.take.width}x${x.take.height}` : ""}${x.take.cost ? `, cost ${dollars(x.take.cost.dollars)} (${x.take.usage?.output_tokens ?? "?"} output tokens; estimate was ${dollars(x.take.cost.estimate)}${x.take.cost.funding !== "limit" ? `; paid from ${x.take.cost.funding}` : ""}${x.take.cost.keySource ? `; key from ${x.take.cost.keySource}` : ""})` : ""}`);
       }
       if (x.take?.reading) lines.push(`    reads: ${await summaryOf(x.take.reading)}`);
       const src = x.take?.render?.renderer === "api" && x.take.inputs.length === 1 && x.take.inputs[0]!.handle === "image" ? x.take.inputs[0]! : undefined;

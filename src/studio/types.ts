@@ -144,7 +144,8 @@ export interface Take {
   /** API takes: usage as reported, and dollars from it at the dated rates in src/pricing.ts.
    *  estimate is what the spend check reserved before the request. */
   usage?: TakeUsage;
-  cost?: { dollars: number; estimate: number; rates: string; funding: string };
+  /** keySource names where the API key came from (an env variable or a file path), never the key. */
+  cost?: { dollars: number; estimate: number; rates: string; funding: string; keySource?: string };
 }
 
 export interface NodeError { message: string; fix?: string; at: string; job?: string }

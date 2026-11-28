@@ -273,6 +273,7 @@ test("the ladder end to end: cheap drafts, approve one, finish it from the image
   const st = await statusReport("ladder", { project: p });
   assert.match(st.text, /final\/t3/);
   assert.match(st.text, /drift from draft\/t2: mean L\* [+-]\d/);
+  assert.match(st.text, /key from OPENAI_API_KEY in .*\.secrets\)/, "the take names where the key came from");
 });
 
 test("the key never reaches a written file or a result, in success or failure", async (t) => {

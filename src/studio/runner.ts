@@ -553,7 +553,7 @@ export async function runJob(project: string, slug: string, job: string, executo
           let cost: Take["cost"] | undefined;
           if (held) {
             const known = res.usage ? costFromUsage(slot.render!.model, res.usage) : undefined;
-            cost = { dollars: known ?? held.estimate, estimate: held.estimate, rates: `pricing.ts ${PRICING.checked}`, funding: held.funding };
+            cost = { dollars: known ?? held.estimate, estimate: held.estimate, rates: `pricing.ts ${PRICING.checked}`, funding: held.funding, ...(res.keySource ? { keySource: res.keySource } : {}) };
             await ledger.settle(project, `worker ${job}`, { id: held.id, cost: cost.dollars, take: `${id}/${takeId}`, ...(known === undefined ? { uncertain: true, note: "the API reported no usage; kept at the estimate" } : {}) });
             budget.spent = Math.round((budget.spent + cost.dollars) * 1e6) / 1e6;
             held = undefined;
