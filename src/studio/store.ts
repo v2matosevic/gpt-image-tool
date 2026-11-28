@@ -326,6 +326,8 @@ export interface Mutation<T> {
  * State is written before events, so a crash leaves a gap in seq, never a duplicate.
  */
 export async function mutate<T>(dir: string, actor: string, fn: (graph: GraphFile, state: StateFile) => Promise<Mutation<T>> | Mutation<T>) {
+  // Without this, a missing graph surfaces as a raw ENOENT on the lock file.
+  if (!existsSync(dir)) await readGraph(dir);
   return withLock(paths(dir).lock, actor, async () => {
     const { graph, state } = await readBoth(dir);
     const before = serializeGraph(graph);

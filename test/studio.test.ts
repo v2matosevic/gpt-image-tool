@@ -777,3 +777,8 @@ test("review 2 limit: a critique or canon description naming a colour the image 
   const canon = await editGraph("cream", [{ op: "canon_save", name: "pot", takes: ["gen/t1"], description: "A cobalt blue teapot with a cream knob." }], { project: p });
   assert.match(canon.notes.join("\n"), /Check the canon description against gen\/t1: "cobalt" names blue/);
 });
+
+test("editing a graph that does not exist names it instead of a raw lock-file error", async () => {
+  const p = project();
+  await refusal(editGraph("nope", [{ op: "critique", take: "g/t1", summary: "x" }], { project: p }), "GRAPH_NOT_FOUND");
+});
