@@ -9,7 +9,7 @@ import { cmd, isCli, opt, tool, withDialect, type Dialect } from "./say.js";
 /** A boolean option as the caller writes it: new_take:true or --new-take. */
 const flag = (name: string) => (isCli() ? opt(name) : `${name}:true`);
 
-export const GUIDE_TOPICS = ["overview", "nodes", "ops", "run", "review", "handoff", "shot", "recipes", "example"] as const;
+export const GUIDE_TOPICS = ["overview", "renderer", "nodes", "ops", "run", "review", "handoff", "shot", "recipes", "example"] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number] | "all";
 
 const overview = () => `# Studio: image work as a graph
@@ -32,10 +32,12 @@ How to work:
    handoff node to write a build package for the coding agent. When the build exists, attach its
    screenshot with an implementation node.
 
-Rules that save quota and mistakes:
-- Studio uses the ChatGPT subscription only, never the paid API. The renderer is whatever OpenAI
-  routes. The default is quality low; medium and high are sent, but the subscription reports "low" for
-  every value it is given (tested 2026-11-28), so do not expect high to look better.
+Rules that save quota, money and mistakes:
+- Every node renders on the ChatGPT subscription unless it says renderer:"api", or is a finish node.
+  The subscription is free, uses gpt-image-2, and ignores quality and size: it reports "low" for every
+  value and saves about 1254 px (tested 2026-11-28), so do not expect high to look better there.
+  Drafts default to quality low on either renderer.
+- The paid API (GPT-Image-2.6) is for quality work only. Read topic renderer before choosing it.
 - Images have their own cap of roughly 24 hours, shared with ChatGPT Images and separate from the
   Codex usage meter (reported around 97 images on Plus). When it is hit the run stops and its fix
   says when the cap resets; resume after that.
@@ -47,6 +49,66 @@ Rules that save quota and mistakes:
   you pass (default: this one).
 - One run per graph at a time; a second is refused with the running job id.
 - Quota or rate limit stops the run cleanly; ${cmd("run", { graph: "<graph>", resume: true })} continues where it stopped.`;
+
+const renderer = () => `# Renderer: subscription by default, the paid API only for quality work
+
+The owner's rule (2026-11-28): "for simple day-to-day images always use the subscription";
+the API is "for things that really need refinement and massive quality". So the subscription is the
+default everywhere, including the owner's own projects, and no project is ever defaulted to the API.
+
+Before choosing the API, ask: will anyone look at this image at full size, print it, ship it as a hero
+or brand asset, or does it need a size or precision the subscription cannot give (above about 1254 px,
+a custom aspect, xhigh/max quality, complexity control)? If not, stay on the subscription.
+
+The ladder, when it is a yes:
+1. Draft cheaply: renderer:"api" with model:"flare" (GPT-Image-2.6 Flare) and quality:"low", or simply
+   draft on the subscription. Several takes or a list are fine: a low 1024x1024 draft is about 2.5 cents.
+2. Look, record an answer or critique, approve the one to finish ({op:"approve", take:"draft/t3"}).
+3. Finish it: a finish node connected to the drafts re-renders each approved take from its image
+   through the API's edit endpoint, at a larger size (default the draft's aspect at 2048 px on the long
+   edge) and quality high, with an instruction that keeps composition, subject, colour and lighting.
+   Never regenerate a final from the prompt: on 2026-11-28 a final made from the prompt alone gave a
+   different teapot; one made from the draft image kept it. The finish take reports its similarity to
+   the draft when the perception pack is installed, and its measured drift from the draft always.
+
+  {op:"add", id:"final", type:"finish", settings:{size:"2048x2048"}}, {op:"connect", from:"draft", to:"final"}
+
+API settings on generate, edit and process (upscale, remove-background with use_model):
+renderer:"api", model (flare | sunburst | flare-2.5 | sunburst-2.5 | full id; default sunburst),
+quality (low, medium, high, xhigh, max), size (the menu or WIDTHxHEIGHT: multiples of 16, aspect 1:3 to
+3:1, edges up to 3840, 655,360 to 8,294,400 pixels), complexity (low | medium | high planning effort;
+the API uses high when it is not set). Defaults for API nodes may come from the project profile
+(.gptimage.json "studio": {"api": {"model", "quality", "size", "complexity"}}); the renderer itself
+never does. The renderer and model are part of each slot's fingerprint and recorded on every take.
+
+What it costs (OpenAI's calculator for GPT-Image-2.6, output tokens only, checked 2026-11-28):
+low 1024x1024 about 2.5 cents, medium 4.3, high 5.3, xhigh 9.4, max 21; high 2048x2048 about 11 cents;
+high 3840x2160 about 10 cents. Text and image inputs add a little (seven images measured 42 cents,
+about 9 percent above the output-only figures). Every API take records the usage the API reported and
+its cost; a dry run shows the estimate; the run result shows what was actually spent.
+
+Spend limits (the owner's defaults, 2026-11-28): 2 dollars per run (a resumed run keeps counting against
+the same limit) and 10 dollars per day per project, checked before every API request across every run
+and process; and a hard daily ceiling (default 50 dollars) that no grant lifts, only the owner editing the profile. Inside
+the limits you may run without asking. ${opt("max_run_cost")} and ${opt("max_day_cost")} lower them for one run;
+nothing you pass raises them.
+When a limit stops a run, the result says how much the remaining work needs. Then:
+- Ask the owner once, with that amount. Do not work around the limit: no fresh run (it is refused
+  anyway after a spend stop the same day), no switching renderer to sneak past it, no retry loop.
+- Only after the owner approves in chat, record the grant with their words:
+  ${isCli() ? "gpt-image studio budget --grant 5 --approved-by <owner> --words 'approve, 5 dollars for the hero finals'" : 'studio_budget {grant:{amount:5, approved_by:"<owner>", words:"approve, 5 dollars for the hero finals"}}'}
+  A grant ends with the local day and never carries over. Then resume the run.
+- ${tool("budget")} shows limits, today's spend by graph, grants and what is left. It is a guard against
+  runaway mistakes, not a security boundary: an agent with a shell could record a grant nobody gave,
+  and the ledger (.gptimage/studio/_budget/ledger.jsonl) is what shows the owner it happened.
+
+The key: OPENAI_API_KEY from the environment, else the project's git-ignored .secrets file
+(OPENAI_API_KEY=sk-... or OPENAI_API_KEY: sk-...), else ~/.gptimage/secrets. Results say which source
+was used, never the value. Never print, paste or log the key. A missing key is a refusal that names
+the fix; nothing ever falls back from the API to the subscription or the other way round.
+
+Lessons carry the renderer they were learned on. A lesson from subscription images (gpt-image-2) is not
+known to hold on Sunburst; ${tool("guide")} lists the lessons for the renderer you name first.`;
 
 function nodesSection(): string {
   const lines = ["# Node types", ""];
@@ -244,7 +306,7 @@ export type GuideDialect = Dialect;
 /** The guide in the caller's dialect (or the one given): MCP tool calls, or CLI commands and flags. */
 export function guide(topic: GuideTopic = "all", d?: GuideDialect): string {
   return withDialect(d, () => {
-    const parts: Record<string, () => string> = { overview, nodes: nodesSection, ops: opsSection, run, review, handoff, shot: shotSection, recipes: recipesGuide, example: () => (isCli() ? CLI_EXAMPLE : mcpExample) };
+    const parts: Record<string, () => string> = { overview, renderer, nodes: nodesSection, ops: opsSection, run, review, handoff, shot: shotSection, recipes: recipesGuide, example: () => (isCli() ? CLI_EXAMPLE : mcpExample) };
     const text = topic !== "all" ? parts[topic]!() : GUIDE_TOPICS.map(t => parts[t]!()).join("\n\n");
     return isCli() ? `${CLI_PREFACE}\n\n${text}` : text;
   });

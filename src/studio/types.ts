@@ -11,7 +11,27 @@ export const ENGINE_VERSION = 1;
 export type HandleType = "text" | "style" | "image" | "package";
 export type NodeType =
   | "prompt" | "style" | "list" | "reference" | "generate" | "edit" | "process"
-  | "gallery" | "handoff" | "implementation" | "note" | "canon";
+  | "gallery" | "handoff" | "implementation" | "note" | "canon" | "finish";
+
+/** Which renderer made a take. Subscription: OpenAI picks the model (gpt-image-2 as of 2026-11-28)
+ *  and ignores quality and size. API: the paid Images API with the named model, which honours them. */
+export interface RenderInfo {
+  renderer: "subscription" | "api";
+  /** Resolved model id for the API; "gpt-image-2 (server-chosen)" for the subscription. */
+  model: string;
+  quality?: string;
+  size?: string;
+  complexity?: string;
+}
+
+/** Token usage the API reported, numeric fields only (see src/pricing.ts). */
+export interface TakeUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  input_tokens_details?: { text_tokens?: number; image_tokens?: number; cached_tokens?: number };
+  output_tokens_details?: { text_tokens?: number; image_tokens?: number };
+}
 
 export interface Position { x: number; y: number; /** Set when a person or agent placed the node; auto layout leaves it alone. */ pinned?: boolean }
 
@@ -119,6 +139,12 @@ export interface Take {
   checklist?: ChecklistItem[];
   /** Measured departures from the anchor image or from what the request asked for. */
   deviations?: Array<{ source: "anchor" | "request"; measure: string; expected: string; measured: string; note: string }>;
+  /** Provider takes (phase 1d): the renderer and model that made it. */
+  render?: RenderInfo;
+  /** API takes: usage as reported, and dollars from it at the dated rates in src/pricing.ts.
+   *  estimate is what the spend check reserved before the request. */
+  usage?: TakeUsage;
+  cost?: { dollars: number; estimate: number; rates: string; funding: string };
 }
 
 export interface NodeError { message: string; fix?: string; at: string; job?: string }
@@ -185,8 +211,23 @@ export interface RunRecord {
   errors: Array<{ node: string; message: string; fix?: string }>;
   stopReason?: string;
   stopFix?: string;
+  /** Machine-readable stop cause for spend stops: "budget-run" | "budget-day" | "budget-ceiling". */
+  stopCode?: string;
   /** Graph-relative path of the labelled review sheet of this run's new images. */
   sheet?: string;
+  /** Paid API spend (phase 1d). chain is the first run of a resume chain; a resumed run keeps
+   *  counting against the same run limit. Amounts in dollars. */
+  budget?: {
+    chain: string;
+    limits: { run: number; day: number; ceiling: number };
+    /** Estimated cost of the API work planned at start (before any spend). */
+    estimate: number;
+    /** Actual dollars this run spent (settled requests), and the chain's total. */
+    spent: number;
+    chainSpent?: number;
+    /** When a limit stopped the run: the estimated dollars the remaining work still needs. */
+    needed?: number;
+  };
 }
 
 /**
@@ -197,5 +238,8 @@ export interface RunRecord {
  */
 export const CANON_DIR = "_canon";
 export const LESSONS_DIR = "_lessons";
+/** _budget/ledger.jsonl: the project's paid-API spend ledger and grants (append-only). */
+export const BUDGET_DIR = "_budget";
+export const BUDGET_SCHEMA = "gpt-image-studio/budget@1";
 
 export interface Issue { path?: string; message: string; fix?: string }

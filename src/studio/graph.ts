@@ -17,7 +17,7 @@ export const COL_W = 340;
 export const ROW_H = 220;
 /** Nodes that show an image get a taller row, so the image can dominate the node. */
 export const IMAGE_ROW_H = 420;
-const IMAGE_TYPES = new Set(["reference", "generate", "edit", "process", "gallery", "implementation", "canon"]);
+const IMAGE_TYPES = new Set(["reference", "generate", "edit", "process", "gallery", "implementation", "canon", "finish"]);
 const rowH = (n: GraphNode) => (IMAGE_TYPES.has(n.type) ? IMAGE_ROW_H : ROW_H);
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 
@@ -621,11 +621,12 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
       const claim = str(op, "claim", path)!;
       const dimension = str(op, "dimension", path)!;
       if (!Array.isArray(op.takes)) throw new StudioError("BAD_OP", `${path}.takes must list the takes that support it.`, OP_HELP.lesson);
-      const refs = [...new Set((op.takes as unknown[]).map((r, i) => { const x = parseTakeRef(graph, state, r, `${path}.takes[${i}]`); return `${x.node.id}/${x.take.id}`; }))];
+      const parsed = (op.takes as unknown[]).map((r, i) => parseTakeRef(graph, state, r, `${path}.takes[${i}]`));
+      const refs = [...new Set(parsed.map(x => `${x.node.id}/${x.take.id}`))];
       const scope = op.scope === undefined ? "project" : op.scope;
       if (scope !== "project" && scope !== "user") throw new StudioError("BAD_OP", `${path}.scope must be "project" or "user".`, OP_HELP.lesson);
-      const { writeLesson } = await import("./memory.js");
-      const l = await writeLesson(ctx.project, { claim, dimension, evidence: [{ graph: graph.slug, takes: refs }], support: refs.length, by: ctx.actor, scope,
+      const { writeLesson, rendererOfTakes } = await import("./memory.js");
+      const l = await writeLesson(ctx.project, { claim, dimension, evidence: [{ graph: graph.slug, takes: refs }], support: refs.length, by: ctx.actor, scope, renderer: rendererOfTakes(parsed.map(x => x.take)),
         ...(typeof op.supersedes === "string" ? { supersedes: op.supersedes } : {}), ...(scope === "user" ? { project: ctx.project } : {}) });
       ctx.events.push({ type: "lesson.written", id: l.id, scope, supersedes: l.supersedes });
       return `lesson ${l.id} (${scope}, ${l.support} takes)${l.supersedes ? `, supersedes ${l.supersedes}` : ""}`;

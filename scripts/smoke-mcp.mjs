@@ -17,7 +17,7 @@ try {
   const packageVersion = JSON.parse(readFileSync(resolve('package.json'), 'utf8')).version;
   assert.equal(client.getServerVersion()?.version, packageVersion, 'MCP version must match the package release');
   const { tools } = await client.listTools();
-  const studio = ['studio_guide', 'studio_list', 'studio_get', 'studio_create', 'studio_edit', 'studio_run', 'studio_status', 'studio_view'];
+  const studio = ['studio_guide', 'studio_list', 'studio_get', 'studio_create', 'studio_edit', 'studio_run', 'studio_status', 'studio_view', 'studio_budget'];
   const expected = ['generate_image', 'preview_image_request', 'export_logo_kit', 'create_brand_board', 'edit_image', 'upscale_image', 'export_web_assets', 'remove_background', 'compose_overlay', 'create_social_card', 'create_social_carousel', 'strip_image_metadata', 'list_image_presets', ...studio];
   assert.deepEqual(tools.map(t => t.name).sort(), expected.sort());
   for (const name of ["generate_image", "edit_image", "upscale_image", "export_web_assets", "remove_background", "create_social_card", "create_social_carousel"]) {

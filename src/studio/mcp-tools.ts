@@ -1,9 +1,9 @@
-// The eight studio_* MCP tools. Schemas stay small (every schema costs context in every terminal);
+// The studio_* MCP tools. Schemas stay small (every schema costs context in every terminal);
 // studio_guide carries the detail. Results are text an agent can act on, with absolute paths to open.
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createGraph, createText, editGraph, editText, getGraph, listGraphs, lookCloser, runGraph, serveDetached, statusReport, studyImage, viewGraph } from "./api.js";
+import { budgetReport, createGraph, createText, editGraph, editText, getGraph, listGraphs, lookCloser, runGraph, serveDetached, statusReport, studyImage, viewGraph } from "./api.js";
 import { guide, GUIDE_TOPICS } from "./guide.js";
 import { StudioError, refusalText, resolveProject } from "./store.js";
 
@@ -21,7 +21,7 @@ const wrap = <A>(fn: (a: A) => Promise<string>) => async (a: A) => { try { retur
 
 const nodeShape = z.object({
   ref: z.string().describe("Your id for this node, used in connections."),
-  type: z.string().describe("prompt | style | list | reference | generate | edit | process | gallery | handoff | implementation | note"),
+  type: z.string().describe("prompt | style | list | reference | generate | edit | process | finish | gallery | handoff | implementation | canon | note"),
   settings: z.record(z.unknown()).optional(),
   label: z.string().optional(),
   group: z.string().optional(),
@@ -31,10 +31,10 @@ export function registerStudioTools(server: McpServer) {
   server.registerTool("studio_guide", {
     title: "Studio guide: node graphs for image work",
     description: "How Studio works: node types and their exact settings, edit ops, running, handoff to code, shot language and a worked example. Read it before your first studio_create.",
-    inputSchema: { topic: z.enum([...GUIDE_TOPICS, "all"]).optional().describe("Default all."), project },
+    inputSchema: { topic: z.enum([...GUIDE_TOPICS, "all"]).optional().describe("Default all."), renderer: z.enum(["subscription", "api"]).optional().describe("The renderer you are about to use: lessons learned on it are listed first (default subscription)."), project },
   }, wrap(async a => {
     const { memoryBrief } = await import("./memory.js");
-    const memory = await memoryBrief(resolveProject(a.project)).catch(() => "");
+    const memory = await memoryBrief(resolveProject(a.project), 5, a.renderer ?? "subscription").catch(() => "");
     return guide(a.topic ?? "all") + (memory ? `\n\n# What this project has learned\n\n${memory}` : "");
   }));
 
@@ -91,20 +91,39 @@ export function registerStudioTools(server: McpServer) {
 
   server.registerTool("studio_run", {
     title: "Run a Studio graph",
-    description: "Start a background run (subscription only) and return its job id; unchanged slots are reused, never regenerated. scope: all | <id> | <id>+ (downstream). dry_run plans without spending and shows the compiled prompt of one slot per node. resume continues a stopped run; stop asks the live run to stop.",
+    description: "Start a background run and return its job id; unchanged slots are reused, never regenerated. Nodes render on the subscription unless they say renderer api (or are finish nodes): those spend money inside the spend limits, and the run stops cleanly, resumable, at a limit. scope: all | <id> | <id>+ (downstream). dry_run plans without spending: the compiled prompt of one slot per node and the estimated API cost. resume continues a stopped run; stop asks the live run to stop.",
     inputSchema: {
       graph, scope: z.string().optional(), nodes: z.array(z.string()).optional().describe("Run exactly these nodes."),
       new_take: z.boolean().optional().describe("Render one more take per slot in scope."),
       concurrency: z.number().int().min(1).max(3).optional(), dry_run: z.boolean().optional(), resume: z.boolean().optional(), stop: z.boolean().optional(),
+      max_run_cost: z.number().min(0).optional().describe("Lower this run's API spend limit, in dollars (cannot raise it)."),
+      max_day_cost: z.number().min(0).optional().describe("Lower today's API spend limit for this run, in dollars (cannot raise it)."),
       wait_seconds: z.number().int().min(0).max(30).optional().describe("Wait for the run up to this long before returning (default 20)."), project,
     },
   }, wrap(async a => {
-    const r: any = await runGraph(a.graph, { scope: a.scope, nodes: a.nodes, newTake: a.new_take, concurrency: a.concurrency, dryRun: a.dry_run, resume: a.resume, stop: a.stop, waitSeconds: a.wait_seconds ?? 20 }, { project: a.project });
+    const limits = a.max_run_cost !== undefined || a.max_day_cost !== undefined ? { run: a.max_run_cost, day: a.max_day_cost } : undefined;
+    const r: any = await runGraph(a.graph, { scope: a.scope, nodes: a.nodes, newTake: a.new_take, concurrency: a.concurrency, dryRun: a.dry_run, resume: a.resume, stop: a.stop, limits, waitSeconds: a.wait_seconds ?? 20 }, { project: a.project });
     if (a.stop) return r.message;
-    const plan = r.plan ? `\nPlan: ${r.plan.nodes.map((n: any) => `${n.node} ${n.toRun}/${n.slots}${n.estimate ? "?" : ""}`).join(", ") || "(nothing)"}${r.plan.skipped.length ? `\nSkipped: ${r.plan.skipped.map((s: any) => `${s.node} (${s.reason}${s.fix ? `; ${s.fix}` : ""})`).join("; ")}` : ""}${r.plan.staleAfter.length ? `\nOut of scope, will be out of date afterwards: ${r.plan.staleAfter.join(", ")}` : ""}` : "";
+    const plan = r.plan ? `\nPlan: ${r.plan.nodes.map((n: any) => `${n.node} ${n.toRun}/${n.slots}${n.estimate ? "?" : ""}${n.cost !== undefined ? ` (api, ~$${n.cost.toFixed(2)})` : ""}`).join(", ") || "(nothing)"}${r.plan.skipped.length ? `\nSkipped: ${r.plan.skipped.map((s: any) => `${s.node} (${s.reason}${s.fix ? `; ${s.fix}` : ""})`).join("; ")}` : ""}${r.plan.staleAfter.length ? `\nOut of scope, will be out of date afterwards: ${r.plan.staleAfter.join(", ")}` : ""}` : "";
     const head = r.job ? `Job ${r.job}${r.resumeOf ? ` (resumes ${r.resumeOf})` : ""}. ${r.message}` : r.message;
     return `${head}${plan}${r.report ? `\n\n${r.report.text}` : ""}`;
   }));
+
+  server.registerTool("studio_budget", {
+    title: "Paid API budget",
+    description: "Limits, today's API spend, and the owner's grants for this project. Past a limit, ask the owner once with the amount the work needs; only after they approve in chat, record it here with grant (amount in dollars, their words, who approved). Never record a grant nobody gave, and never ask in a loop. A grant ends with the local day; a hard ceiling caps the day whatever is granted.",
+    inputSchema: {
+      graph: z.string().optional().describe("Show what this graph can spend (and scope a grant to it)."),
+      grant: z.object({
+        amount: z.number().positive().describe("Dollars the owner approved."),
+        words: z.string().min(1).describe("What the owner said when approving, word for word."),
+        approved_by: z.string().min(1).describe("Who approved: the owner's name."),
+        graph: z.string().optional().describe("Limit the grant to one graph (default: the whole project)."),
+        expires: z.string().optional().describe("ISO time today; default the end of the local day."),
+      }).optional(),
+      project,
+    },
+  }, wrap(async a => (await budgetReport({ project: a.project, graph: a.graph, source: "agent", grant: a.grant ? { amount: a.grant.amount, words: a.grant.words, approvedBy: a.grant.approved_by, graph: a.grant.graph ?? a.graph, expires: a.grant.expires } : undefined })).text));
 
   server.registerTool("studio_status", {
     title: "Follow a Studio run",

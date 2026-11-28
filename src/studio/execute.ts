@@ -1,7 +1,8 @@
 // Node executors. Provider work always goes through the existing generate/edit/upscale paths with
-// backend "subscription" and image_model "auto" passed explicitly, so neither a project profile nor
-// GPT_IMAGE_BACKEND can move a Studio run onto the paid API. Heavy modules load lazily so the CLI's
-// read and edit commands stay fast.
+// the backend passed explicitly: "subscription" with image_model "auto" unless the slot carries an
+// API render (renderer "api" on the node, or a finish node), then "apikey" with that render's model.
+// Neither a project profile nor GPT_IMAGE_BACKEND can move a slot between the two, and there is no
+// fallback in either direction. Heavy modules load lazily so read and edit commands stay fast.
 
 import { mkdir, readFile, writeFile, copyFile } from "node:fs/promises";
 import { dirname, extname, join, resolve } from "node:path";
@@ -29,9 +30,13 @@ export interface ExecOutput {
   generations: number;
   warnings?: string[];
   kind?: "image" | "package";
+  /** API slots: usage as the API reported it, summed over this slot's requests. */
+  usage?: import("../pricing.js").ImageUsage;
+  /** API slots: which source supplied the key (never the key). */
+  keySource?: string;
 }
 export type Executor = (x: ExecInput) => Promise<ExecOutput>;
-export type ExecutorKind = "generate" | "edit" | "process" | "handoff" | "implementation";
+export type ExecutorKind = "generate" | "edit" | "process" | "handoff" | "implementation" | "finish";
 export type Executors = Record<ExecutorKind, Executor>;
 
 const BACKEND = "subscription";
@@ -56,10 +61,17 @@ export function sweepInstruction(dim: string, value: string): string {
   return `Keep the subject, its shape, materials and position, and the composition exactly as in the image. Change only the ${name} to: ${value}`;
 }
 
-type PromptInput = Pick<ExecInput, "dir" | "node" | "slot">;
+type PromptInput = Pick<ExecInput, "dir" | "node" | "slot"> & { project?: string };
+/** Backend arguments for a slot: explicit both ways, never inferred. */
+export function backendArgs(x: Pick<PromptInput, "slot" | "project">) {
+  const r = x.slot.render;
+  if (r?.renderer === "api") return { backend: "apikey", imageModel: r.model, complexity: r.complexity, keyProject: x.project };
+  return { backend: BACKEND, imageModel: MODEL };
+}
 const common = (x: PromptInput) => {
   const s = x.node.settings as Record<string, any>;
-  return { size: s.size, quality: s.quality ?? "low", format: s.format ?? "png", transparent: s.transparent, platform: s.platform, proof: s.proof, backend: BACKEND, imageModel: MODEL, count: 1 };
+  const r = x.slot.render;
+  return { size: r ? r.size : s.size, quality: r?.quality ?? s.quality ?? "low", format: s.format ?? "png", transparent: s.transparent, platform: s.platform, proof: s.proof, ...backendArgs(x), count: 1 };
 };
 
 /** A sweep slot with an anchor: an edit of the anchor that changes only the swept dimension. */
@@ -88,11 +100,36 @@ export async function previewPrompt(x: PromptInput): Promise<string | undefined>
     return (await previewImageRequest(generateArgs(x))).compiledPrompt;
   }
   if (x.node.type === "edit" && x.slot.image) return previewEditPrompt(editArgs(x));
+  if (x.node.type === "finish" && x.slot.image) return previewEditPrompt(finishArgs(x));
   return undefined;
 }
 
 const result = (out: Awaited<ReturnType<typeof import("../generate.js").generateImage>>): ExecOutput =>
-  ({ path: out.path, compiledPrompt: out.prompt, revisedPrompt: out.revisedPrompt, generations: out.proof?.attempts ?? 1, warnings: out.qa?.warnings });
+  ({ path: out.path, compiledPrompt: out.prompt, revisedPrompt: out.revisedPrompt, generations: out.requests ?? out.proof?.attempts ?? 1, warnings: out.qa?.warnings,
+    ...(out.usage ? { usage: out.usage } : {}), ...(out.keySource ? { keySource: out.keySource } : {}) });
+
+/** The ladder's preserving instruction (bench/api-2.6-test: a final made from the draft image keeps
+ *  the subject; one made from the prompt alone does not). Extra direction is appended, never
+ *  substituted. */
+export const FINISH_INSTRUCTION =
+  "Re-render this exact image at final production quality and a higher resolution. Keep the composition, framing, camera angle, " +
+  "subject, its shape and proportions, every colour, the lighting direction and the background exactly as they are. " +
+  "Improve only fine detail, material realism, edge sharpness and clean tonal gradation. Do not add, remove, move or restyle anything.";
+
+function finishArgs(x: PromptInput) {
+  const s = x.node.settings as Record<string, any>;
+  const r = x.slot.render!;
+  return {
+    imagePaths: [resolve(x.dir, x.slot.image!.asset)],
+    instruction: s.instruction ? `${FINISH_INSTRUCTION} ${s.instruction}` : FINISH_INSTRUCTION,
+    size: r.size as any, quality: r.quality as any, format: s.format ?? "png", proof: false, ...backendArgs(x), count: 1,
+  };
+}
+
+async function execFinish(x: ExecInput): Promise<ExecOutput> {
+  const { editImage } = await import("../generate.js");
+  return result(await editImage({ ...finishArgs(x), outputPath: `${x.outBase}.png` }));
+}
 
 async function execGenerate(x: ExecInput): Promise<ExecOutput> {
   const { generateImage, editImage } = await import("../generate.js");
@@ -112,9 +149,11 @@ async function execProcess(x: ExecInput): Promise<ExecOutput> {
     case "remove-background": {
       const out = `${x.outBase}.png`;
       if (s.use_model) {
-        const { modelAssistedCutout } = await import("../generate.js");
-        const r = await modelAssistedCutout(src, out, BACKEND, MODEL);
-        return { path: r.path, compiledPrompt: r.prompt, generations: 1, warnings: ["Model-assisted cutout regenerates the subject; compare fine detail with the original."] };
+        const { editImage, CUTOUT_INSTRUCTION } = await import("../generate.js");
+        const b = backendArgs(x);
+        // modelAssistedCutout, with the key folder and complexity passed through for API slots.
+        const r = await editImage({ imagePaths: [src], instruction: CUTOUT_INSTRUCTION, transparent: true, format: "png", outputPath: out, proof: false, ...b, ...(x.slot.render?.quality ? { quality: x.slot.render.quality as any } : {}) });
+        return { ...result(r), warnings: ["Model-assisted cutout regenerates the subject; compare fine detail with the original."] };
       }
       const { removeBackgroundFile } = await import("../imageops.js");
       await removeBackgroundFile(src, out, s.tolerance != null ? { tolerance: s.tolerance } : undefined);
@@ -122,8 +161,9 @@ async function execProcess(x: ExecInput): Promise<ExecOutput> {
     }
     case "upscale": {
       const { upscaleImage } = await import("../generate.js");
-      const r = await upscaleImage({ imagePath: src, guidance: s.guidance, quality: s.quality ?? "high", outputPath: `${x.outBase}.png`, backend: BACKEND, imageModel: MODEL });
-      return { path: r.path, compiledPrompt: r.prompt, generations: 1 };
+      const rr = x.slot.render;
+      const r = await upscaleImage({ imagePath: src, guidance: s.guidance, quality: (rr?.quality ?? s.quality ?? "high") as any, ...(rr?.size ? { size: rr.size as any } : {}), outputPath: `${x.outBase}.png`, ...backendArgs(x) });
+      return { ...result(r), compiledPrompt: r.prompt };
     }
     case "strip-metadata": {
       const { stripImageMetadata } = await import("../metastrip.js");
@@ -169,4 +209,4 @@ async function execHandoff(x: ExecInput): Promise<ExecOutput> {
   return writeHandoff(x);
 }
 
-export const realExecutors: Executors = { generate: execGenerate, edit: execEdit, process: execProcess, handoff: execHandoff, implementation: execImplementation };
+export const realExecutors: Executors = { generate: execGenerate, edit: execEdit, process: execProcess, handoff: execHandoff, implementation: execImplementation, finish: execFinish };

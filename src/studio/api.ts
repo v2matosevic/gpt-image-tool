@@ -121,6 +121,29 @@ export async function editGraph(slug: string, ops: unknown[], opts: Who & { expe
 }
 
 /** What an edit did to the two revisions, and what each one guards. */
+/** The project's paid-API budget: limits, today's spend, grants. With grant, records the owner's
+ *  approval first (source "agent" from MCP; the CLI's --from-app marks a grant made in ADE). */
+export async function budgetReport(w: Who & { graph?: string; grant?: { amount: number; words: string; approvedBy: string; graph?: string; expires?: string }; source?: "agent" | "app" } = {}) {
+  const project = resolveProject(w.project);
+  const { budgetText, budgetView, recordGrant, grantLine } = await import("./budget.js");
+  const { studioProfile } = await import("./render.js");
+  const graph = w.grant?.graph ?? w.graph;
+  if (graph) checkSlug(graph);
+  const prof = studioProfile(graph ? graphDir(project, graph) : join(project, ".gptimage", "studio", "_budget"));
+  if (prof.issue) throw new StudioError("BAD_PROFILE", `${prof.issue.path}: ${prof.issue.message}.`, prof.issue.fix);
+  let recorded: string | undefined;
+  if (w.grant) {
+    const g = await recordGrant(project, prof.limits, { amount: w.grant.amount, graph: w.grant.graph, approvedBy: w.grant.approvedBy, words: w.grant.words, expires: w.grant.expires, source: w.source ?? "agent", by: actorOf(w) });
+    if (g.graph && existsSync(graphDir(project, g.graph))) {
+      await mutate(graphDir(project, g.graph), actorOf(w), () => ({ result: null, events: [{ type: "budget.grant", grant: g.id, amount: g.amount, approvedBy: g.approvedBy, source: g.source, expires: g.expires }] })).catch(() => {});
+    }
+    recorded = g.id;
+  }
+  const view = await budgetView(project, prof.limits, graph);
+  const head = recorded ? `Recorded grant ${grantLine(view.grants.find(g => g.id === recorded)!)}.\n` : "";
+  return { project, view, grant: recorded, text: head + budgetText(view) };
+}
+
 export function revisionLine(r: { revision: number; stateRevision: number; graphChanged: boolean }): string {
   const guard = opt("expect_revision");
   return r.graphChanged
@@ -168,8 +191,13 @@ async function summarize(dir: string, rec: RunRecord) {
   const lines: string[] = [];
   const p = rec.progress;
   lines.push(`Run ${rec.id} (${rec.scope.kind === "all" ? "all" : rec.scope.nodes.join(",") + (rec.scope.kind === "downstream" ? "+" : "")}): ${rec.status}. ${p.slotsDone}/${rec.planned.slots}${rec.planned.estimate ? "+" : ""} slots done, ${p.slotsCached} reused, ${p.slotsFailed} failed, ${p.generations} generation(s).`);
+  const b = rec.budget;
+  if (b && (b.spent || b.estimate)) {
+    const { dollars } = await import("../pricing.js");
+    lines.push(`Paid API: spent ${dollars(b.spent)} in this run (estimated ${dollars(b.estimate)} at start)${b.chainSpent !== undefined && b.chain !== rec.id ? `, ${dollars(b.chainSpent)} across the resume chain from ${b.chain}` : ""}; limits ${dollars(b.limits.run)} per run, ${dollars(b.limits.day)} per day. Spent amounts come from the usage the API reported.`);
+  }
   if (p.current) lines.push(`Working on ${p.current.node} slot ${p.current.slot + 1}.`);
-  if (rec.stopReason) lines.push(`Stopped: ${rec.stopReason}${rec.stopFix ? ` Fix: ${rec.stopFix}` : ""}`);
+  if (rec.stopReason) lines.push(`Stopped${rec.stopCode ? ` by a spend limit (${rec.stopCode})` : ""}: ${rec.stopReason}${rec.stopFix ? ` Fix: ${rec.stopFix}` : ""}`);
   for (const e of rec.errors.slice(0, 5)) lines.push(`Error in ${e.node}: ${e.message.slice(0, 300)}${e.fix ? ` Fix: ${e.fix}` : ""}`);
   for (const s of rec.skipped.slice(0, 5)) lines.push(`Skipped ${s.node}: ${s.reason}`);
   if (rec.takes.length) {
@@ -187,6 +215,11 @@ async function summarize(dir: string, rec: RunRecord) {
     lines.push("New takes:");
     for (const x of shown) {
       lines.push(`  ${x.ref}  ${x.path}`);
+      if (x.take?.render?.renderer === "api") {
+        const { dollars } = await import("../pricing.js");
+        const { renderLabel } = await import("./render.js");
+        lines.push(`    ${renderLabel(x.take.render)}${x.take.width ? `, saved ${x.take.width}x${x.take.height}` : ""}${x.take.cost ? `, cost ${dollars(x.take.cost.dollars)} (${x.take.usage?.output_tokens ?? "?"} output tokens; estimate was ${dollars(x.take.cost.estimate)}${x.take.cost.funding !== "limit" ? `; paid from ${x.take.cost.funding}` : ""})` : ""}`);
+      }
       if (x.take?.reading) lines.push(`    reads: ${await summaryOf(x.take.reading)}`);
       const sim = x.take?.perception?.similarity as { cosine?: number; to?: string } | undefined;
       if (sim?.cosine !== undefined) lines.push(`    similarity to ${sim.to}: ${sim.cosine} (DINOv2 embedding cosine: subject and shape, not colour; 1 = same image)`);

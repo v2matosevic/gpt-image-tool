@@ -26,7 +26,9 @@ export interface Lesson {
   support: number;
   date: string;
   by: string;
-  /** The renderer behind subscription images is chosen by OpenAI and can change. */
+  /** What the evidence was rendered on: "subscription gpt-image-2", "api gpt-image-2.6-sunburst", or
+   *  "mixed: ..." (older lessons: "subscription auto (unknown model)"). A lesson learned on one
+   *  renderer is not presented as true of another. */
   renderer: string;
   scope: LessonScope;
   supersedes?: string;
@@ -78,8 +80,15 @@ export async function writeLesson(project: string, input: Omit<Lesson, "schema" 
 }
 
 export function lessonLine(l: Lesson): string {
-  return `${l.id} [${l.scope}, ${l.date.slice(0, 10)}, ${l.support} takes] ${l.dimension}: ${l.claim}`;
+  return `${l.id} [${l.scope}, ${l.date.slice(0, 10)}, ${l.support} takes, ${l.renderer}] ${l.dimension}: ${l.claim}`;
 }
+
+/** The renderer label for a lesson's evidence takes. */
+export function rendererOfTakes(takes: Array<{ render?: { renderer: string; model: string } }>): string {
+  const labels = [...new Set(takes.map(t => (t.render?.renderer === "api" ? `api ${t.render.model}` : "subscription gpt-image-2")))];
+  return labels.length === 1 ? labels[0]! : `mixed: ${labels.join(" + ")}`;
+}
+export const rendererFamily = (label: string): "subscription" | "api" | "mixed" => (label.startsWith("api") ? "api" : label.startsWith("mixed") ? "mixed" : "subscription");
 
 // ---------------------------------------------------------------- taste and calibration
 
@@ -175,10 +184,12 @@ export async function recordCalibration(project: string, graph: string, takes: s
 }
 
 /** The short block studio_create and studio_guide return without being asked. */
-export async function memoryBrief(project: string, maxLessons = 5): Promise<string> {
+export async function memoryBrief(project: string, maxLessons = 5, renderer: "subscription" | "api" = "subscription"): Promise<string> {
   const lines: string[] = [];
-  const lessons = await activeLessons(project).catch(() => []);
-  if (lessons.length) lines.push("Lessons (most supported first; renderer may have changed since):", ...lessons.slice(0, maxLessons).map(l => `  ${lessonLine(l)}`));
+  const all = await activeLessons(project).catch(() => []);
+  // Lessons learned on the renderer in use come first; others are labelled as unverified on it.
+  const lessons = [...all.filter(l => rendererFamily(l.renderer) === renderer), ...all.filter(l => rendererFamily(l.renderer) !== renderer)];
+  if (lessons.length) lines.push(`Lessons (most supported first; those learned on the ${renderer} renderer listed first):`, ...lessons.slice(0, maxLessons).map(l => `  ${lessonLine(l)}${rendererFamily(l.renderer) !== renderer ? ` (learned on ${l.renderer}; not checked on the ${renderer} renderer, so treat it as a guess there)` : ""}`));
   else lines.push('Lessons: none recorded yet in this project or your user store (write one with {op:"lesson"} once 2+ takes settle something).');
   const taste = await tasteSummary(project).catch(() => []);
   if (taste.length > 1) lines.push(taste[0]!, ...taste.slice(1).map(t => `  ${t}`));

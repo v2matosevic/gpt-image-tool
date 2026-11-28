@@ -16,7 +16,10 @@ import { workOf, NODE_SPECS } from "./nodes.js";
 import { StudioError, assetRel, atomicWrite, graphDir, mutate, now, paths, pidAlive, readBoth, readJson, sleep, type EventInput } from "./store.js";
 import type { Executors, ExecutorKind, ExecOutput } from "./execute.js";
 import { RUN_SCHEMA, type GraphFile, type RunRecord, type RunScope, type RunStatus, type StateFile, type Take } from "./types.js";
-import { cmd, isCli, opt } from "./say.js";
+import { cmd, grantCmd, isCli, opt } from "./say.js";
+import { DEFAULT_LIMITS, SUBSCRIPTION_RENDER, estimateSlot, renderLabel, studioProfile, type StudioProfile } from "./render.js";
+import type { Limits } from "./budget.js";
+import { dollars } from "../pricing.js";
 
 const RUN_STALE_MS = 60_000;
 const HEARTBEAT_MS = 5_000;
@@ -44,15 +47,24 @@ export const describeScope = (s: RunScope) => s.kind === "all" ? "all" : s.kind 
 
 // ---------------------------------------------------------------- planning
 
-export interface PlanNode { node: string; type: string; work: "local" | "provider"; slots: number; toRun: number; cached: number; estimate?: boolean }
+export interface PlanNode { node: string; type: string; work: "local" | "provider"; slots: number; toRun: number; cached: number; estimate?: boolean;
+  /** Provider nodes: "subscription" or the API render label; and the estimated API dollars. */
+  renderer?: string; cost?: number }
 /** estimate: some count is a lower bound; generationsEstimate / localStepsEstimate say which. */
-export interface Plan { scope: string; nodes: PlanNode[]; generations: number; localSteps: number; slots: number; estimate: boolean; generationsEstimate: boolean; localStepsEstimate: boolean; skipped: Array<{ node: string; reason: string; fix?: string }>; staleAfter: string[] }
+export interface Plan { scope: string; nodes: PlanNode[]; generations: number; localSteps: number; slots: number; estimate: boolean; generationsEstimate: boolean; localStepsEstimate: boolean; skipped: Array<{ node: string; reason: string; fix?: string }>; staleAfter: string[];
+  /** Paid API work in the plan: slots and estimated dollars (pricing.ts). lowerBound when a count
+   *  waits on upstream images this run makes. */
+  api: { slots: number; cost: number; lowerBound: boolean } }
+
+/** Input images an API slot sends (each adds input tokens to the estimate). */
+const inputImagesOf = (slot: Slot) => (slot.image ? 1 : 0) + slot.refs.filter(r => r.role !== "palette" && r.role !== "logo").length + (slot.mask ? 1 : 0);
+export const slotEstimate = (slot: Slot) => (slot.render ? estimateSlot(slot.render, { promptChars: (slot.text?.length ?? 0) + 600, inputImages: inputImagesOf(slot) }) : 0);
 
 export async function planRun(project: string, dir: string, graph: GraphFile, state: StateFile, scope: RunScope, newTake: boolean, done = new Set<string>()): Promise<Plan> {
   const evals = await evaluate(graph, state, { dir, project });
   const inScope = scopeSet(graph, scope);
   const changed = new Set<string>();
-  const plan: Plan = { scope: describeScope(scope), nodes: [], generations: 0, localSteps: 0, slots: 0, estimate: false, generationsEstimate: false, localStepsEstimate: false, skipped: [], staleAfter: [] };
+  const plan: Plan = { scope: describeScope(scope), nodes: [], generations: 0, localSteps: 0, slots: 0, estimate: false, generationsEstimate: false, localStepsEstimate: false, skipped: [], staleAfter: [], api: { slots: 0, cost: 0, lowerBound: false } };
   for (const id of topoOrder(graph)) {
     const ev = evals.get(id)!;
     const node = ev.node;
@@ -60,17 +72,37 @@ export async function planRun(project: string, dir: string, graph: GraphFile, st
     if (!inScope.has(id)) { if (upstreamChanges) plan.staleAfter.push(id); continue; }
     const work = workOf(node.type, node.settings);
     if (work === "none" || node.type === "reference" || node.type === "canon") { if (upstreamChanges) changed.add(id); continue; }
-    let toRun: number, slots = ev.slots.length, estimate = false;
+    let toRun: number, slots = ev.slots.length, estimate = false, cost = 0;
+    const isApi = node.type === "finish" || (work === "provider" && node.settings.renderer === "api");
     if (ev.issues.length || ev.blockedBy) {
+      // A finish needs a person's (or agent's) approval between the drafts and itself, so it can
+      // never run in the same run as the drafts it waits on. Do not count or price it.
+      if (node.type === "finish" && ev.blockedBy && !ev.issues.length) {
+        plan.skipped.push({ node: id, reason: `finish waits for an approved take from ${ev.blockedBy}`, fix: `Run the drafts, look at them, approve the one to finish ({op:"approve", take:"${ev.blockedBy}/<take>"}), then run ${id}.` });
+        continue;
+      }
       if (!(ev.blockedBy && upstreamChanges)) {
         plan.skipped.push({ node: id, reason: ev.issues[0]?.message ?? `waiting for ${ev.blockedBy}`, fix: ev.issues[0]?.fix ?? `Run ${ev.blockedBy} first (scope "${ev.blockedBy}+").` });
         continue;
       }
       slots = toRun = Math.max(1, Number(node.settings.takes ?? 1));
       estimate = true;
-    } else toRun = upstreamChanges ? slots : slotsToRun(ev, state.nodes[id], newTake, done).length;
+      if (isApi) {
+        // The slot list is not known yet; price one representative slot of this node.
+        const { apiRender } = await import("./render.js");
+        const r = apiRender(node.type, node.settings, studioProfile(dir), {});
+        cost = r ? toRun * estimateSlot(r, { promptChars: 600, inputImages: node.type === "generate" ? 0 : 1 }) : 0;
+        plan.api.lowerBound = true;
+      }
+    } else {
+      const todo = upstreamChanges ? ev.slots : slotsToRun(ev, state.nodes[id], newTake, done);
+      toRun = todo.length;
+      cost = todo.reduce((a, sl) => a + slotEstimate(sl), 0);
+    }
     if (toRun) changed.add(id);
-    plan.nodes.push({ node: id, type: node.type, work, slots, toRun, cached: Math.max(0, slots - toRun), estimate: estimate || undefined });
+    const renderer = work === "provider" ? (isApi ? renderLabel(ev.slots[0]?.render ?? { renderer: "api", model: String(node.settings.model ?? "sunburst") }) : "subscription") : undefined;
+    plan.nodes.push({ node: id, type: node.type, work, slots, toRun, cached: Math.max(0, slots - toRun), estimate: estimate || undefined, ...(renderer ? { renderer } : {}), ...(isApi ? { cost: Math.round(cost * 1e6) / 1e6 } : {}) });
+    if (isApi) { plan.api.slots += toRun; plan.api.cost = Math.round((plan.api.cost + cost) * 1e6) / 1e6; }
     plan.slots += toRun;
     if (work === "provider") plan.generations += toRun; else plan.localSteps += toRun;
     plan.estimate ||= estimate;
@@ -184,8 +216,18 @@ export function workerScript(): string {
 
 // ---------------------------------------------------------------- errors
 
-export function classifyError(e: unknown, slug = "<graph>"): { kind: "quota" | "auth" | "node"; message: string; fix: string } {
+export function classifyError(e: unknown, slug = "<graph>", api = false): { kind: "quota" | "auth" | "node"; message: string; fix: string } {
   const message = e instanceof Error ? e.message : String(e);
+  if (api) {
+    // The paid API: a missing or refused key, or an exhausted API balance, stops the run (every API
+    // slot would fail the same way). Never retried on the subscription.
+    if (/needs OPENAI_API_KEY and none was found/.test(message)) return { kind: "auth", message: message.split(" Fix: ")[0]!, fix: `${/Fix: (.*?) No request/.exec(message)?.[1] ?? "Provide OPENAI_API_KEY."} Then ${cmd("run", { graph: slug, resume: true })}. Nothing was rendered on the subscription instead.` };
+    if (/\b401\b|invalid_api_key|incorrect api key/i.test(message)) return { kind: "auth", message, fix: `The API key was refused. Replace OPENAI_API_KEY in the source the run reported (never paste it into chat), then ${cmd("run", { graph: slug, resume: true })}.` };
+    if (/insufficient_quota|billing|exceeded your current quota/i.test(message)) return { kind: "quota", message, fix: `The OpenAI API account is out of credit or over its billing limit. The owner adds credit at platform.openai.com, then ${cmd("run", { graph: slug, resume: true })}. The subscription was not used instead.` };
+    if (/\b429\b|rate.?limit|too many requests/i.test(message)) return { kind: "quota", message, fix: `The API rate limit was hit after retries. Wait a minute, then ${cmd("run", { graph: slug, resume: true })}; finished slots are kept.` };
+    if (/\b403\b|organization.*verif|must be verified/i.test(message)) return { kind: "auth", message, fix: "The API organisation may need verification for GPT Image models (developer console). The owner has to do that; nothing else will fix it." };
+    return { kind: "node", message, fix: "Fix this node's settings or inputs and run it again. Other branches continued. Nothing was retried on the subscription." };
+  }
   if (/\b429\b|rate.?limit|quota|usage limit|too many requests|throttl/i.test(message)) {
     const reset = /resets at (\S+) \(in ([^)]+)\)/.exec(message);
     return { kind: "quota", message, fix: reset
@@ -211,6 +253,24 @@ export interface RunRequest {
   /** false runs in this process (CLI --foreground, tests). */
   detach?: boolean;
   executors?: Executors;
+  /** Lower this run's spend limits in dollars (never above the project's; raising needs a grant
+   *  or the owner editing studio.limits). */
+  limits?: { run?: number; day?: number };
+}
+
+/** The limits a run works under: the profile's, lowered (never raised) by the request. */
+export function runLimits(prof: StudioProfile, req?: { run?: number; day?: number }): Limits {
+  const L = { ...prof.limits };
+  for (const k of ["run", "day"] as const) {
+    const v = req?.[k];
+    if (v === undefined) continue;
+    if (!Number.isFinite(v) || v < 0) throw new StudioError("BAD_LIMIT", `The ${k} limit must be a dollar amount of 0 or more.`, `e.g. ${opt(k === "run" ? "max_run_cost" : "max_day_cost")} 0.5`);
+    if (v > L[k] + 1e-9) throw new StudioError("LIMIT_RAISE", `A run can lower its ${k} limit but not raise it (asked ${dollars(v)}, the project's is ${dollars(L[k])}).`,
+      `To spend more, ask the owner once with the amount the work needs; when they approve, record a grant with ${grantCmd()} and run again. Only the owner raises studio.limits in .gptimage.json.`);
+    L[k] = v;
+  }
+  if (L.run > L.day) L.run = L.day;
+  return L;
 }
 
 export interface StartResult { job?: string; status: string; plan: Plan; message: string; resumeOf?: string; prompts?: Array<{ node: string; slot: string; prompt: string }> }
@@ -251,12 +311,17 @@ export async function startRun(project: string, slug: string, req: RunRequest): 
   } else scope = parseScope(graph, req.scope, req.nodes);
 
   const plan = await planRun(project, dir, graph, state, scope, newTake, done);
+  const prof = studioProfile(dir);
+  const limits = runLimits(prof, req.limits);
+  const budgetLine = plan.api.slots ? await budgetPlanLine(project, slug, plan, limits, chainOf(resumeOf ? await readRecord(dir, resumeOf).catch(() => undefined) : undefined)) : "";
   if (req.dryRun) {
     const prompts = await dryRunPrompts(project, dir, graph, state, plan);
-    return { status: blockedPlan(plan) ? "blocked" : "dry-run", plan, prompts, message: [planMessage(plan, true), ...prompts.map(p => `Prompt for ${p.node} (${p.slot}): ${p.prompt}`)].join("\n") };
+    return { status: blockedPlan(plan) ? "blocked" : "dry-run", plan, prompts, message: [planMessage(plan, true), ...(budgetLine ? [budgetLine] : []), ...prompts.map(p => `Prompt for ${p.node} (${p.slot}): ${p.prompt}`)].join("\n") };
   }
   if (blockedPlan(plan)) return { status: "blocked", plan, message: planMessage(plan, false) };
   if (!plan.slots) return { status: "nothing-to-do", plan, message: `Everything in scope "${plan.scope}" is current; nothing to run. Pass ${opt("new_take")}${isCli() ? "" : ":true"} for another take.` };
+  if (plan.api.slots && prof.issue) throw new StudioError("BAD_PROFILE", `${prof.issue.path}: ${prof.issue.message}.`, prof.issue.fix);
+  if (plan.api.slots && !req.resume) await refuseAfterBudgetStop(project, dir, slug);
 
   const job = newJobId();
   await acquireRunLock(dir, job, req.actor);
@@ -264,6 +329,7 @@ export async function startRun(project: string, slug: string, req: RunRequest): 
     schema: RUN_SCHEMA, id: job, graph: slug, status: "starting", scope, newTake, concurrency, actor: req.actor, ...runOrigin(), created: now(), graphRevision: graph.revision, resumeOf,
     planned: { generations: plan.generations, slots: plan.slots, estimate: plan.estimate }, progress: { slotsDone: 0, slotsCached: 0, slotsFailed: 0, generations: 0 },
     completed: [], takes: [], skipped: [], errors: [],
+    budget: { chain: resumeOf ? chainOf(await readRecord(dir, resumeOf).catch(() => undefined)) ?? resumeOf : job, limits, estimate: plan.api.cost, spent: 0 },
   };
   try {
     await writeRecord(dir, rec);
@@ -297,7 +363,38 @@ export async function startRun(project: string, slug: string, req: RunRequest): 
     await releaseRunLock(dir, job);
     throw e;
   }
-  return { job, status: "starting", plan, resumeOf, message: planMessage(plan, false) };
+  return { job, status: "starting", plan, resumeOf, message: [planMessage(plan, false), ...(budgetLine ? [budgetLine] : [])].join("\n") };
+}
+
+const chainOf = (rec: RunRecord | undefined) => (rec ? rec.budget?.chain ?? rec.id : undefined);
+
+/** "Estimated API cost $0.12 for 2 images; limits ...; spent today ...". */
+async function budgetPlanLine(project: string, slug: string, plan: Plan, limits: Limits, chain?: string): Promise<string> {
+  const { budgetView, chainSpent } = await import("./budget.js");
+  const v = await budgetView(project, limits, slug);
+  const spentChain = chain ? await chainSpent(project, chain) : 0;
+  const grantLeft = v.grants.filter(g => g.active).reduce((a, g) => a + g.remaining, 0);
+  const runLeft = Math.max(0, limits.run - spentChain);
+  const fits = plan.api.cost <= Math.min(runLeft, v.normalLeft) + 1e-9;
+  return `Estimated paid API cost: ${dollars(plan.api.cost)}${plan.api.lowerBound ? " or more" : ""} for ${plan.api.slots} image${plan.api.slots === 1 ? "" : "s"} (${plan.nodes.filter(n => n.cost !== undefined).map(n => `${n.node}: ${n.renderer}`).join("; ")}). ` +
+    `Limits: ${dollars(limits.run)} per run${spentChain ? ` (this resume chain has spent ${dollars(spentChain)})` : ""}, ${dollars(limits.day)} per day (spent today ${dollars(v.spentToday)}), ceiling ${dollars(limits.ceiling)}${grantLeft ? `; active grants ${dollars(grantLeft)}` : ""}. ` +
+    (fits ? "It fits inside the limits." : `It does not fit inside the limits${grantLeft ? " without the grant" : ""}: the run will stop cleanly, resumable, when the next image would pass one.`);
+}
+
+/** After a run stopped at a spend limit, a fresh run on the same graph and day would just get a new
+ *  run limit: that is working around the limit. Resume it after the owner grants more instead. */
+async function refuseAfterBudgetStop(project: string, dir: string, slug: string) {
+  const jobs = await listRecords(dir);
+  for (const id of jobs.slice(-5).reverse()) {
+    const r = await readRecord(dir, id).catch(() => undefined);
+    if (!r) continue;
+    if (!r.stopCode?.startsWith("budget-")) { if (TERMINAL.includes(r.status)) return; continue; }
+    const { localDay, grantSince } = await import("./budget.js");
+    if (localDay(new Date(r.finished ?? r.created)) !== localDay()) return;
+    if (await grantSince(project, slug, r.finished ?? r.created)) return;
+    throw new StudioError("BUDGET_STOPPED", `Run ${r.id} stopped at a spend limit today (${r.stopReason ?? r.stopCode}). A new run would get a fresh run limit, which is working around it.`,
+      `Ask the owner once, with the amount: the remaining work needs about ${dollars(r.budget?.needed ?? 0)}. When they approve in chat, record it with ${grantCmd(slug)}, then ${cmd("run", { graph: slug, resume: true })}. Otherwise wait until tomorrow, or make the work cheaper on the subscription.`);
+  }
 }
 
 /** The compiled prompt of the first slot of each provider node a run would render, offline. */
@@ -384,7 +481,7 @@ export async function runJob(project: string, slug: string, job: string, executo
   await atomicWrite(paths(dir).runLock, JSON.stringify({ job, pid: process.pid, host: hostname(), actor: "worker", at: now() })).catch(() => {});
   await save();
   const stopFile = join(paths(dir).runs, `${job}.stop`);
-  let stop: { reason: string; fix?: string } | undefined;
+  let stop: { reason: string; fix?: string; code?: string } | undefined;
   const beat = setInterval(() => {
     const t = new Date();
     utimes(paths(dir).runLock, t, t).catch(() => {});
@@ -392,6 +489,10 @@ export async function runJob(project: string, slug: string, job: string, executo
   }, HEARTBEAT_MS);
   const done = await completedChain(dir, rec);
   const actor = "worker";
+  rec.budget ??= { chain: rec.id, limits: { ...DEFAULT_LIMITS }, estimate: 0, spent: 0 };
+  const budget = rec.budget;
+  const ledger = await import("./budget.js");
+  const { costFromUsage, PRICING } = await import("../pricing.js");
   try {
     const initial = (await readBoth(dir)).graph;
     for (const id of topoOrder(initial)) {
@@ -422,19 +523,45 @@ export async function runJob(project: string, slug: string, job: string, executo
       const kind = node.type as ExecutorKind;
       await pool(todo, rec.concurrency, async slot => {
         if (stop) return;
+        // Paid slots: check the limits and reserve the estimate before the request, atomically
+        // across every run and process in this project.
+        let held: { id: string; funding: string; estimate: number } | undefined;
+        if (slot.render?.renderer === "api") {
+          const estimate = slotEstimate(slot);
+          const r = await ledger.reserve({ project, run: job, chain: budget.chain, graph: slug, node: id, slot: slotKey(id, slot), estimate, model: slot.render.model, limits: budget.limits, actor: `worker ${job}` });
+          if (!r.ok) {
+            stop ??= { reason: r.message, code: r.code };
+            return;
+          }
+          held = { id: r.id, funding: r.funding, estimate };
+        }
         const takeId = await reserveTake(dir);
         rec.progress.current = { node: id, slot: slot.index, variant: slot.variant };
         save();
         try {
           const res = await execs[kind]({ project, dir, graph, state, evals, node, slot, takeId, outBase: join(paths(dir).assets, `${id}-${takeId}`) });
-          const take = await saveTake(dir, graph.revision, id, slot, takeId, res, job, node.settings);
+          let cost: Take["cost"] | undefined;
+          if (held) {
+            const known = res.usage ? costFromUsage(slot.render!.model, res.usage) : undefined;
+            cost = { dollars: known ?? held.estimate, estimate: held.estimate, rates: `pricing.ts ${PRICING.checked}`, funding: held.funding };
+            await ledger.settle(project, `worker ${job}`, { id: held.id, cost: cost.dollars, take: `${id}/${takeId}`, ...(known === undefined ? { uncertain: true, note: "the API reported no usage; kept at the estimate" } : {}) });
+            budget.spent = Math.round((budget.spent + cost.dollars) * 1e6) / 1e6;
+            held = undefined;
+          }
+          const take = await saveTake(dir, graph.revision, id, slot, takeId, res, job, node.settings, cost, node.type);
           done.add(slotKey(id, slot));
           rec.completed.push(slotKey(id, slot));
           rec.takes.push({ node: id, take: take.id, asset: take.asset });
           rec.progress.slotsDone++;
           rec.progress.generations += res.generations;
         } catch (e) {
-          const c = classifyError(e, slug);
+          if (held) {
+            // An HTTP refusal is not billed; anything else (network loss mid-request) may have been.
+            const refused = /HTTP [45]\d\d/.test(e instanceof Error ? e.message : String(e)) || /No request was sent/.test(String(e));
+            await ledger.settle(project, `worker ${job}`, { id: held.id, cost: refused ? 0 : held.estimate, ...(refused ? { note: "request refused; not billed" } : { uncertain: true, note: "request failed; kept at the estimate in case it was billed" }) }).catch(() => {});
+            if (!refused) budget.spent = Math.round((budget.spent + held.estimate) * 1e6) / 1e6;
+          }
+          const c = classifyError(e, slug, slot.render?.renderer === "api");
           if (c.kind !== "node") stop ??= { reason: c.message, fix: c.fix };
           else {
             rec.progress.slotsFailed++;
@@ -452,6 +579,15 @@ export async function runJob(project: string, slug: string, job: string, executo
     }
     await writeRunSheet(dir, rec).catch(e => rec.errors.push({ node: "(sheet)", message: `Review sheet failed: ${e instanceof Error ? e.message : e}`, fix: `Use ${cmd("view", { graph: slug })} instead.` }));
     rec.status = stop ? "stopped" : rec.errors.length ? "done_with_errors" : "done";
+    if (stop?.code) {
+      // A spend stop: say what the rest needs and that the owner decides, once.
+      const fresh = await readBoth(dir);
+      const left = await planRun(project, dir, fresh.graph, fresh.state, rec.scope, rec.newTake, done).catch(() => undefined);
+      budget.needed = left?.api.cost ?? 0;
+      stop.fix = `The remaining paid work needs about ${dollars(budget.needed)}${left?.api.lowerBound ? " or more" : ""}. Ask the owner once, with that amount; do not work around the limit (no new run, no other renderer). ` +
+        (stop.code === "budget-ceiling" ? "The ceiling can only be raised by the owner editing studio.limits.ceiling in .gptimage.json." : `When the owner approves in chat, record a grant with ${grantCmd(slug)}, then ${cmd("run", { graph: slug, resume: true })}; finished slots are kept.`);
+      rec.stopCode = stop.code;
+    }
     if (stop) { rec.stopReason = stop.reason; rec.stopFix = stop.fix; }
   } catch (e) {
     rec.status = "failed";
@@ -460,11 +596,12 @@ export async function runJob(project: string, slug: string, job: string, executo
     clearInterval(beat);
     rec.finished = now();
     delete rec.progress.current;
+    budget.chainSpent = await ledger.chainSpent(project, budget.chain).catch(() => budget.spent);
     await save();
     await queue;
     await mutate(dir, actor, (_g, s) => {
       for (const ns of Object.values(s.nodes)) if (ns.activity?.job === job) delete ns.activity;
-      return { result: null, events: [{ type: "run.finished", job, status: rec.status, generations: rec.progress.generations, takes: rec.takes.length, errors: rec.errors.length, stopReason: rec.stopReason }] };
+      return { result: null, events: [{ type: "run.finished", job, status: rec.status, generations: rec.progress.generations, takes: rec.takes.length, errors: rec.errors.length, stopReason: rec.stopReason, ...(rec.stopCode ? { stopCode: rec.stopCode } : {}), ...(budget.spent || budget.estimate ? { cost: budget.spent } : {}) }] };
     }).catch(() => {});
     await unlink(stopFile).catch(() => {});
     await releaseRunLock(dir, job);
@@ -536,7 +673,7 @@ async function refreshReference(project: string, dir: string, id: string, job: s
   });
 }
 
-async function saveTake(dir: string, graphRevision: number, nodeId: string, slot: Slot, takeId: string, res: ExecOutput, job: string, settings: Record<string, unknown>): Promise<Take> {
+async function saveTake(dir: string, graphRevision: number, nodeId: string, slot: Slot, takeId: string, res: ExecOutput, job: string, settings: Record<string, unknown>, cost?: Take["cost"], nodeType?: string): Promise<Take> {
   const buf = await readFile(res.path);
   const { createHash } = await import("node:crypto");
   const sha256 = createHash("sha256").update(buf).digest("hex");
@@ -553,13 +690,16 @@ async function saveTake(dir: string, graphRevision: number, nodeId: string, slot
     text: slot.text || res.compiledPrompt ? { prompt: slot.text, item: slot.item, compiledPrompt: res.compiledPrompt, revisedPrompt: res.revisedPrompt } : undefined,
     settings: { ...settings, ...(slot.look ?? {}) },
     files: res.files?.map(f => assetRel(dir, resolve(f))), generations: res.generations, warnings: res.warnings?.length ? res.warnings : undefined,
+    // Provider takes record their renderer; API takes also their usage and cost.
+    render: slot.render ?? (res.generations > 0 ? SUBSCRIPTION_RENDER : undefined),
+    usage: res.usage, cost,
   };
   if (slot.screenshot) take.source = slot.screenshot.rel;
   const craft = await import("./craft.js");
   if (kind === "image") {
     take.reading = await craft.readingOf(res.path);
-    const kindOf = (settings as any).op ? "process" : slot.image ? "edit" : "generate";
-    if (kindOf !== "process") take.checklist = craft.briefChecklist(slot.text, slot.look, settings as Record<string, any>, kindOf === "edit" ? "edit" : "generate");
+    const kindOf = nodeType === "finish" ? "finish" : (settings as any).op ? "process" : slot.image ? "edit" : "generate";
+    if (kindOf !== "process" && kindOf !== "finish") take.checklist = craft.briefChecklist(slot.text, slot.look, settings as Record<string, any>, kindOf === "edit" ? "edit" : "generate");
   }
   if (take.reading) {
     // Outside the graph lock: an anchor's reading never changes once saved.
@@ -586,7 +726,7 @@ async function saveTake(dir: string, graphRevision: number, nodeId: string, slot
     const samePos = new Set(ns.takes.filter(t => t.slot === slot.index && t.variant === slot.variant).map(t => t.id));
     ns.selected = ns.selected.filter(x => !samePos.has(x));
     delete ns.error;
-    return { result: null, events: [{ type: "take.saved", job, node: nodeId, take: take.id, asset: take.asset, slot: slot.index, variant: slot.variant }] };
+    return { result: null, events: [{ type: "take.saved", job, node: nodeId, take: take.id, asset: take.asset, slot: slot.index, variant: slot.variant, ...(cost ? { cost: cost.dollars, funding: cost.funding } : {}) }] };
   });
   return take;
 }

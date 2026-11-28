@@ -1,5 +1,6 @@
 // The agent's view of a graph: a bounded, media-free text snapshot, and one node in full.
 
+import { renderLabel } from "./render.js";
 import { resolve } from "node:path";
 import { evaluate, type NodeEval } from "./evaluate.js";
 import { inputsOf, topoOrder } from "./graph.js";
@@ -31,8 +32,10 @@ function details(ev: NodeEval, state: StateFile): string {
     default: {
       const bits: string[] = [];
       if (ev.slots.length) bits.push(`${ev.views.filter(v => v.status === "current" || v.status === "pinned").length}/${ev.slots.length} slots current`);
+      const r = ev.slots[0]?.render;
+      if (r || ev.node.type === "finish" || s.renderer === "api") bits.push(r ? `PAID ${renderLabel(r)}` : "PAID api");
       if (ev.node.type === "generate" || ev.node.type === "edit") {
-        bits.push(`quality ${s.quality ?? "low"}`);
+        if (!r) bits.push(`quality ${s.quality ?? "low"}`);
         if (s.size) bits.push(String(s.size));
         if (s.takes && s.takes !== 1) bits.push(`takes ${s.takes}`);
         const own = s.prompt ?? s.instruction;

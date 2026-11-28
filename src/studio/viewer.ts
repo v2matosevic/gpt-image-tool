@@ -179,7 +179,7 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 const f=(p,thumb)=>(thumb?"/thumb":"/file")+"?g="+encodeURIComponent(slug)+"&p="+encodeURIComponent(p);
 async function j(u){const r=await fetch(u);if(!r.ok)throw new Error((await r.json()).error||r.status);return r.json()}
 function apply(){world.style.transform="translate("+view.x+"px,"+view.y+"px) scale("+view.k+")"}
-const IMG=new Set(["reference","generate","edit","process","gallery","implementation","canon"]);const cur={};
+const IMG=new Set(["reference","generate","edit","process","gallery","implementation","canon","finish"]);const cur={};
 function nodeW(n){return IMG.has(n.type)?280:240}
 function nodeH(n){return n.type==="note"?70:(n.outputs&&n.outputs.length&&n.outputs[0].kind!=="package"?36+260+33+62:110)}
 function summary(n){const s=n.settings||{};switch(n.type){case"prompt":return s.text;case"list":return(s.items||[]).join(" | ");case"style":return[s.preset,s.shot&&Object.values(s.shot).join(", ")].filter(Boolean).join(" · ");

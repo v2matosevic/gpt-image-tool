@@ -7,7 +7,7 @@ import { guide, GUIDE_TOPICS, type GuideTopic } from "./guide.js";
 import { setDialect } from "./say.js";
 import { StudioError, refusalText, graphDir, readEvents, resolveProject } from "./store.js";
 
-const HELP = `gpt-image studio: node-graph image workflows (subscription only)
+const HELP = `gpt-image studio: node-graph image workflows (subscription by default; paid API where a node says so)
 
 Usage: gpt-image studio <command> [graph] [options]
 
@@ -18,6 +18,11 @@ Usage: gpt-image studio <command> [graph] [options]
   edit <graph> --ops <json|@file|->    Apply ops together or not at all [--expect-revision N]
   run <graph> [--scope all|id|id+] [--nodes a,b] [--new-take] [--concurrency 1-3]
               [--dry-run] [--resume] [--stop] [--wait seconds] [--foreground]
+              [--max-run-cost dollars] [--max-day-cost dollars]   (lower the spend limits only)
+  budget [--graph g]                   Paid API limits, today's spend and grants
+  nodes                                The node registry: handles, settings, kind of work (use --json)
+  budget --grant <dollars> --approved-by <who> --words '<their words>' [--graph g] [--expires iso]
+         [--from-app]                  Record the owner's approval (--from-app: ADE, a person clicked)
   status <graph> [--job id] [--wait seconds]
   sheet <graph> [--nodes a,b] [--all-takes] [--overlays grid,palette,histogram]
                                                Labelled review sheet + preview paths
@@ -37,7 +42,7 @@ interface Flags { [k: string]: string | boolean | undefined }
 function parse(argv: string[]): { pos: string[]; flags: Flags } {
   const pos: string[] = [];
   const flags: Flags = {};
-  const bools = new Set(["human", "json", "raw", "new-take", "dry-run", "resume", "stop", "foreground", "all-takes", "help", "yes"]);
+  const bools = new Set(["human", "json", "raw", "new-take", "dry-run", "resume", "stop", "foreground", "all-takes", "help", "yes", "from-app"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "-h") { flags.help = true; continue; }
@@ -100,7 +105,7 @@ export async function studioMain(argv: string[]): Promise<number> {
         const topic = (pos[1] ?? "all") as GuideTopic;
         if (topic !== "all" && !(GUIDE_TOPICS as readonly string[]).includes(topic)) throw new StudioError("BAD_ARGS", `Unknown guide topic ${topic}.`, `Topics: ${GUIDE_TOPICS.join(", ")}.`);
         const { memoryBrief } = await import("./memory.js");
-        const memory = await memoryBrief(resolveProject(who.project)).catch(() => "");
+        const memory = await memoryBrief(resolveProject(who.project), 5, flags.renderer === "api" ? "api" : "subscription").catch(() => "");
         const g = guide(topic) + (memory ? `
 
 # What this project has learned
@@ -131,6 +136,7 @@ ${memory}` : "");
         const r: any = await runGraph(need(pos, 1, "graph slug"), {
           scope: flags.scope as string | undefined, nodes: list(flags.nodes), newTake: Boolean(flags["new-take"]), concurrency: num(flags.concurrency),
           dryRun: Boolean(flags["dry-run"]), resume: Boolean(flags.resume), stop: Boolean(flags.stop), waitSeconds: num(flags.wait) ?? 0, detach: !foreground,
+          ...(flags["max-run-cost"] !== undefined || flags["max-day-cost"] !== undefined ? { limits: { run: num(flags["max-run-cost"]), day: num(flags["max-day-cost"]) } } : {}),
         }, who);
         out(r, `${r.job ? `Job ${r.job}: ` : ""}${r.message}${r.report ? `\n${r.report.text}` : ""}`);
         return 0;
@@ -176,13 +182,32 @@ ${memory}` : "");
         if (sub === "install") { out({}, await installPerception({ yes: Boolean(flags.yes), log: m => process.stderr.write(`${m}\n`) })); return 0; }
         throw new StudioError("BAD_ARGS", `Unknown perception command "${sub}".`, "gpt-image studio perception [status | install --yes]");
       }
+      case "nodes": {
+        const { nodeRegistry } = await import("./nodes.js");
+        const nodes = nodeRegistry();
+        out({ nodes }, nodes.map(n => `${n.type}  ${n.work}  in: ${n.inputs.map(h => h.name).join(",") || "-"}  out: ${n.outputs.map(h => h.name).join(",") || "-"}`).join("\n"));
+        return 0;
+      }
+      case "budget": {
+        const graph = flags.graph as string | undefined;
+        let grant;
+        if (flags.grant !== undefined) {
+          const amount = num(flags.grant);
+          if (amount === undefined || Number.isNaN(amount)) throw new StudioError("BAD_ARGS", "--grant needs a dollar amount.", "gpt-image studio budget --grant 5 --approved-by <owner> --words 'approve, 5 dollars'");
+          grant = { amount, approvedBy: String(flags["approved-by"] ?? ""), words: String(flags.words ?? ""), graph, expires: flags.expires as string | undefined };
+        }
+        const { budgetReport } = await import("./api.js");
+        const r = await budgetReport({ ...who, graph, grant, source: flags["from-app"] ? "app" : "agent" });
+        out({ view: r.view, grant: r.grant }, r.text);
+        return 0;
+      }
       case "worker": {
         const { runJob } = await import("./runner.js");
         await runJob(resolveProject(who.project), need(pos, 1, "graph slug"), String(flags.job));
         return 0;
       }
       default:
-        throw new StudioError("BAD_ARGS", `Unknown studio command "${cmd}".`, "Commands: list, guide, get, create, edit, run, status, sheet, study, events, view, perception.");
+        throw new StudioError("BAD_ARGS", `Unknown studio command "${cmd}".`, "Commands: list, guide, get, create, edit, run, status, budget, nodes, sheet, study, events, view, perception.");
     }
   } catch (e) {
     const err = e instanceof StudioError ? { code: e.code, message: e.message, fix: e.fix, issues: e.issues } : { code: "ERROR", message: e instanceof Error ? e.message : String(e) };

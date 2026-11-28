@@ -15,16 +15,19 @@ export function fakePng(seed, w = 48, h = 32) {
   return encodePng({ width: w, height: h, data });
 }
 
-/** calls: array that records [kind, node, text]; delayMs per provider slot; fail(x) may throw. */
-export function makeFakes({ calls = [], delayMs = 0, fail } = {}) {
+/** calls: array that records [kind, node, text, renderer]; delayMs per provider slot; fail(x) may
+ *  throw. usage(x) returns the API usage a paid slot reports (default 1000 output tokens = $0.03;
+ *  return undefined to simulate an API that reports none). Never touches the network. */
+export function makeFakes({ calls = [], delayMs = 0, fail, usage = () => ({ input_tokens: 100, output_tokens: 1000, total_tokens: 1100, input_tokens_details: { text_tokens: 100, image_tokens: 0 } }) } = {}) {
   const provider = kind => async x => {
     if (delayMs) await new Promise(r => setTimeout(r, delayMs));
     if (fail) fail(x, calls);
-    calls.push([kind, x.node.id, x.slot.text ?? x.slot.label]);
+    calls.push([kind, x.node.id, x.slot.text ?? x.slot.label, x.slot.render ? `api ${x.slot.render.model}` : "subscription"]);
     const path = `${x.outBase}.png`;
     await writeFile(path, fakePng(`${x.slot.fingerprint}:${x.takeId}`));
-    return { path, generations: 1, compiledPrompt: `compiled: ${x.slot.text ?? ""}` };
+    const u = x.slot.render ? usage(x) : undefined;
+    return { path, generations: 1, compiledPrompt: `compiled: ${x.slot.text ?? ""}`, ...(u ? { usage: u } : {}) };
   };
   const process = async x => (x.node.settings.op === "upscale" || x.node.settings.use_model ? provider("process")(x) : realExecutors.process(x));
-  return { calls, executors: { generate: provider("generate"), edit: provider("edit"), process, handoff: realExecutors.handoff, implementation: realExecutors.implementation } };
+  return { calls, executors: { generate: provider("generate"), edit: provider("edit"), process, finish: provider("finish"), handoff: realExecutors.handoff, implementation: realExecutors.implementation } };
 }

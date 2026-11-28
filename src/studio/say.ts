@@ -5,7 +5,7 @@
 // through GPT_IMAGE_STUDIO_DIALECT, so a run's stored fixes read in the dialect that started it.
 
 export type Dialect = "mcp" | "cli";
-export type Tool = "create" | "edit" | "run" | "status" | "get" | "view" | "list" | "guide";
+export type Tool = "create" | "edit" | "run" | "status" | "get" | "view" | "list" | "guide" | "budget";
 
 const ENV = "GPT_IMAGE_STUDIO_DIALECT";
 
@@ -14,7 +14,7 @@ export function setDialect(d: Dialect): void { process.env[ENV] = d; }
 export const isCli = () => dialect() === "cli";
 
 /** The CLI subcommand for each MCP tool (studio_view renders sheets, so its CLI name is sheet). */
-const CLI_NAME: Record<Tool, string> = { create: "create", edit: "edit", run: "run", status: "status", get: "get", view: "sheet", list: "list", guide: "guide" };
+const CLI_NAME: Record<Tool, string> = { create: "create", edit: "edit", run: "run", status: "status", get: "get", view: "sheet", list: "list", guide: "guide", budget: "budget" };
 
 /** Just the tool's name: "studio_view" or "gpt-image studio sheet". */
 export function tool(t: Tool): string { return isCli() ? `gpt-image studio ${CLI_NAME[t]}` : `studio_${t}`; }
@@ -59,4 +59,10 @@ export function withDialect<T>(d: Dialect | undefined, fn: () => T): T {
   const prev = process.env[ENV];
   setDialect(d);
   try { return fn(); } finally { if (prev === undefined) delete process.env[ENV]; else process.env[ENV] = prev; }
+}
+
+/** How to record the owner's grant, in the caller's dialect, with placeholders to fill. */
+export function grantCmd(graph?: string): string {
+  if (isCli()) return `gpt-image studio budget --grant <dollars> --approved-by <owner> --words '<what they said>'${graph ? ` --graph ${shellArg(graph)}` : ""}`;
+  return `studio_budget {grant:{amount:<dollars>, approved_by:"<owner>", words:"<what they said>"${graph ? `, graph:${JSON.stringify(graph)}` : ""}}}`;
 }

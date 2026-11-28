@@ -5,10 +5,11 @@
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { NODE_SPECS, MAX_SLOTS, SHOT_DIMENSIONS, type ShotKey } from "./nodes.js";
+import { NODE_SPECS, MAX_SLOTS, SHOT_DIMENSIONS, workOf, type ShotKey } from "./nodes.js";
 import { inputsOf, topoOrder } from "./graph.js";
 import { paths } from "./store.js";
-import { ENGINE_VERSION, type GraphFile, type GraphNode, type Issue, type NodeState, type StateFile, type Take, type TakeInput } from "./types.js";
+import { ENGINE_VERSION, type GraphFile, type GraphNode, type Issue, type NodeState, type RenderInfo, type StateFile, type Take, type TakeInput } from "./types.js";
+import { apiRender, studioProfile, type StudioProfile } from "./render.js";
 import { cmd } from "./say.js";
 
 export interface ImageRef { node: string; take: string; asset: string; sha256: string; current: boolean; verdict?: "approved" | "rejected"; role?: string; instruction?: string }
@@ -20,6 +21,8 @@ export interface Slot {
   look?: Look; inputs: TakeInput[]; label: string;
   /** Set on sweep slots. With an anchor, the slot renders as an edit of that image that changes only this. */
   sweep?: { dim: string; value: string; anchor?: ImageRef };
+  /** Set when the slot renders on the paid API (renderer "api" or a finish node). Absent = subscription. */
+  render?: RenderInfo;
 }
 export type SlotStatus = "current" | "pinned" | "stale" | "missing";
 export interface SlotView { slot: Slot; take?: Take; status: SlotStatus }
@@ -60,7 +63,16 @@ async function fileHash(abs: string): Promise<string | undefined> {
 async function profileHash(dir: string): Promise<string | null> {
   const { findProfilePath } = await import("../profile.js");
   const p = findProfilePath(join(dir, "assets"));
-  return p ? (await fileHash(p)) ?? null : null;
+  if (!p) return null;
+  const h = (await fileHash(p)) ?? null;
+  // The "studio" block (API defaults, spend limits) reaches fingerprints only through the resolved
+  // render of API slots. Raising a limit must not invalidate every cached take, so hash without it.
+  // Profiles without the block keep the byte hash, so existing caches stay valid.
+  try {
+    const raw = JSON.parse(await readFile(p, "utf8"));
+    if (raw && typeof raw === "object" && "studio" in raw) { delete raw.studio; return hashOf(raw); }
+  } catch { /* unparsable: the byte hash */ }
+  return h;
 }
 
 const dedupe = (xs: string[]) => [...new Set(xs)];
@@ -138,6 +150,9 @@ export interface EvalContext { dir: string; project: string; liveJob?: string }
 export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalContext): Promise<Map<string, NodeEval>> {
   const out = new Map<string, NodeEval>();
   let profile: string | null | undefined;
+  let sp: StudioProfile | undefined;
+  const studio = () => (sp ??= studioProfile(ctx.dir));
+  const takeOf = (im: ImageRef) => state.nodes[im.node]?.takes.find(t => t.id === im.take);
   for (const id of topoOrder(graph)) {
     const node = graph.nodes.find(n => n.id === id)!;
     const ns = state.nodes[id];
@@ -263,17 +278,21 @@ export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalCont
         const looks: Array<{ look: Look; label?: string; sweep?: Slot["sweep"] }> = sw ? sw.values.map(v => ({ look: sweepLook(look, sw.dim, v), label: `${sw.dim}: ${v}`, sweep: { dim: sw.dim, value: v, ...(sweepAnchor ? { anchor: sweepAnchor } : {}) } })) : [{ look }];
         const fan = sw ? looks.map(l => ({ ...pairs[0]!, ...l })) : pairs.map(p => ({ ...p, look, label: undefined as string | undefined, sweep: undefined }));
         if (fan.length * variants > MAX_SLOTS) { ev.issues.push({ message: `${fan.length * variants} slots (max ${MAX_SLOTS})`, fix: "Reduce takes, sweep values or list items." }); break; }
+        if (s.renderer === "api" && studio().issue) { ev.issues.push(studio().issue!); break; }
         fan.forEach((p, index) => {
           const look = p.look;
+          // The API render (model, quality, size, complexity, with profile defaults) is part of the
+          // fingerprint. Subscription slots add nothing, so their fingerprints are unchanged.
+          const render = apiRender(node.type, s, studio(), { preset: look.preset });
           for (let variant = 0; variant < variants; variant++) {
-            const base = { e: ENGINE_VERSION, t: node.type, s: pick(s, RENDER_KEYS), look, text: p.item.text, refs: refs.map(r => [r.sha256, r.role, r.instruction ?? null]), image: p.image?.sha256 ?? null, mask: mask?.sha256 ?? null, v: variant, profile: isGen ? profile : null };
+            const base = { e: ENGINE_VERSION, t: node.type, s: pick(s, RENDER_KEYS), look, text: p.item.text, refs: refs.map(r => [r.sha256, r.role, r.instruction ?? null]), image: p.image?.sha256 ?? null, mask: mask?.sha256 ?? null, v: variant, profile: isGen ? profile : null, ...(render ? { api: render } : {}) };
             const inputs: TakeInput[] = [
               ...(p.item.text ? [{ handle: "prompt", node: p.item.source, text: p.item.text }] : []),
               ...(p.image ? [{ handle: "image", node: p.image.node, take: p.image.take, sha256: p.image.sha256 }] : []),
               ...refs.map(r => ({ handle: "references", node: r.node, take: r.take, sha256: r.sha256, role: r.role })),
               ...(mask ? [{ handle: "mask", node: mask.node, take: mask.take, sha256: mask.sha256 }] : []),
             ];
-            ev.slots.push({ index, variant, fingerprint: hashOf(p.sweep ? { ...base, sweepEdit: p.sweep.anchor?.sha256 ?? null } : base), text: p.item.text || undefined, item: p.item.item, image: p.image, refs, mask, look, inputs, ...(p.sweep ? { sweep: p.sweep } : {}),
+            ev.slots.push({ index, variant, fingerprint: hashOf(p.sweep ? { ...base, sweepEdit: p.sweep.anchor?.sha256 ?? null } : base), text: p.item.text || undefined, item: p.item.item, image: p.image, refs, mask, look, inputs, ...(p.sweep ? { sweep: p.sweep } : {}), ...(render ? { render } : {}),
               label: [p.label ?? p.item.item ?? (p.image ? `${p.image.node}/${p.image.take}` : undefined), variants > 1 ? `take ${variant + 1}` : undefined].filter(Boolean).join(" · ") || id });
           }
         });
@@ -283,9 +302,31 @@ export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalCont
       case "process": {
         const prim = takeImages("image");
         if (!prim.length && !ev.blockedBy) ev.issues.push({ message: "process needs an image", fix: `Connect one: {op:"connect", from:"<image node>", to:"${id}"}.` });
+        if (s.renderer === "api" && studio().issue) ev.issues.push(studio().issue!);
         if (ev.issues.length || ev.blockedBy) break;
-        prim.forEach((im, index) => ev.slots.push({ index, variant: 0, fingerprint: hashOf({ e: ENGINE_VERSION, t: "process", s, image: im.sha256 }), image: im, refs: [], label: `${im.node}/${im.take}`,
-          inputs: [{ handle: "image", node: im.node, take: im.take, sha256: im.sha256 }] }));
+        prim.forEach((im, index) => {
+          const t = takeOf(im);
+          const render = workOf("process", s) === "provider" ? apiRender("process", s, studio(), { image: { width: t?.width, height: t?.height } }) : undefined;
+          ev.slots.push({ index, variant: 0, fingerprint: hashOf({ e: ENGINE_VERSION, t: "process", s, image: im.sha256, ...(render ? { api: render } : {}) }), image: im, refs: [], label: `${im.node}/${im.take}`,
+            inputs: [{ handle: "image", node: im.node, take: im.take, sha256: im.sha256 }], ...(render ? { render } : {}) });
+        });
+        finishSlots();
+        break;
+      }
+      case "finish": {
+        // The ladder's last rung: an approved draft re-rendered from its image, never from the prompt.
+        const prim = takeImages("image");
+        if (!prim.length && !ev.blockedBy) ev.issues.push({ message: "finish needs a draft image", fix: `Connect the draft node or a gallery: {op:"connect", from:"<draft node>", to:"${id}"}.` });
+        const chosen = s.approved_only === false ? prim : prim.filter(i => i.verdict === "approved");
+        if (prim.length && !chosen.length && !ev.blockedBy) ev.issues.push({ message: "no approved take reaches this finish", fix: `Look at the drafts, then approve the one to finish: {op:"approve", take:"<node>/<take>"} (record an answer or critique first). Candidates: ${prim.map(i => `${i.node}/${i.take}`).join(", ")}.` });
+        if (studio().issue) ev.issues.push(studio().issue!);
+        if (ev.issues.length || ev.blockedBy) break;
+        chosen.forEach((im, index) => {
+          const t = takeOf(im);
+          const render = apiRender("finish", s, studio(), { image: { width: t?.width, height: t?.height } })!;
+          ev.slots.push({ index, variant: 0, fingerprint: hashOf({ e: ENGINE_VERSION, t: "finish", s: pick(s, ["instruction", "format"]), api: render, image: im.sha256 }), image: im, refs: [], render,
+            label: `${im.node}/${im.take} → ${render.size}`, inputs: [{ handle: "image", node: im.node, take: im.take, sha256: im.sha256 }] });
+        });
         finishSlots();
         break;
       }

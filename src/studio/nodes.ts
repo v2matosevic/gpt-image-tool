@@ -6,6 +6,7 @@ import { MODIFIER_IDS, PRESET_IDS } from "../presets/index.js";
 import { PLATFORM_IDS } from "../platforms.js";
 import { creativeBriefSchema } from "../brief.js";
 import type { HandleType, Issue, NodeType } from "./types.js";
+import { customSizeProblem, modelFamily, resolveImageModel } from "../models.js";
 
 export interface HandleSpec { name: string; type: HandleType; multi: boolean; doc: string }
 export interface NodeSpec {
@@ -22,8 +23,10 @@ export interface NodeSpec {
 }
 
 export const SIZES = ["auto", "1024x1024", "1536x1024", "1024x1536", "1024x1280", "1280x1024", "2048x2048", "2048x1152", "1152x2048"] as const;
-/** Subscription only: xhigh and max need an explicitly selected API renderer, which Studio never uses. */
-export const QUALITIES = ["low", "medium", "high", "auto"] as const;
+/** low/medium/high/auto everywhere; xhigh and max only with renderer "api" (checked in renderIssues). */
+export const QUALITIES = ["low", "medium", "high", "auto", "xhigh", "max"] as const;
+export const SUBSCRIPTION_QUALITIES = ["low", "medium", "high", "auto"] as const;
+export const RENDERERS = ["subscription", "api"] as const;
 export const ROLES = ["subject", "style", "photography", "texture", "composition", "palette", "logo"] as const;
 export const PROCESS_OPS = ["remove-background", "upscale", "strip-metadata", "web-export"] as const;
 export const STAGES = ["concept", "sketch", "art", "final"] as const;
@@ -81,14 +84,24 @@ const sweep = z.object({
   dim: z.string().refine(v => SWEEP_DIMS.includes(v), v => ({ message: `cannot sweep "${v}"${closest(v, SWEEP_DIMS) ? `. Did you mean "${closest(v, SWEEP_DIMS)}"?` : ""} Sweepable: ${SWEEP_DIMS.join(", ")}` })),
   values: z.array(short).min(2).max(8),
 }).strict();
+/** A size from the menu, or WIDTHxHEIGHT (renderer "api" only; limits checked in renderIssues). */
+const sizeField = z.string().refine(v => (SIZES as readonly string[]).includes(v) || /^\d{2,5}x\d{2,5}$/.test(v), v => ({ message: `size "${v}" is neither one of ${SIZES.join(", ")} nor WIDTHxHEIGHT` }));
+const modelField = z.string().trim().min(1).max(80);
+/** Renderer choice (phase 1d). The subscription is the default everywhere; "api" spends money. */
+const rendererFields = { renderer: z.enum(RENDERERS), model: modelField, complexity: z.enum(["low", "medium", "high"]) };
+const rendererDocs = {
+  renderer: 'subscription (default: free, gpt-image-2, ignores size and quality) or api (paid GPT-Image-2.6: honours size, quality and complexity; inside the spend limits). Choose api only for work that needs it: see the "renderer" guide topic.',
+  model: "renderer api only: flare (GPT-Image-2.6 Flare, fast drafts), sunburst (2.6 Sunburst, precision and finals; default), flare-2.5, sunburst-2.5, or a full gpt-image-* id. Default: the profile's studio.api.model, else sunburst.",
+  complexity: "renderer api only: GPT-Image-2.6 planning effort low | medium | high (API default high). Lower suits focused edits; higher suits dense text and layouts.",
+};
 const renderFields = {
-  size: z.enum(SIZES), quality: z.enum(QUALITIES), format: z.enum(["png", "jpeg", "webp"]),
+  size: sizeField, quality: z.enum(QUALITIES), format: z.enum(["png", "jpeg", "webp"]),
   transparent: z.boolean(), platform, takes: z.number().int().min(1).max(4),
-  reference_role: z.enum(ROLES), proof: z.boolean(), sweep,
+  reference_role: z.enum(ROLES), proof: z.boolean(), sweep, ...rendererFields,
 };
 const renderDocs = {
-  size: `One of ${SIZES.join(", ")}. Default: the preset's size, else 1024x1024.`,
-  quality: "low (default, drafts), medium, high (finals; the highest the subscription accepts here). xhigh/max are API-only and refused.",
+  size: `One of ${SIZES.join(", ")}. Default: the preset's size, else 1024x1024. With renderer api also WIDTHxHEIGHT: multiples of 16, aspect 1:3 to 3:1, edges up to 3840, 655,360 to 8,294,400 pixels. The subscription ignores size.`,
+  quality: "low (default, drafts), medium, high. xhigh and max only with renderer api. The subscription ignores quality.",
   format: "png (default), jpeg or webp.",
   transparent: "Transparent background (local chroma key on the subscription).",
   platform: "Platform target: native size and safe-area composition.",
@@ -96,6 +109,7 @@ const renderDocs = {
   sweep: 'Vary one look dimension, one slot per value, everything else fixed: {dim:"shot.key_light", values:["from camera left","backlight","top light"]}. dim is preset, style.<dimension> or shot.<dimension>. Needs a single prompt (not a list); 2-8 values. The run sheet is labelled by value.',
   reference_role: `Role for connected reference images that do not carry their own: ${ROLES.join(", ")} (default style).`,
   proof: "Vision proofread of rendered lettering (default on when style.text is set).",
+  ...rendererDocs,
 };
 
 const IMG = "image" as const;
@@ -146,9 +160,25 @@ export const NODE_SPECS: Record<NodeType, NodeSpec> = {
   process: {
     type: "process", summary: "Post-process each incoming image: remove-background, upscale, strip-metadata, web-export.",
     inputs: [h("image", IMG, true, "Image(s) to process.")], outputs: [h("image", IMG, true, "The processed image(s).")],
-    settings: z.object({ op: z.enum(PROCESS_OPS), tolerance: z.number().int().min(0).max(180), use_model: z.boolean(), guidance: short, quality: z.enum(QUALITIES), kind: z.enum(["favicon", "og", "hero", "appicon"]) }).partial({ tolerance: true, use_model: true, guidance: true, quality: true, kind: true }).strict(),
-    docs: { op: `${PROCESS_OPS.join(" | ")} (required). upscale and remove-background with use_model spend a generation; the rest are local.`, tolerance: "remove-background keyer tolerance 0-180 (default 28).", use_model: "remove-background: re-render the subject on chroma via the model (regenerates detail).", guidance: "upscale: extra guidance.", quality: "upscale quality (default high).", kind: "web-export set: favicon, og, hero, appicon (default og)." },
+    settings: z.object({ op: z.enum(PROCESS_OPS), tolerance: z.number().int().min(0).max(180), use_model: z.boolean(), guidance: short, quality: z.enum(QUALITIES), kind: z.enum(["favicon", "og", "hero", "appicon"]), size: sizeField, ...rendererFields }).partial({ tolerance: true, use_model: true, guidance: true, quality: true, kind: true, size: true, renderer: true, model: true, complexity: true }).strict(),
+    docs: { op: `${PROCESS_OPS.join(" | ")} (required). upscale and remove-background with use_model spend a generation; the rest are local.`, tolerance: "remove-background keyer tolerance 0-180 (default 28).", use_model: "remove-background: re-render the subject on chroma via the model (regenerates detail).", guidance: "upscale: extra guidance.", quality: "upscale quality (default high).", kind: "web-export set: favicon, og, hero, appicon (default og).", size: "upscale target size (default the 2K size matching the aspect). WIDTHxHEIGHT needs renderer api. For an approved draft prefer a finish node.", ...rendererDocs },
     work: s => (s.op === "upscale" || (s.op === "remove-background" && s.use_model) ? "provider" : "local"),
+  },
+  finish: {
+    type: "finish", summary: "The last rung of the ladder: re-render each APPROVED incoming take from its image through the paid API's edit endpoint, at a larger size and higher quality, keeping composition, subject, colour and lighting. Never regenerates from the prompt. Always the API renderer (paid, inside the spend limits).",
+    inputs: [h("image", IMG, true, "Drafts to finish; only approved takes are finished (approve one first).")],
+    outputs: [h("image", IMG, true, "The finished image(s).")],
+    settings: z.object({ size: sizeField, quality: z.enum(QUALITIES), model: modelField, complexity: z.enum(["low", "medium", "high"]), instruction: short, format: z.enum(["png", "jpeg", "webp"]), approved_only: z.boolean() }).partial().strict(),
+    docs: {
+      size: "WIDTHxHEIGHT or a menu size. Default: the draft's aspect with a 2048 px long edge (multiples of 16). Up to 3840 per edge and 8,294,400 pixels.",
+      quality: "Default high. medium is cheaper; xhigh and max cost two to four times high (see the renderer topic).",
+      model: "Default the profile's studio.api.model, else sunburst (GPT-Image-2.6 Sunburst: OpenAI's choice for editing precision).",
+      complexity: "GPT-Image-2.6 planning effort (low suits a faithful re-render; API default high can introduce changes). Default low.",
+      instruction: "Extra direction appended to the preserving instruction, e.g. \"sharpen the label text\". It cannot loosen what is preserved.",
+      format: "png (default), jpeg or webp.",
+      approved_only: "Default true: only approved takes are finished. false finishes every incoming image (each one is paid).",
+    },
+    work: "provider",
   },
   gallery: {
     type: "gallery", summary: "Collects images for review. Picks narrow what it passes on; unpicked, it passes everything.",
@@ -193,6 +223,36 @@ export function workOf(type: NodeType, settings: Record<string, unknown>): "none
   return typeof w === "function" ? w(settings) : w;
 }
 
+/** Rules that span settings: API-only values need renderer "api", and API values must meet the
+ *  documented model and size limits. Returned as issues, so refusals name the fix. */
+export function renderIssues(type: NodeType, settings: Record<string, unknown>, path: string): Issue[] {
+  if (!["generate", "edit", "process", "finish"].includes(type)) return [];
+  const s = settings as Record<string, any>;
+  const api = type === "finish" || s.renderer === "api";
+  const out: Issue[] = [];
+  const fixApi = (what: string) => `Set renderer to api on this node to use ${what} (paid; see studio_guide topic renderer), or remove it.`;
+  if (!api) {
+    if (s.model !== undefined) out.push({ path: `${path}.model`, message: "model is set but the renderer is the subscription, which picks its own model", fix: fixApi("a named model") });
+    if (s.complexity !== undefined) out.push({ path: `${path}.complexity`, message: "complexity is a GPT-Image-2.6 API setting; the subscription ignores it", fix: fixApi("complexity") });
+    if (s.quality === "xhigh" || s.quality === "max") out.push({ path: `${path}.quality`, message: `quality ${s.quality} is API-only`, fix: `Use ${SUBSCRIPTION_QUALITIES.join(", ")} on the subscription, or ${fixApi(s.quality).charAt(0).toLowerCase()}${fixApi(s.quality).slice(1)}` });
+    if (typeof s.size === "string" && !(SIZES as readonly string[]).includes(s.size)) out.push({ path: `${path}.size`, message: `custom size ${s.size} is API-only`, fix: `Use one of ${SIZES.join(", ")}, or ${fixApi("a custom size").charAt(0).toLowerCase()}${fixApi("a custom size").slice(1)}` });
+    if (type === "process" && s.size !== undefined && s.op !== "upscale") out.push({ path: `${path}.size`, message: "size applies only to op upscale", fix: "Remove size." });
+    return out;
+  }
+  if (type === "process" && !(s.op === "upscale" || (s.op === "remove-background" && s.use_model))) out.push({ path: `${path}.renderer`, message: `renderer api does nothing for op ${s.op} (local work)`, fix: "Remove renderer, or use op upscale / remove-background with use_model." });
+  let model: string | undefined;
+  try { model = resolveImageModel(typeof s.model === "string" ? s.model : undefined, "apikey", {}); } catch (e) { out.push({ path: `${path}.model`, message: String((e as Error).message), fix: rendererDocs.model }); }
+  if (typeof s.model === "string" && model && !modelFamily(model)) out.push({ path: `${path}.model`, message: `unknown image model "${s.model}"`, fix: rendererDocs.model });
+  const fam = modelFamily(model);
+  if (s.complexity !== undefined && fam && fam !== "2.6") out.push({ path: `${path}.complexity`, message: `complexity is a GPT-Image-2.6 setting; ${model} does not take it`, fix: "Use model flare or sunburst (2.6), or remove complexity." });
+  if ((s.quality === "xhigh" || s.quality === "max") && fam && fam !== "2.6" && fam !== "2.5") out.push({ path: `${path}.quality`, message: `quality ${s.quality} needs GPT Image 2.5 or 2.6, not ${model}`, fix: "Use model flare or sunburst." });
+  if (typeof s.size === "string" && !(SIZES as readonly string[]).includes(s.size)) {
+    const p = customSizeProblem(s.size);
+    if (p) out.push({ path: `${path}.size`, message: p, fix: "Use WIDTHxHEIGHT with multiples of 16, aspect 1:3 to 3:1, edges up to 3840 and 655,360 to 8,294,400 pixels, e.g. 2048x2048 or 2560x1440." });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- suggestions + validation
 
 function distance(a: string, b: string): number {
@@ -235,7 +295,7 @@ function nestedKeys(parent: string): string[] {
 export function validateSettings(type: NodeType, settings: unknown, path: string): Issue[] {
   const spec = NODE_SPECS[type];
   const parsed = spec.settings.safeParse(settings ?? {});
-  if (parsed.success) return [];
+  if (parsed.success) return renderIssues(type, parsed.data as Record<string, unknown>, path);
   const valid = Object.keys(spec.docs);
   return parsed.error.issues.map(i => {
     const at = [path, ...i.path].join(".");
@@ -285,4 +345,19 @@ function ruleIssue(i: z.ZodIssue, at: string, settings: unknown, doc?: string): 
     return { path: at, message: `"${key}" must be ${i.expected === "array" ? "a list" : `a ${i.expected}`}, not ${i.received === "null" ? "null" : `a ${i.received}`} (${JSON.stringify(value)})`, fix: `Give "${key}" a ${i.expected} value.${about}` };
   }
   return { path: at, message: `"${key}": ${i.message}`, fix: doc ?? "" };
+}
+
+/** The node registry as plain data (for ADE's editor): handles, setting docs and kind of work. */
+export function nodeRegistry() {
+  return NODE_TYPES.map(t => {
+    const s = NODE_SPECS[t];
+    return {
+      type: t, summary: s.summary,
+      inputs: s.inputs.map(h => ({ name: h.name, type: h.type, multi: h.multi, doc: h.doc })),
+      outputs: s.outputs.map(h => ({ name: h.name, type: h.type, multi: h.multi, doc: h.doc })),
+      settings: { ...s.docs },
+      ...(s.textField ? { textField: s.textField } : {}),
+      work: typeof s.work === "function" ? "depends" as const : s.work,
+    };
+  });
 }
