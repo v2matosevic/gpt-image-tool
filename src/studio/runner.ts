@@ -376,7 +376,7 @@ async function budgetPlanLine(project: string, slug: string, plan: Plan, limits:
   const grantLeft = v.grants.filter(g => g.active).reduce((a, g) => a + g.remaining, 0);
   const runLeft = Math.max(0, limits.run - spentChain);
   const fits = plan.api.cost <= Math.min(runLeft, v.normalLeft) + 1e-9;
-  return `Estimated paid API cost: ${dollars(plan.api.cost)}${plan.api.lowerBound ? " or more" : ""} for ${plan.api.slots} image${plan.api.slots === 1 ? "" : "s"} (${plan.nodes.filter(n => n.cost !== undefined).map(n => `${n.node}: ${n.renderer}`).join("; ")}). ` +
+  return `Estimated paid API cost: ${dollars(plan.api.cost)}${plan.api.lowerBound ? " or more" : ""} for ${plan.api.slots} image${plan.api.slots === 1 ? "" : "s"} (${plan.nodes.filter(n => n.cost !== undefined && n.toRun).map(n => `${n.node}: ${n.renderer}`).join("; ")}). ` +
     `Limits: ${dollars(limits.run)} per run${spentChain ? ` (this resume chain has spent ${dollars(spentChain)})` : ""}, ${dollars(limits.day)} per day (spent today ${dollars(v.spentToday)}), ceiling ${dollars(limits.ceiling)}${grantLeft ? `; active grants ${dollars(grantLeft)}` : ""}. ` +
     (fits ? "It fits inside the limits." : `It does not fit inside the limits${grantLeft ? " without the grant" : ""}: the run will stop cleanly, resumable, when the next image would pass one.`);
 }
@@ -586,6 +586,11 @@ export async function runJob(project: string, slug: string, job: string, executo
       budget.needed = left?.api.cost ?? 0;
       stop.fix = `The remaining paid work needs about ${dollars(budget.needed)}${left?.api.lowerBound ? " or more" : ""}. Ask the owner once, with that amount; do not work around the limit (no new run, no other renderer). ` +
         (stop.code === "budget-ceiling" ? "The ceiling can only be raised by the owner editing studio.limits.ceiling in .gptimage.json." : `When the owner approves in chat, record a grant with ${grantCmd(slug)}, then ${cmd("run", { graph: slug, resume: true })}; finished slots are kept.`);
+      // A limit the run lowered for itself is the agent's own caution, not the owner's limit.
+      const own = studioProfile(dir).limits;
+      const self = stop.code === "budget-run" ? budget.limits.run < own.run - 1e-9 : stop.code === "budget-day" ? budget.limits.day < own.day - 1e-9 : false;
+      if (self) stop.fix = `This run's ${stop.code === "budget-run" ? "run" : "day"} limit was lowered to ${dollars(stop.code === "budget-run" ? budget.limits.run : budget.limits.day)} for this run only. The remaining paid work needs about ${dollars(budget.needed)}. ` +
+        `If that is fine, ${cmd("run", { graph: slug, resume: true })} continues under the project's limits (${dollars(own.run)} per run, counted across the resume chain; ${dollars(own.day)} per day); otherwise stop here.`;
       rec.stopCode = stop.code;
     }
     if (stop) { rec.stopReason = stop.reason; rec.stopFix = stop.fix; }

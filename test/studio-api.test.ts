@@ -200,6 +200,7 @@ test("lowering a limit for one run works; it never raises", async () => {
   assert.equal(rec.budget!.limits.run, 0.05);
   assert.equal(rec.stopCode, "budget-run");
   assert.equal(fakes.calls.length, 1);
+  assert.match(rec.stopFix!, /lowered to \$0\.05 for this run only.*continues under the project's limits/);
 });
 
 // ---------------------------------------------------------------- real executors, mocked fetch
@@ -271,6 +272,7 @@ test("the ladder end to end: cheap drafts, approve one, finish it from the image
   assert.equal(take.cost!.dollars, (220 * 5 + 664 * 30) / 1e6);
   const st = await statusReport("ladder", { project: p });
   assert.match(st.text, /final\/t3/);
+  assert.match(st.text, /drift from draft\/t2: mean L\* [+-]\d/);
 });
 
 test("the key never reaches a written file or a result, in success or failure", async (t) => {

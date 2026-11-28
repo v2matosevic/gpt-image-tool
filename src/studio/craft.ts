@@ -83,6 +83,17 @@ export async function anchorDeviations(take: Reading | undefined, anchor: Readin
   return lookDrift(take as unknown as LookReadingT, anchor as unknown as LookReadingT).map(f => ({ source: "anchor" as const, measure: f.measure, expected: `${f.anchor} (${anchorRef})`, measured: f.take, note: f.note }));
 }
 
+/** One line of measured drift between a take and the image it was made from, printed for every
+ *  finish whether or not anything crossed a deviation threshold. Measurements, not a verdict. */
+export function driftLine(take: Reading | undefined, from: Reading | undefined, fromRef: string): string | undefined {
+  if (!take || !from) return undefined;
+  const t = take as unknown as LookReadingT, f = from as unknown as LookReadingT;
+  const d = (x: number, y: number, digits = 1) => `${x - y >= 0 ? "+" : ""}${(x - y).toFixed(digits)}`;
+  const shift = Math.hypot(t.composition.centroid.x - f.composition.centroid.x, t.composition.centroid.y - f.composition.centroid.y);
+  return `drift from ${fromRef}: mean L* ${d(t.luminance.mean, f.luminance.mean)}, warmth b* ${d(t.color.warmth, f.color.warmth)}, chroma C* ${d(t.color.chroma, f.color.chroma)}, ` +
+    `visual-weight centre moved ${(shift * 100).toFixed(1)}% of the frame (${t.color.temperature}/${t.color.saturation} vs ${f.color.temperature}/${f.color.saturation})`;
+}
+
 /** Words in the request that imply something measurable. Only clear cases; silence is not a pass. */
 const EXPECT: Array<{ re: RegExp; measure: string; expected: string; ok: (r: LookReadingT) => boolean; measured: (r: LookReadingT) => string }> = [
   { re: /\blow[- ]key\b|\bmoody\b|\bnight\b|\bchiaroscuro\b/i, measure: "key", expected: "low key", ok: r => r.luminance.key === "low" || r.luminance.mean < 42, measured: r => `${r.luminance.key} (mean L* ${Math.round(r.luminance.mean)})` },

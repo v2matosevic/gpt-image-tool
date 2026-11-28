@@ -221,6 +221,12 @@ async function summarize(dir: string, rec: RunRecord) {
         lines.push(`    ${renderLabel(x.take.render)}${x.take.width ? `, saved ${x.take.width}x${x.take.height}` : ""}${x.take.cost ? `, cost ${dollars(x.take.cost.dollars)} (${x.take.usage?.output_tokens ?? "?"} output tokens; estimate was ${dollars(x.take.cost.estimate)}${x.take.cost.funding !== "limit" ? `; paid from ${x.take.cost.funding}` : ""})` : ""}`);
       }
       if (x.take?.reading) lines.push(`    reads: ${await summaryOf(x.take.reading)}`);
+      const src = x.take?.render?.renderer === "api" && x.take.inputs.length === 1 && x.take.inputs[0]!.handle === "image" ? x.take.inputs[0]! : undefined;
+      if (src?.take) {
+        const draft = state.nodes[src.node]?.takes.find(t => t.id === src.take);
+        const line = (await import("./craft.js")).driftLine(x.take!.reading, draft?.reading, `${src.node}/${src.take}`);
+        if (line) lines.push(`    ${line}${x.take!.perception?.similarity ? "" : "; similarity not measured (perception pack not installed)"}`);
+      }
       const sim = x.take?.perception?.similarity as { cosine?: number; to?: string } | undefined;
       if (sim?.cosine !== undefined) lines.push(`    similarity to ${sim.to}: ${sim.cosine} (DINOv2 embedding cosine: subject and shape, not colour; 1 = same image)`);
       const fg = x.take?.perception?.mask as any;
