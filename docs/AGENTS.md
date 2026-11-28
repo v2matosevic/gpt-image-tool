@@ -32,9 +32,19 @@ handoff node for the coding agent. Unchanged images are reused, not regenerated,
 keeps its lineage. Quality `low` is the default; on the subscription `high` is sent but not
 shown to change the result ([Account and quota](STUDIO.md#account-and-quota)). [STUDIO.md](STUDIO.md).
 
+## Subscription or paid API
+
+Simple, everyday images always go on the subscription. The paid API is for images that need real refinement and the highest quality. Before choosing it, ask: will anyone look at this image at full size, print it, ship it as a hero or brand asset, or does it need a size or precision the subscription cannot give (above about 1254 px, a custom aspect, `xhigh`/`max`, complexity)? If not, stay on the subscription. Never default a project to the API, and never switch someone's work to paid billing they did not ask for.
+
+When the API is right, use the ladder: draft cheaply (the subscription, or `flare` at `low`, about 2.5 cents at 1024 px), look and choose, then finish only the chosen image from its pixels, an edit with `sunburst`, `high` and the final size, never a fresh generation from the prompt (that gives a different object). In Studio the `finish` node does this after an approval. Run a dry run first; it prices the work.
+
 ## Choosing the image model
 
-For the explicit `apikey` backend, use `image_model: "flare"` for faster drafts or `image_model: "sunburst"` for precise edits. Both are GPT Image 2.5; the API default is Sunburst. Keep model choice separate from quality: use `low` for drafts, compare `high`, `xhigh` or `max` for final assets. Do not switch a subscription user to paid API billing without their authorization. Subscription renderer selection is unverified and named selections are refused, even though direct experimental requests can return images.
+On the explicit `apikey` backend, `flare` is fast and `sunburst` is precise; on main both are GPT-Image-2.6 (`flare-2.5` / `sunburst-2.5` keep 2.5) and Sunburst is the default. Keep model choice separate from quality: use `low` for drafts, compare `high`, `xhigh` or `max` for final assets. Subscription renderer selection is unverified and named selections are refused, even though direct experimental requests can return images.
+
+## Spend limits
+
+Studio enforces a run limit (default $2, counted across resumes) and a day limit per project ($10) before every paid request, plus a ceiling ($50) only the owner's profile can change. When a limit stops a run, the result says what the rest needs. Ask the owner once, with that amount. Do not work around it: no fresh run, no other renderer, no repeated asking. When the owner approves in chat, record exactly that with `studio_budget` (amount, their words, who approved), then resume. A grant ends with the day. Direct `generate_image` / `edit_image` calls on the API report their cost but are not counted against Studio's limits, so keep paid work in Studio when it is more than a single image.
 
 ## Choosing the right call
 

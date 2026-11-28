@@ -67,9 +67,9 @@ Installation is from source. There is no official npm release of this project ye
 - Set exact text and real logos on generated plates; build social cards and carousels.
 - Preview image requests without quota, assign reference roles, and keep exact brand colors and font files in a project profile.
 - Explore six logo forms, export approved artwork as website/social kits, and compose exact branding boards. [Branding workflow](docs/BRANDING.md).
-- Work as a node graph with Studio: prompts, lists and references feed generators, unchanged images are never regenerated, approved images become a build package for a coding agent, and a read-only local viewer shows the graph. Subscription only. Not in a tagged release yet. [Studio](docs/STUDIO.md).
+- Work as a node graph with Studio: prompts, lists and references feed generators, unchanged images are never regenerated, approved images become a build package for a coding agent, and a read-only local viewer shows the graph. The subscription renders by default; a node marked for the paid API, or a finish step that re-renders an approved draft at up to 4K, runs under per-run and per-day spend limits. Not in a tagged release yet. [Studio](docs/STUDIO.md).
 
-The thirteen MCP tools are `generate_image`, `preview_image_request`, `edit_image`, `upscale_image`, `export_web_assets`, `export_logo_kit`, `create_brand_board`, `remove_background`, `compose_overlay`, `create_social_card`, `create_social_carousel`, `strip_image_metadata`, and `list_image_presets`. The development branch adds eight Studio tools (`studio_guide`, `studio_list`, `studio_get`, `studio_create`, `studio_edit`, `studio_run`, `studio_status`, `studio_view`). [Every parameter →](docs/TOOLS.md)
+The thirteen MCP tools are `generate_image`, `preview_image_request`, `edit_image`, `upscale_image`, `export_web_assets`, `export_logo_kit`, `create_brand_board`, `remove_background`, `compose_overlay`, `create_social_card`, `create_social_carousel`, `strip_image_metadata`, and `list_image_presets`. The development branch adds nine Studio tools (`studio_guide`, `studio_list`, `studio_get`, `studio_create`, `studio_edit`, `studio_run`, `studio_status`, `studio_view`, `studio_budget`). [Every parameter →](docs/TOOLS.md)
 
 The branding workflow is included in v0.6.0. Build the checkout and reconnect MCP after upgrading. Generated logo concepts remain raster; SVG logo delivery requires supplied vectors or explicitly requested font outlines.
 
@@ -77,20 +77,18 @@ The branding workflow is included in v0.6.0. Build the checkout and reconnect MC
 
 The board combines generated imagery with local typography, declared colors and an original vector test mark. It is a workflow sample, not client work. [Logo-family preview](docs/assets/logo-family.png) · [Provenance and reproducible inputs](docs/assets/README.md#branding-showcase-v060) · [Branding guide](docs/BRANDING.md).
 
-## Choose an Image 2.5 model
+## Subscription or paid API
 
-The subscription backend renders with gpt-image-2: OpenAI's Codex image page says built-in generation uses gpt-image-2, and the server's own echoed tool configuration names `gpt-image-2-codex` (checked 2026-11-28). It also replaces the quality and size you send with `auto` and reports every image as quality `low`. Images 2.5 is reachable here only through the paid API backend below. [Evidence](docs/IMAGE-2.5-RESEARCH.md#correction-2026-11-28-the-subscription-renders-with-gpt-image-2-not-images-25). Keep `backend: "subscription"` and `image_model: "auto"` for subscription usage.
+The subscription is the default and the right choice for everyday images. It renders with gpt-image-2: OpenAI's Codex image page says built-in generation uses gpt-image-2, and the server's own echoed tool configuration names `gpt-image-2-codex` (checked 2026-11-28). It also replaces the quality and size you send with `auto` and reports every image as quality `low`. [Evidence](docs/IMAGE-2.5-RESEARCH.md#correction-2026-11-28-the-subscription-renders-with-gpt-image-2-not-images-25). Keep `backend: "subscription"` and `image_model: "auto"` for subscription usage.
 
-Use `flare` for speed or `sunburst` for editing precision. Both require the explicitly selected, separately billed API backend and `OPENAI_API_KEY`:
+Choose the separately billed API only when the image needs it: someone will look at it at full size, print it, ship it as a hero or brand asset, or it needs a size or precision the subscription cannot give. On main (not yet in a tagged release) the API models are GPT-Image-2.6 `flare` (fast) and `sunburst` (precise; the default), with 2.5 kept as `flare-2.5` / `sunburst-2.5`:
 
 ```sh
-node dist/cli.js "a folded orange paper bird" --backend apikey --image-model flare -o draft.png
-node dist/cli.js --edit draft.png --instruction "make the paper blue" --backend apikey --image-model sunburst -o final.png
+node dist/cli.js "a folded orange paper bird" --backend apikey --image-model flare --quality low -o draft.png
+node dist/cli.js --edit draft.png --instruction "keep everything, render it finer" --backend apikey --image-model sunburst --quality high --size 2048x2048 --complexity low -o final.png
 ```
 
-For MCP, pass `backend: "apikey"` and `image_model: "flare"` or `"sunburst"`. Quality can be `low`, `medium`, `high`, `xhigh`, `max`, or `auto`. The subscription backend still uses its server-selected renderer; explicit Image 2.5 choices fail before making a request. [Research, evidence and limits](docs/IMAGE-2.5-RESEARCH.md).
-
-Available in v0.5.0. Rebuild and reconnect MCP after upgrading your checkout.
+The API takes quality `low` to `max`, custom sizes up to 3840 px on an edge (`WIDTHxHEIGHT`, multiples of 16, aspect 1:3 to 3:1), and on 2.6 `complexity` (`low`, `medium`, `high`). Each result states its cost from the usage the API reported and which source the key came from, never the key. Measured 2026-11-28: a 2.6 low 1024x1024 draft cost $0.025; a Sunburst high 2048x2048 finish from that draft cost $0.116. The key is read from `OPENAI_API_KEY`, the project's git-ignored `.secrets`, or `~/.gptimage/secrets` ([setup](docs/SETUP.md#paid-api-key)). Nothing ever switches between the two backends on its own. [Models, prices and evidence](docs/MODELS.md).
 
 ## Keep a project's style consistent
 
@@ -111,7 +109,7 @@ Use an absolute `output_path` in MCP calls so the tool can discover the intended
 
 ## Know the limits
 
-The subscription backend uses **GPT-6 Astra** to direct OpenAI's image generation tool and proofread results. OpenAI selects the underlying image renderer on that endpoint. The explicitly selected API backend defaults to **GPT Image 2.5 Sunburst**, with **Flare** available for faster generation. Environment overrides remain available. [Current models and verification](docs/MODELS.md).
+The subscription backend uses **GPT-6 Astra** to direct OpenAI's image generation tool and proofread results. OpenAI selects the underlying image renderer on that endpoint. The explicitly selected API backend defaults to **GPT-Image-2.6 Sunburst** on main (2.5 Sunburst in v0.6.0), with **Flare** available for faster generation. Environment overrides remain available. [Current models and verification](docs/MODELS.md).
 
 - Subscription generation shares your account's usage. Batches and proof retries consume additional requests. The API backend is only used when selected; it has separate billing.
 - This server reads and can refresh a local credential file. Treat it like other software with account access. It is designed for a trusted local agent, not as a public hosted service. [Data flow and security](SECURITY.md).

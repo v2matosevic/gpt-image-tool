@@ -10,19 +10,22 @@ Studio drives the existing generation, edit and upscale paths. It does not make
 images better by itself and it has no taste; it keeps the work organised, avoids
 paying twice for the same image, and makes each result traceable.
 
-- Agents: eight `studio_*` MCP tools. Start with `studio_guide`.
+- Agents: nine `studio_*` MCP tools. Start with `studio_guide` (topic `renderer` before any paid work).
 - People and programs: `gpt-image studio ...` (add `--json` for machine output).
 - Looking: `gpt-image studio view` serves a read-only page on 127.0.0.1.
 
 ## Account and quota
 
-Studio uses the ChatGPT subscription backend only and never the paid API. Every
-provider call passes `backend: "subscription"` and `image_model: "auto"`
-explicitly, so neither a project profile nor `GPT_IMAGE_BACKEND` can move a run onto
-API billing. The renderer is whatever OpenAI routes.
+The ChatGPT subscription is the default renderer for every node, in every project.
+A node renders on the paid OpenAI Images API only when it says so: `renderer: "api"`
+on a generate, edit or process node, or a `finish` node, which is the API by
+definition. Every provider call passes its backend explicitly (`subscription` with
+`image_model: "auto"`, or `apikey` with the resolved model), so neither a project
+profile nor `GPT_IMAGE_BACKEND` can move a node between them, and nothing falls back
+from one to the other. The owner's rule and its test are in "The paid API" below.
 
-Studio accepts quality `low` (the default, for drafts), `medium` and `high`, and
-sends it. Whether the subscription honours it is unknown. A negative control on
+On the subscription the renderer is gpt-image-2, chosen by OpenAI. Studio accepts
+quality `low` (the default, for drafts), `medium` and `high`, and sends it. A negative control on
 2026-11-28 sent `high`, `max` and a nonsense value (`banana-quality-probe`): all
 three returned HTTP 200 and a comparable 1254-square image in 17 to 20 seconds,
 and the output item reported `quality: "low"` for every one of them. The field is
@@ -40,6 +43,97 @@ time.
 Runs spend the account's usage. Agents may run any graph without asking; each run
 records how many generations it made, and a quota or rate-limit error stops the run
 cleanly so it can be resumed.
+
+## The paid API (phase 1d, 2026-11-28)
+
+The owner's rule: "for simple day-to-day images always use the subscription"; the API
+is "for things that really need refinement and massive quality". No project is ever
+defaulted to the API: the profile's `studio` block may hold API defaults and spend
+limits, never the renderer, and a `studio.renderer` key is refused. The test an agent
+applies before choosing the API: will anyone look at this image at full size, print
+it, ship it as a hero or brand asset, or does it need a size or precision the
+subscription cannot give (above about 1254 px, a custom aspect, `xhigh`/`max`,
+complexity)? If not, stay on the subscription.
+
+API settings on generate, edit and process (upscale, remove-background with
+`use_model`): `renderer: "api"`, `model` (`flare`, `sunburst`, `flare-2.5`,
+`sunburst-2.5` or a full id; default the profile's `studio.api.model`, else
+`sunburst`), `quality` (`low` to `max`), `size` (the menu, or `WIDTHxHEIGHT`: multiples
+of 16, aspect 1:3 to 3:1, edges up to 3840, 655,360 to 8,294,400 pixels) and
+`complexity` (`low`, `medium`, `high`; the API uses high when it is omitted). These
+are refused on subscription nodes with a fix, never silently dropped. The resolved
+renderer, model, quality, size and complexity are part of an API slot's fingerprint;
+subscription fingerprints are unchanged by this phase.
+
+Profile block (all optional):
+
+```json
+{ "studio": { "api": { "model": "sunburst", "quality": "low", "size": "1536x1024", "complexity": "medium" },
+              "limits": { "run": 2, "day": 10, "ceiling": 50 } } }
+```
+
+The ladder: draft cheaply (Flare at `low`, about 2.5 cents at 1024 px, or the
+subscription), look and approve one, then finish it. A `finish` node takes the drafts
+on its `image` input and re-renders each approved take from its image through the
+edit endpoint (default: the draft's aspect at 2048 px on the long edge, quality
+`high`, complexity `low`, Sunburst), with an instruction that keeps composition,
+subject, colour and lighting; `instruction` adds direction but cannot loosen that.
+It never regenerates from the prompt: on 2026-11-28 a final from the prompt alone gave
+a different teapot, one from the draft image kept it (local evidence in the git-ignored `bench/api-2.6-test/`). A
+finish is never planned or priced in the same run as its drafts, since an approval
+has to come between. Its take reports measured drift from the draft always, and
+similarity when the perception pack is installed.
+
+Money. Every API request is first reserved at its estimated cost and then settled at
+the cost its reported usage implies, in one project ledger
+(`.gptimage/studio/_budget/ledger.jsonl`) written under its own cross-process lock.
+The limits are checked before each request, against everything reserved in the
+project that day (other graphs and other processes included) and against the resume
+chain the run belongs to:
+
+| Limit | Default | Counts | Raised by |
+| --- | --- | --- | --- |
+| Per run | $2 | the run and its resumes | a grant, or the owner editing `studio.limits.run` |
+| Per day | $10 | every API request in the project that local day | a grant, or the owner editing `studio.limits.day` |
+| Ceiling | $50 | the same day total | only the owner editing `studio.limits.ceiling`; no grant lifts it |
+
+The run and day defaults were accepted by the owner on 2026-11-28; the ceiling is the
+orchestrating agent's default. `max_run_cost` / `max_day_cost` (CLI `--max-run-cost`,
+`--max-day-cost`) lower a limit for one run and are refused if they would raise it.
+A request whose cost would pass a limit is not sent: the run stops cleanly (status
+`stopped`, `stopCode` `budget-run`, `budget-day` or `budget-ceiling`), and its fix
+says how much the remaining work is estimated to need and tells the agent to ask the
+owner once, not to work around it. A fresh run on the same graph that day is refused
+(`BUDGET_STOPPED`) because it would get a new run limit; resume instead. A limit the
+run lowered for itself is the agent's own caution: its fix says resuming under the
+project's limits is allowed.
+
+Grants. When the owner approves more in chat, the agent records it:
+`studio_budget {grant:{amount, words, approved_by, graph?}}` (CLI
+`gpt-image studio budget --grant <dollars> --approved-by <name> --words '<their words>'`).
+A grant funds requests past the normal limits, up to the ceiling, for the whole
+project or one graph, and ends with the local day (unused budget does not carry over).
+ADE records a grant from a person's click with `--from-app` (`source: "app"`); MCP
+grants are always `source: "agent"`. This is a guard against runaway mistakes by a
+cooperating agent, not a security boundary: anything with shell access can edit the
+profile or append a grant nobody gave. The ledger, the `budget.grant` event and
+`studio_budget` are what make that visible.
+
+Costs. Dry runs show the estimate (OpenAI's own calculator for output tokens, plus
+text and image input; `auto` quality is priced as high, `auto` size as 1024x1024);
+run results show what was spent from the reported usage, per take and per run. Rates
+and their date live in one table, `src/pricing.ts`. Measured on 2026-11-28 (live,
+local, git-ignored `bench/live-1d-2026-11-28/`): a 2.6 Flare or Sunburst low 1024x1024 draft reported
+824 output tokens ($0.025); a Sunburst high 2048x2048 finish from a 1024 px draft
+reported 113 text and 1,024 image input tokens and 3,568 output tokens ($0.116).
+
+The key: `OPENAI_API_KEY` from the environment, else the project's git-ignored
+`.secrets` (`OPENAI_API_KEY=sk-...` or `OPENAI_API_KEY: sk-...`), else
+`~/.gptimage/secrets`. Studio looks only in the project it runs in, never in the
+current directory of the MCP server. Results name the source, never the value; errors
+are scrubbed of the key and of masked echoes of it before they reach a record. A
+missing or refused key stops the run with the fix; nothing is rendered on the
+subscription instead. See [SETUP.md](SETUP.md#paid-api-key) for ToolHub and Codex.
 
 ## Concepts
 
@@ -207,7 +301,8 @@ interface; schema names carry a version.
 | `state.json` | edits and runs | `gpt-image-studio/state@1`: `revision`, `eventSeq`, `nextTake`, and per node: `takes`, `selected`, gallery `picks`, `error`, and `activity` while a run works on it. |
 | `events.jsonl` | every write | One JSON object per line: `seq`, `ts`, `type`, `actor`, `graphRevision`, details. Rotated to `events.1.jsonl` past 1 MB. |
 | `feedback.jsonl` | edits | Append-only verdicts, picks, predictions and comments, each with the take's settings and reading. Never rotated. |
-| `runs/<job>.json` | the run's worker | `gpt-image-studio/run@1`: status, scope, planned and done counts, generations, completed slot keys, new takes, skips, errors, stop reason and fix, and `origin: {terminal?, workspace?}` when the run was started from an ADE terminal (`HEPHAESTUS_TERMINAL_ID` / `HEPHAESTUS_WORKSPACE` in the starting process). |
+| `runs/<job>.json` | the run's worker | `gpt-image-studio/run@1`: status, scope, planned and done counts, generations, completed slot keys, new takes, skips, errors, stop reason and fix, and `origin: {terminal?, workspace?}` when the run was started from an ADE terminal (`HEPHAESTUS_TERMINAL_ID` / `HEPHAESTUS_WORKSPACE` in the starting process). Phase 1d adds `stopCode?` (`budget-run`, `budget-day`, `budget-ceiling`) and `budget?: {chain, limits: {run, day, ceiling}, estimate, spent, chainSpent?, needed?}` in dollars. |
+| `../_budget/ledger.jsonl` | runs, `budget --grant` | Per project, next to the graph folders. One JSON object per line with `schema: "gpt-image-studio/budget@1"` and `t`: `reserve` `{id, ts, day, run, chain, graph, node, slot, estimate, model, funding: "limit"\|"grant:<id>", by}`, `settle` `{id, ts, cost, uncertain?, take?, note?}`, `grant` `{id, ts, day, amount, graph?, approvedBy, words, expires, source: "agent"\|"app", by}`. Append-only, under `_budget/.lock`. A reservation without a settlement counts at its estimate. |
 | `assets/` | runs, reference imports | Image files. Generated ones keep the usual JSON sidecar. |
 | `handoff/<name>/` | handoff runs | The package above. |
 
@@ -248,6 +343,15 @@ Rules:
   at?, note?}`, answers yes/no/unsure), `critiques` (`{id, judge, at, summary,
   criteria?, against?, preferred?, blind?}`), `predictions`, `verdict`. A run
   record's `sheet` is the graph-relative path of its review sheet in `views/`.
+- Phase 1d take fields, all optional: `render` on every provider take
+  (`{renderer: "subscription"|"api", model, quality?, size?, complexity?}`; the
+  subscription's model is recorded as `gpt-image-2 (server-chosen)`), and on API takes
+  `usage` (the API's numeric usage fields) and `cost` (`{dollars, estimate, rates,
+  funding}`). Node type `finish` is new. Events: `take.saved` gains `cost?` and
+  `funding?`, `run.finished` gains `stopCode?` and `cost?`, and `budget.grant` is
+  written to a graph's log when a grant is scoped to it. Lessons gain a `renderer`
+  value naming the model of their evidence (`api gpt-image-2.6-sunburst`,
+  `subscription gpt-image-2`, or `mixed: ...`).
 - Blind pairs: `views/pair-<id>.json` maps A and B to takes. The sheet hides the
   order; the JSON does not, so blindness depends on the judge not opening it.
 
@@ -274,7 +378,11 @@ gpt-image studio create --spec <json|@file|->
 gpt-image studio edit <graph> --ops <json|@file|-> [--expect-revision N]
 gpt-image studio run <graph> [--scope s] [--nodes a,b] [--new-take] [--concurrency n]
                      [--dry-run] [--resume] [--stop] [--wait s] [--foreground]
+                     [--max-run-cost dollars] [--max-day-cost dollars]
 gpt-image studio status <graph> [--job id] [--wait s]
+gpt-image studio budget [--graph g]
+gpt-image studio budget --grant <dollars> --approved-by <name> --words '<their words>' [--graph g] [--from-app]
+gpt-image studio nodes                 (the node registry: handles, setting docs, kind of work)
 gpt-image studio sheet <graph> [--nodes a,b] [--all-takes]
 gpt-image studio events <graph> [--after seq] [--limit n]
 gpt-image studio view [graph] [--port n] [--idle-exit minutes]

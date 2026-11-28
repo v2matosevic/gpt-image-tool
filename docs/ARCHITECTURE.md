@@ -29,7 +29,9 @@ inline copy too.
 |---|---|
 | `auth.ts` | Read/refresh the ChatGPT OAuth token from `~/.codex/auth.json`; **single-flight refresh lock**; `--check` session validation. |
 | `providers/subscription.ts` | Experimental subscription backend: builds the Responses request, streams SSE, retries; reactive 401 refresh. |
-| `providers/apikey.ts` | Paid fallback: `/v1/images/generations` + `/v1/images/edits` (multipart), with retry. |
+| `providers/apikey.ts` | Paid API backend, used only when selected (never a fallback): `/v1/images/generations` + `/v1/images/edits` (multipart), with retry; returns the reported `usage` and the key's source; errors are redacted. |
+| `pricing.ts` | The one price table (dated), cost from usage, OpenAI's output-token calculator, estimates. |
+| `secrets.ts` | API key lookup (env, project `.secrets`, user file) and `redact()` for anything that could echo it. |
 | `sse.ts` | Minimal SSE parser (event kind inferred from the JSON `type`). |
 | `retry.ts` | Bounded backoff helpers (429/5xx/network), `Retry-After` aware. |
 | `presets/` | The preset library (`lib/*.ts`), the **compiler** (`compile.ts`), the registry + catalog. |
@@ -45,7 +47,7 @@ inline copy too.
 | `imageqa.ts` / `contactsheet.ts` | Actual size/alpha/color diagnostics, small-icon measurements and review sheets. |
 | `imageinfo.ts` | Dependency-free PNG/JPEG/WebP dimension reader. |
 | `mcp.ts` / `cli.ts` | The two entry points (MCP stdio server / CLI). |
-| `studio/` | Node-graph workflows ([STUDIO.md](STUDIO.md)): `store` (paths, lock, atomic writes, events), `nodes` (types, handles, settings schemas), `graph` (ops, connection rules, layout), `evaluate` (slots, fingerprints, status), `runner` (jobs, run lock, worker, resume), `execute` / `handoff` (node work), `snapshot`, `api`, `mcp-tools`, `command` (CLI), `viewer`, `guide`; Craft: `craft` (readings, deviations, checklists, review sheets, zoom, blind pairs, study), `canon` (shared named entries), `memory` (lessons, taste, calibration), `recipes`. Look readings live in `imageqa.ts`; the vision call in `proof.ts` (`askVision`). |
+| `studio/` | Node-graph workflows ([STUDIO.md](STUDIO.md)): `store` (paths, lock, atomic writes, events), `nodes` (types, handles, settings schemas), `graph` (ops, connection rules, layout), `evaluate` (slots, fingerprints, status), `runner` (jobs, run lock, worker, resume), `execute` / `handoff` (node work), `render` (renderer resolution, studio profile block, finish sizes, estimates), `budget` (spend ledger, limits, grants), `snapshot`, `api`, `mcp-tools`, `command` (CLI), `viewer`, `guide`; Craft: `craft` (readings, deviations, checklists, review sheets, zoom, blind pairs, study), `canon` (shared named entries), `memory` (lessons, taste, calibration), `recipes`. Look readings live in `imageqa.ts`; the vision call in `proof.ts` (`askVision`). |
 
 ## Image renderer selection
 
@@ -96,7 +98,7 @@ that green out locally. `bgremove.ts` is a small dependency-free PNG codec (infl
 scanline filters, re-encode RGBA) plus a keyer. With a *known* key color it removes matching pixels
 **globally** (so chroma trapped inside 3D holes / line-icon interiors goes too) and de-spills green
 edges; with an unknown background it flood-fills from the image edges (preserving bg-colored regions
-enclosed by the subject). The paid `apikey` backend uses the selected GPT Image 2.5 model's native transparency instead.
+enclosed by the subject). The paid `apikey` backend uses the selected GPT Image model's native transparency instead.
 
 ## The web-asset pipeline
 

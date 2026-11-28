@@ -20,7 +20,19 @@ The check reads the login and may refresh it. It spends no image quota, but does
 
 ### OpenAI API key (separate billing)
 
-Set `OPENAI_API_KEY` in the environment that launches the client, and set `GPT_IMAGE_BACKEND=apikey` to choose the paid backend. Setting only a key does not switch backends. For one CLI call, use `--backend apikey`.
+The paid backend is used only when a call asks for it: `--backend apikey` on one CLI call, `backend: "apikey"` in MCP, `renderer: "api"` or a `finish` node in Studio, or `GPT_IMAGE_BACKEND=apikey` for a whole process. Having a key never switches backends, and a missing key never falls back to the subscription.
+
+#### Paid API key
+
+The key is looked up in this order, and results name the source that was used (never the value):
+
+1. `OPENAI_API_KEY` in the environment of the process that runs the tool.
+2. The project's git-ignored `.secrets` file, one line `OPENAI_API_KEY=sk-...` (also accepted: `OPENAI_API_KEY: sk-...`, quotes, `export`, `#` comments). The project is the one the call works in (Studio's `project`, `GPT_IMAGE_PROJECT_DIR`, `CLAUDE_PROJECT_DIR`, then the current directory).
+3. A user-level file, `~/.gptimage/secrets` (or `$GPT_IMAGE_SECRETS_HOME/.gptimage/secrets`), same format.
+
+Make sure `.secrets` is in the project's `.gitignore` before you write it. Errors, sidecars, run records and events are scrubbed of the key and of masked echoes of it; a test plants a canary key, runs successful and refused requests, and greps every written file for it.
+
+With ToolHub (Claude terminals), the backend process inherits the hub's environment and starts in the terminal's project root, so either put the key in that project's `.secrets` or in `~/.gptimage/secrets`; do not pass it through ToolHub headers. Codex starts `dist/mcp.js` directly, so `OPENAI_API_KEY` in Codex's own environment (or either file) works. Restart or reconnect the MCP server after adding a key to its environment; the files are read on every call.
 
 `.env.example` documents variables; the tool does **not** automatically load `.env` files. Use your shell, client environment settings, or Node's `--env-file` option. Keep keys out of committed configuration.
 
@@ -28,7 +40,7 @@ Set `OPENAI_API_KEY` in the environment that launches the client, and set `GPT_I
 node --env-file=.env dist/cli.js --backend apikey --subject "a folded paper sculpture" --preset product-studio -o ./sculpture.png
 ```
 
-This backend uses the documented [OpenAI Images API](https://developers.openai.com/api/docs/guides/image-generation). Version 0.6.0 retains `gpt-image-2.5-sunburst` as the API default; `GPT_IMAGE_API_MODEL` overrides it. Select `--image-model flare` or `--image-model sunburst` per CLI call, or `image_model` in MCP. Both require `backend: "apikey"`; the subscription endpoint does not reliably enforce renderer selection. Model availability and supported dimensions vary. Changing a model name does not automatically make every feature compatible.
+This backend uses the documented [OpenAI Images API](https://developers.openai.com/api/docs/guides/image-generation). Version 0.6.0 uses `gpt-image-2.5-sunburst` as the API default; main uses `gpt-image-2.6-sunburst`, and there `flare` / `sunburst` mean 2.6 while `flare-2.5` / `sunburst-2.5` keep 2.5. `GPT_IMAGE_API_MODEL` overrides the default. Select `--image-model` per CLI call, or `image_model` in MCP. Both require `backend: "apikey"`; the subscription endpoint does not reliably enforce renderer selection. Model availability and supported dimensions vary. Changing a model name does not automatically make every feature compatible.
 
 ## Upgrade an existing installation
 

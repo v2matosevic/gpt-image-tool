@@ -3,7 +3,11 @@
 Complete reference for every tool, flag, and setting. See [PRESETS.md](./PRESETS.md) for the preset
 catalog and [ARCHITECTURE.md](./ARCHITECTURE.md) for internals.
 
-## Model selection (v0.5.0)
+## Model selection
+
+On main (unreleased), the API names are GPT-Image-2.6: `flare` and `sunburst` resolve to `gpt-image-2.6-flare` / `gpt-image-2.6-sunburst` (the API default), `flare-2.6` / `sunburst-2.6` name them explicitly, and `flare-2.5` / `sunburst-2.5` keep 2.5. In v0.6.0 and earlier, `flare` / `sunburst` mean 2.5. The paragraphs below describe the subscription boundary, which is unchanged. Use the API only for work that needs it (full-size viewing, print, hero or brand assets, sizes or precision the subscription cannot give); everyday images stay on the subscription.
+
+Also on main, API-only: `complexity` (`low` \| `medium` \| `high`, GPT-Image-2.6 only; the API uses high when omitted) on `generate_image`, `preview_image_request`, `edit_image` and `upscale_image` (CLI `--complexity`), and custom sizes `WIDTHxHEIGHT` (multiples of 16, aspect 1:3 to 3:1, edges up to 3840, 655,360 to 8,294,400 pixels). Both are refused on the subscription before any request. API results add `API cost: $… for n request(s)` from the reported usage and `API key from: <source>`; sidecars record `usage` and `cost`; `preview_image_request` returns an `estimatedCost`. Rates and their date: [MODELS.md](MODELS.md#paid-api-prices-2026-11-28).
 
 For ChatGPT subscription usage, use `backend: "subscription"` and `image_model: "auto"`. OpenAI has announced Images 2.5 availability in Codex; this tool follows the server's renderer selection without pinning an older version. The endpoint does not report the actual renderer, so `auto` is not proof of a particular model version. No local model upgrade is needed to follow server selection. [Official announcement and verification evidence](MODELS.md#subscription-recheck-2026-09-11).
 
@@ -45,8 +49,9 @@ Text-to-image via the preset compiler (or a raw prompt).
 | `count` | int 1–10 | N **independent** variations. |
 | `series` | int 1–10 | N **consistent** images (first reused as a style ref for the rest). |
 | `from_image` | string | Reload a prior image's sidecar as the base, then apply args on top. |
-| `size` | enum | `auto`, `1024x1024`, `1536x1024`, `1024x1536`, `1024x1280`, `1280x1024`, `2048x2048`, `2048x1152`, `1152x2048`. Upstream support varies; inspect actual output dimensions. |
-| `quality` | enum | `auto` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` (last two: Image 2.5 API). On the subscription the server replaces it with `auto` and reports every image as `low` ([evidence](IMAGE-2.5-RESEARCH.md)). Only the API backend documents honouring it. |
+| `size` | enum or string | `auto`, `1024x1024`, `1536x1024`, `1024x1536`, `1024x1280`, `1280x1024`, `2048x2048`, `2048x1152`, `1152x2048`, or on the API a custom `WIDTHxHEIGHT` (rules above). Upstream support varies; inspect actual output dimensions. |
+| `complexity` | enum | API with GPT-Image-2.6 only: `low` \| `medium` \| `high`. |
+| `quality` | enum | `auto` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` (last two: Image 2.5 and 2.6 API). On the subscription the server replaces it with `auto` and reports every image as `low` ([evidence](IMAGE-2.5-RESEARCH.md)). Only the API backend documents honouring it. |
 | `format` | enum | `png` \| `jpeg` \| `webp`. |
 | `output_path` | string | File, or a directory ending in `/`. Default `./generated-images/`. |
 | `backend` | enum | `subscription` (default) \| `apikey`. |
@@ -162,20 +167,21 @@ agents. Optional `category` filter.
 
 ### Studio tools (unreleased, main branch)
 
-Node-graph workflows, subscription only. Full guide, storage contract and CLI: [STUDIO.md](STUDIO.md). Every tool takes an optional `project` (default: this project).
+Node-graph workflows. The subscription renders by default; a node uses the paid API only with `renderer: "api"`, or as a `finish` node, under spend limits. Full guide, storage contract and CLI: [STUDIO.md](STUDIO.md). Every tool takes an optional `project` (default: this project).
 
 | Tool | Purpose | Key inputs |
 | --- | --- | --- |
-| `studio_guide` | Node types with every setting, ops, running, handoff, shot language, worked example | `topic` |
+| `studio_guide` | Node types with every setting, ops, running, handoff, shot language, worked example; topic `renderer` for the paid API rule, ladder, costs and limits | `topic`, `renderer` |
 | `studio_list` | Graphs in a project | `project` |
 | `studio_get` | Text snapshot, or one node in full with take paths | `graph`, `node` |
 | `studio_create` | Create from nodes (your refs) and connections, all or nothing; or `copy_from` another graph; or a `recipe` | `name`, `nodes`, `connections`, `groups`, `copy_from`, `recipe`, `subject`, `path` |
 | `studio_edit` | Apply ops together or not at all | `graph`, `ops`, `expect_revision` |
-| `studio_run` | Start a background run; unchanged slots are reused | `graph`, `scope`, `nodes`, `new_take`, `concurrency`, `dry_run`, `resume`, `stop`, `wait_seconds` |
+| `studio_run` | Start a background run; unchanged slots are reused; dry runs estimate paid cost | `graph`, `scope`, `nodes`, `new_take`, `concurrency`, `dry_run`, `resume`, `stop`, `wait_seconds`, `max_run_cost`, `max_day_cost` (lower only) |
 | `studio_status` | Progress, generations spent, new take paths, errors with fixes | `graph`, `job`, `wait_seconds` |
 | `studio_view` | Labelled review sheet and preview paths; zoom, blind pair, study an admired image; `serve` starts the read-only viewer | `graph`, `nodes`, `all_takes`, `overlays`, `zoom`, `pair`, `study`, `serve` |
+| `studio_budget` | Today's paid spend, limits, grants and ledger; records an owner's approval as a grant (never on its own) | `graph`, `grant: {amount, words, approved_by, graph?, expires?}` |
 
-Studio quality is `low` (default), `medium` or `high`; it always sends `backend: "subscription"` and `image_model: "auto"`.
+On subscription nodes Studio quality is `low` (default), `medium` or `high`, sent with `backend: "subscription"` and `image_model: "auto"`. API nodes send `backend: "apikey"` with the resolved model and accept `xhigh`, `max`, custom sizes and complexity.
 
 ## CLI
 
@@ -251,9 +257,10 @@ with `GPT_IMAGE_NO_SIDECAR=1`.
 | var | default | purpose |
 |---|---|---|
 | `GPT_IMAGE_MODEL` | `gpt-6-astra` | Subscription routing model id. Availability depends on the account and upstream endpoint. |
-| `GPT_IMAGE_API_MODEL` | `gpt-image-2.5-sunburst` | API renderer; `flare` / `sunburst` aliases or a full model ID. Explicit `image_model` wins. |
+| `GPT_IMAGE_API_MODEL` | `gpt-image-2.6-sunburst` (main; 2.5 in v0.6.0) | API renderer; `flare` / `sunburst` (2.6), `flare-2.5` / `sunburst-2.5`, or a full model ID. Explicit `image_model` wins. |
 | `GPT_IMAGE_BACKEND` | `subscription` | Default backend. |
-| `OPENAI_API_KEY` | — | Required only for `--backend apikey`. |
+| `OPENAI_API_KEY` | — | Used only by the API backend. If unset, the project's `.secrets`, then `~/.gptimage/secrets`, are read ([setup](SETUP.md#paid-api-key)). |
+| `GPT_IMAGE_SECRETS_HOME` | home directory | Where the user-level `.gptimage/secrets` is looked for. |
 | `GPT_IMAGE_AUTH_FILE` | `~/.codex/auth.json` | Pin to a specific account's token file. |
 | `CODEX_HOME` | `~/.codex` | Override the Codex home. |
 | `GPT_IMAGE_OUTPUT_DIR` | `./generated-images` | Default save directory. |

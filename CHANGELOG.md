@@ -4,6 +4,8 @@
 
 - Bundle the MCP server into a single `dist/mcp.js` during `npm run build`, so a cold start reads one file instead of about 270 modules. Slow starts on busy disks exceeded MCP gateway start limits and made every call fail with "Request timed out".
 - Stop sending the reasoning block in subscription image requests; the renderer rejected every explicit level as an unsupported "complexity".
+- GPT-Image-2.6 on the paid API: `flare` and `sunburst` now mean 2.6 (2.5 kept as `flare-2.5` / `sunburst-2.5`), the API default is `gpt-image-2.6-sunburst`, plus `complexity`, custom sizes up to 3840 px, and cost per call from reported usage. The key can come from the project's `.secrets` or `~/.gptimage/secrets`; results name the source, never the key.
+- Studio: the subscription stays the default renderer; nodes may opt into the paid API (`renderer: "api"`), a `finish` node re-renders an approved draft at up to 4K, and spend limits per run and per day, owner grants and a ceiling are enforced before each paid request (`studio_budget`).
 
 ## 0.6.0 - 2026-10-03
 
