@@ -6,9 +6,9 @@ API model documentation checked on 2026-09-09 UTC; subscription availability and
 | --- | --- | --- |
 | Subscription image tool routing | `gpt-6-astra` | `GPT_IMAGE_MODEL` |
 | Subscription vision proofreading | `gpt-6-astra` | `GPT_IMAGE_PROOF_MODEL` |
-| Explicit paid Images API generation and edits | `gpt-image-2.6-sunburst` on main; `gpt-image-2.5-sunburst` in v0.6.0 | `GPT_IMAGE_API_MODEL`, profile `imageModel`, per-call `image_model` / `--image-model` |
+| Explicit paid Images API generation and edits | `gpt-image-2.6-sunburst` since v0.7.0; `gpt-image-2.5-sunburst` in v0.6.0 | `GPT_IMAGE_API_MODEL`, profile `imageModel`, per-call `image_model` / `--image-model` |
 
-On main, `flare` and `sunburst` resolve to GPT-Image-2.6; `flare-2.5` and `sunburst-2.5` keep 2.5. This changes what the short names meant in v0.6.0; replayed sidecars keep their recorded full ID. Prices, the cost calculator and measured costs are below in [Paid API prices](#paid-api-prices-2026-11-28).
+Since v0.7.0, `flare` and `sunburst` resolve to GPT-Image-2.6; `flare-2.5` and `sunburst-2.5` keep 2.5. This changes what the short names meant in v0.6.0; replayed sidecars keep their recorded full ID. Prices, the cost calculator and measured costs are below in [Paid API prices](#paid-api-prices-2026-11-28).
 
 Use `flare` (`gpt-image-2.5-flare`) for speed and `sunburst` (`gpt-image-2.5-sunburst`) for editing precision. Both support quality through `xhigh` and `max`. [Official Flare page](https://developers.openai.com/api/docs/models/gpt-image-2.5-flare) · [Official Sunburst page](https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst).
 

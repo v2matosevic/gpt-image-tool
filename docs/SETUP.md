@@ -48,17 +48,19 @@ Stop image jobs first. From a clean checkout with no local changes, install the 
 
 ```sh
 git fetch origin --tags
-git switch --detach v0.6.0
+git switch --detach v0.7.0
 npm ci
 npm run build
 npm run smoke:mcp
 ```
 
-Reconnect the MCP server in your coding client so it loads the new build. The server now reports version `0.6.0` and exposes 13 tools, including `preview_image_request`, `export_logo_kit` and `create_brand_board`. For Codex, use both timeout settings in the configuration below; already running sessions need a reconnect or restart.
+Reconnect the MCP server in your coding client so it loads the new build. The server now reports version `0.7.0` and exposes 22 tools: the 13 from v0.6.0 plus the nine Studio tools (`studio_guide` first). For Codex, use both timeout settings in the configuration below; already running sessions need a reconnect or restart.
 
-The CLI is ready as soon as the build completes. A running MCP process keeps its previously loaded code until reconnected. `npm run smoke:mcp` starts a fresh server and verifies the release version, catalog and local branding tools without credentials or image usage. The default `npm ci` includes `sharp`, which the branding exports need; do not use `--omit=dev` for the documented installation.
+The CLI is ready as soon as the build completes. A running MCP process keeps its previously loaded code until reconnected. `npm run smoke:mcp` starts a fresh server and verifies the release version, catalog, local branding tools and a Studio loop without credentials or image usage. The default `npm ci` includes `sharp`, which the branding exports need; do not use `--omit=dev` for the documented installation.
 
-Upgrading past v0.6.0 (main, not yet tagged) changes two things for paid API users. `flare` and `sunburst` now mean GPT-Image-2.6 rather than 2.5: a profile `imageModel: "flare"`, `GPT_IMAGE_API_MODEL=sunburst` or a call naming them moves to 2.6; write `flare-2.5` / `sunburst-2.5` (or the full ID) to stay on 2.5. Images replayed with `--from` / `from_image` keep the full model ID their sidecar recorded. And every API request is now checked against spend limits before it is sent (defaults $2 per call, $10 per project per day, $25 per day across projects); raise them in your profile's `studio.limits` and `~/.gptimage/config.json` if your use needs more. Subscription use is unchanged.
+Upgrading to v0.7.0 changes two things for paid API users. `flare` and `sunburst` now mean GPT-Image-2.6 rather than 2.5: a profile `imageModel: "flare"`, `GPT_IMAGE_API_MODEL=sunburst` or a call naming them moves to 2.6; write `flare-2.5` / `sunburst-2.5` (or the full ID) to stay on 2.5. Images replayed with `--from` / `from_image` keep the full model ID their sidecar recorded. And every API request is now checked against spend limits before it is sent (defaults $2 per call, $10 per project per day, $25 per day across projects); raise them in your profile's `studio.limits` and `~/.gptimage/config.json` if your use needs more. Subscription use is unchanged, and nothing is moved to the paid API by upgrading.
+
+Studio is new in v0.7.0 and needs nothing to set up: graphs live under `.gptimage/studio/` in each project (add `.gptimage/` to a project's `.gitignore` if you do not want them committed). It renders on the subscription unless a node asks for the API. The optional perception pack is not installed by upgrading; `gpt-image studio perception` shows its size before anything is downloaded. See [STUDIO.md](STUDIO.md).
 
 Existing `GPT_IMAGE_MODEL`, `GPT_IMAGE_PROOF_MODEL`, and `GPT_IMAGE_API_MODEL` overrides still win. Remove an old override to adopt the new default, or keep it to retain your chosen model. No API key or paid backend is enabled by upgrading. See [model selection and verification](MODELS.md).
 

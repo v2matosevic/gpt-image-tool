@@ -5,9 +5,9 @@ catalog and [ARCHITECTURE.md](./ARCHITECTURE.md) for internals.
 
 ## Model selection
 
-On main (unreleased), the API names are GPT-Image-2.6: `flare` and `sunburst` resolve to `gpt-image-2.6-flare` / `gpt-image-2.6-sunburst` (the API default), `flare-2.6` / `sunburst-2.6` name them explicitly, and `flare-2.5` / `sunburst-2.5` keep 2.5. In v0.6.0 and earlier, `flare` / `sunburst` mean 2.5. The paragraphs below describe the subscription boundary, which is unchanged. Use the API only for work that needs it (full-size viewing, print, hero or brand assets, sizes or precision the subscription cannot give); everyday images stay on the subscription.
+Since v0.7.0 the API names are GPT-Image-2.6: `flare` and `sunburst` resolve to `gpt-image-2.6-flare` / `gpt-image-2.6-sunburst` (the API default), `flare-2.6` / `sunburst-2.6` name them explicitly, and `flare-2.5` / `sunburst-2.5` keep 2.5. In v0.6.0 and earlier, `flare` / `sunburst` mean 2.5. The paragraphs below describe the subscription boundary, which is unchanged. Use the API only for work that needs it (full-size viewing, print, hero or brand assets, sizes or precision the subscription cannot give); everyday images stay on the subscription.
 
-Also on main, API-only: `complexity` (`low` \| `medium` \| `high`, GPT-Image-2.6 only; the API uses high when omitted) on `generate_image`, `preview_image_request`, `edit_image` and `upscale_image` (CLI `--complexity`), and custom sizes `WIDTHxHEIGHT` (multiples of 16, aspect 1:3 to 3:1, edges up to 3840, 655,360 to 8,294,400 pixels). Both are refused on the subscription before any request. API results add `API cost: $… for n request(s)` from the reported usage and `API key from: <source>`; sidecars record `usage` and `cost`; `preview_image_request` returns an `estimatedCost`. Rates and their date: [MODELS.md](MODELS.md#paid-api-prices-2026-11-28).
+Also since v0.7.0, API-only: `complexity` (`low` \| `medium` \| `high`, GPT-Image-2.6 only; the API uses high when omitted) on `generate_image`, `preview_image_request`, `edit_image` and `upscale_image` (CLI `--complexity`), and custom sizes `WIDTHxHEIGHT` (multiples of 16, aspect 1:3 to 3:1, edges up to 3840, 655,360 to 8,294,400 pixels). Both are refused on the subscription before any request. API results add `API cost: $… for n request(s)` from the reported usage and `API key from: <source>`; sidecars record `usage` and `cost`; `preview_image_request` returns an `estimatedCost`. Rates and their date: [MODELS.md](MODELS.md#paid-api-prices-2026-11-28).
 
 Every API request, from any tool, is checked against the spend limits before it is sent and recorded in the spend ledger: a per-call limit (the project's run limit, default $2, covering the whole tool call including `count` and series), the project day limit and ceiling (`studio.limits` in `.gptimage.json`, defaults $10 and $50), and a user-level limit across all projects (`~/.gptimage/config.json`, defaults $25 a day, ceiling $100). A refused request raises "Spend limit: ..." with the fix; nothing is sent and nothing switches to the subscription. `gpt-image studio budget` shows today's spend, direct calls as their own line. [Details](STUDIO.md#the-paid-api-phase-1d-2026-11-28).
 
@@ -23,7 +23,7 @@ CLI equivalents: `--backend apikey --image-model flare` or `--image-model sunbur
 
 ## MCP tools
 
-Version 0.6.0 exposes thirteen tools. All image-producing tools **save to disk and return the path(s)**. The three branding tools and fields below are included in v0.6.0; earlier tags retain their previous tool sets.
+Version 0.7.0 exposes twenty-two tools: thirteen image tools and nine Studio tools. All image-producing tools **save to disk and return the path(s)**. The branding tools arrived in v0.6.0 and the Studio tools in v0.7.0; earlier tags retain their previous tool sets.
 
 ### Branding tools
 
@@ -167,7 +167,7 @@ encoded in the pixels themselves.
 Returns the catalog (`presets`, `modifiers`, `categories`), a `usage` line, and a `playbook` for
 agents. Optional `category` filter.
 
-### Studio tools (unreleased, main branch)
+### Studio tools (v0.7.0)
 
 Node-graph workflows. The subscription renders by default; a node uses the paid API only with `renderer: "api"`, or as a `finish` node, under spend limits. Full guide, storage contract and CLI: [STUDIO.md](STUDIO.md). Every tool takes an optional `project` (default: this project).
 
@@ -259,7 +259,7 @@ with `GPT_IMAGE_NO_SIDECAR=1`.
 | var | default | purpose |
 |---|---|---|
 | `GPT_IMAGE_MODEL` | `gpt-6-astra` | Subscription routing model id. Availability depends on the account and upstream endpoint. |
-| `GPT_IMAGE_API_MODEL` | `gpt-image-2.6-sunburst` (main; 2.5 in v0.6.0) | API renderer; `flare` / `sunburst` (2.6), `flare-2.5` / `sunburst-2.5`, or a full model ID. Explicit `image_model` wins. |
+| `GPT_IMAGE_API_MODEL` | `gpt-image-2.6-sunburst` (2.5 before v0.7.0) | API renderer; `flare` / `sunburst` (2.6), `flare-2.5` / `sunburst-2.5`, or a full model ID. Explicit `image_model` wins. |
 | `GPT_IMAGE_BACKEND` | `subscription` | Default backend. |
 | `OPENAI_API_KEY` | — | Used only by the API backend. If unset, the project's `.secrets`, then `~/.gptimage/secrets`, are read ([setup](SETUP.md#paid-api-key)). |
 | `GPT_IMAGE_SECRETS_HOME` | home directory | Where the user-level `.gptimage/secrets` is looked for. |

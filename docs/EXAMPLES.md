@@ -98,7 +98,7 @@ This uses local font rendering rather than asking a model to spell the headline.
 
 ## Brand brief, logo kit and mood board
 
-After upgrading to v0.6.0 and reconnecting MCP, ask your agent:
+With v0.6.0 or later, after reconnecting MCP, ask your agent:
 
 ```text
 Use gpt-image to read this project's brand settings. Preview the request first.

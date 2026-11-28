@@ -8,9 +8,17 @@ Ask for a hero image, edit it, then export the sizes your app needs. The tool sa
 
 [Quick start](#quick-start) · [Client setup](docs/SETUP.md) · [Examples](docs/EXAMPLES.md) · [Tool reference](docs/TOOLS.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
-[Latest release: v0.6.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.6.0) adds creative briefs, quota-free request previews, logo families, exact font outlines, and branding boards. [Release notes](docs/releases/v0.6.0.md) · [Upgrade an existing installation](docs/SETUP.md#upgrade-an-existing-installation).
+[Latest release: v0.7.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.7.0) adds Studio, node-graph image workflows for agents, and GPT-Image-2.6 on the paid API with spend limits on every paid request. **Paid API users:** `flare` and `sunburst` now mean 2.6. [Release notes](docs/releases/v0.7.0.md) · [Upgrade an existing installation](docs/SETUP.md#upgrade-an-existing-installation).
 
 > **Subscription access is experimental.** The default backend reuses your local Codex ChatGPT login through an undocumented endpoint. It consumes account usage and may change or stop working. There is no separate image API bill on this path, but access is neither unlimited nor guaranteed. This is an independent project, not an official OpenAI integration. A separately billed OpenAI API backend is available when explicitly selected.
+
+## Studio: image work as a graph
+
+For anything bigger than one or two images (a set of variations, a look to settle before building a page, a draft to take to a finished asset), an agent can build the work as a graph instead of a pile of separate calls. Prompts, lists and references feed generators; unchanged images are reused, not regenerated; every image records what made it; an approved image becomes a build package for a coding agent. Each image is measured against its prompt, and an agent has to record a look before it can approve one. Everything renders on your ChatGPT subscription unless a node explicitly asks for the paid API.
+
+![The Studio viewer showing a graph: a prompt node split into six cases by a list node, feeding a subscription generator and a GPT-Image-2.6 Sunburst generator side by side, with an approved Sunburst image re-rendered by a 4K finish node.](docs/assets/studio-graph.png)
+
+A real graph from the v0.7.0 comparison run, shown in the read-only viewer (`gpt-image studio view`). Studio organises and measures; it has no taste of its own and does not make an image better by itself. [How Studio works](docs/STUDIO.md) · [Image provenance](docs/assets/README.md#studio-viewer-v070).
 
 ## See what it makes
 
@@ -23,7 +31,7 @@ The sculpture above was generated with this tool. The surrounding layout is an e
 You need **Node.js 22.18 or newer**, npm, Git, and, for the subscription backend, a ChatGPT login saved by Codex CLI in a local `auth.json` file. OS keychain credentials are not read by this tool. [Authentication and API-key setup](docs/SETUP.md).
 
 ```sh
-git clone --branch v0.6.0 https://github.com/v2matosevic/gpt-image-tool.git
+git clone --branch v0.7.0 https://github.com/v2matosevic/gpt-image-tool.git
 cd gpt-image-tool
 npm ci
 npm run build
@@ -67,11 +75,11 @@ Installation is from source. There is no official npm release of this project ye
 - Set exact text and real logos on generated plates; build social cards and carousels.
 - Preview image requests without quota, assign reference roles, and keep exact brand colors and font files in a project profile.
 - Explore six logo forms, export approved artwork as website/social kits, and compose exact branding boards. [Branding workflow](docs/BRANDING.md).
-- Work as a node graph with Studio: prompts, lists and references feed generators, unchanged images are never regenerated, approved images become a build package for a coding agent, and a read-only local viewer shows the graph. The subscription renders by default; a node marked for the paid API, or a finish step that re-renders an approved draft at up to 4K, runs under per-run and per-day spend limits. Not in a tagged release yet. [Studio](docs/STUDIO.md).
+- Work as a node graph with Studio: prompts, lists and references feed generators, unchanged images are never regenerated, approved images become a build package for a coding agent, and a read-only local viewer shows the graph. The subscription renders by default; a node marked for the paid API, or a finish step that re-renders an approved draft at up to 4K, runs under per-run and per-day spend limits. [Studio](docs/STUDIO.md).
 
-The thirteen MCP tools are `generate_image`, `preview_image_request`, `edit_image`, `upscale_image`, `export_web_assets`, `export_logo_kit`, `create_brand_board`, `remove_background`, `compose_overlay`, `create_social_card`, `create_social_carousel`, `strip_image_metadata`, and `list_image_presets`. The development branch adds nine Studio tools (`studio_guide`, `studio_list`, `studio_get`, `studio_create`, `studio_edit`, `studio_run`, `studio_status`, `studio_view`, `studio_budget`). [Every parameter →](docs/TOOLS.md)
+The twenty-two MCP tools are `generate_image`, `preview_image_request`, `edit_image`, `upscale_image`, `export_web_assets`, `export_logo_kit`, `create_brand_board`, `remove_background`, `compose_overlay`, `create_social_card`, `create_social_carousel`, `strip_image_metadata`, `list_image_presets`, and the nine Studio tools `studio_guide`, `studio_list`, `studio_get`, `studio_create`, `studio_edit`, `studio_run`, `studio_status`, `studio_view` and `studio_budget`. [Every parameter →](docs/TOOLS.md)
 
-The branding workflow is included in v0.6.0. Build the checkout and reconnect MCP after upgrading. Generated logo concepts remain raster; SVG logo delivery requires supplied vectors or explicitly requested font outlines.
+The branding workflow arrived in v0.6.0. Build the checkout and reconnect MCP after upgrading. Generated logo concepts remain raster; SVG logo delivery requires supplied vectors or explicitly requested font outlines.
 
 ![A branding board with generated paper and leaf imagery, two raster logo concepts, exact palette swatches, and real font specimens.](docs/assets/branding-board.png)
 
@@ -81,7 +89,7 @@ The board combines generated imagery with local typography, declared colors and 
 
 The subscription is the default and the right choice for everyday images. It renders with gpt-image-2: OpenAI's Codex image page says built-in generation uses gpt-image-2, and the server's own echoed tool configuration names `gpt-image-2-codex` (checked 2026-11-28). It also replaces the quality and size you send with `auto` and reports every image as quality `low`. [Evidence](docs/IMAGE-2.5-RESEARCH.md#correction-2026-11-28-the-subscription-renders-with-gpt-image-2-not-images-25). Keep `backend: "subscription"` and `image_model: "auto"` for subscription usage.
 
-Choose the separately billed API only when the image needs it: someone will look at it at full size, print it, ship it as a hero or brand asset, or it needs a size or precision the subscription cannot give. On main (not yet in a tagged release) the API models are GPT-Image-2.6 `flare` (fast) and `sunburst` (precise; the default), with 2.5 kept as `flare-2.5` / `sunburst-2.5`:
+Choose the separately billed API only when the image needs it: someone will look at it at full size, print it, ship it as a hero or brand asset, or it needs a size or precision the subscription cannot give. Since v0.7.0 the API models are GPT-Image-2.6 `flare` (fast) and `sunburst` (precise; the default), with 2.5 kept as `flare-2.5` / `sunburst-2.5`:
 
 ```sh
 node dist/cli.js "a folded orange paper bird" --backend apikey --image-model flare --quality low -o draft.png
@@ -109,8 +117,9 @@ Use an absolute `output_path` in MCP calls so the tool can discover the intended
 
 ## Know the limits
 
-The subscription backend uses **GPT-6 Astra** to direct OpenAI's image generation tool and proofread results. OpenAI selects the underlying image renderer on that endpoint. The explicitly selected API backend defaults to **GPT-Image-2.6 Sunburst** on main (2.5 Sunburst in v0.6.0), with **Flare** available for faster generation. Environment overrides remain available. [Current models and verification](docs/MODELS.md).
+The subscription backend uses **GPT-6 Astra** to direct OpenAI's image generation tool and proofread results. OpenAI selects the underlying image renderer on that endpoint. The explicitly selected API backend defaults to **GPT-Image-2.6 Sunburst** (2.5 Sunburst before v0.7.0), with **Flare** available for faster generation. Environment overrides remain available. [Current models and verification](docs/MODELS.md).
 
+- Studio runs on the subscription spend the same account usage, and the image cap (roughly a day, shared with ChatGPT Images) stops a run cleanly with the time it resets.
 - Subscription generation shares your account's usage. Batches and proof retries consume additional requests. The API backend is only used when selected; it has separate billing.
 - This server reads and can refresh a local credential file. Treat it like other software with account access. It is designed for a trusted local agent, not as a public hosted service. [Data flow and security](SECURITY.md).
 - Subscription transparency uses a chroma background and local removal. Fine hair, translucent edges, and matching colors can need cleanup.

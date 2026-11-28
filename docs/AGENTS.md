@@ -25,12 +25,29 @@ it directly without a separate read.
 
 ## Multi-step work: Studio
 
-When a task needs more than one or two images (a lookbook, variations of an approved anchor,
-a design that becomes code), use Studio instead of separate calls: `studio_guide` once, then
-`studio_create`, `studio_run`, `studio_view`, revise with `studio_edit`, approve, and run the
-handoff node for the coding agent. Unchanged images are reused, not regenerated, and every image
-keeps its lineage. Quality `low` is the default; on the subscription `high` is sent but not
-shown to change the result ([Account and quota](STUDIO.md#account-and-quota)). [STUDIO.md](STUDIO.md).
+Use single calls for one or two images you will judge on the spot: a quick hero, an icon, an
+edit of one file. Use Studio when any of these is true:
+
+- the task needs three or more related images (variations, a lookbook, one prompt across several
+  subjects or sizes, the same look across a set);
+- you will iterate: compare takes, pick one, then edit or sweep from it;
+- a person should review the images, or a choice should be recorded with its reasons;
+- an approved image becomes code (a page, a component), or a draft is to be finished at full size;
+- the work may be resumed later, by you or by another agent.
+
+How: `studio_guide` once (topic `renderer` before any paid work), then `studio_create`, a dry
+run (`studio_run` with `dry_run: true`; it shows the plan, the compiled prompts and any API
+estimate), `studio_run`, and `studio_status` for the result. Open the review sheet it names and the
+images themselves; deviations are measurements to confirm by looking, not verdicts. Answer the
+take's checklist or write a critique, then approve; an agent cannot approve without a recorded
+look. Revise with `studio_edit`: unchanged images are reused, not regenerated. For a person, write a
+side-by-side page with `studio_view {page: {}}` (CLI `gpt-image studio page <graph>`) and give them
+its path. A handoff node turns an approved image into a build package for a coding agent.
+
+Studio renders everything on the subscription unless a node says `renderer: "api"` or is a
+`finish` node. Quality `low` is the default; on the subscription `high` is sent but not shown to
+change the result ([Account and quota](STUDIO.md#account-and-quota)). A run stopped by the
+subscription's image cap says when it resets; resume after that, not before. [STUDIO.md](STUDIO.md).
 
 ## Subscription or paid API
 
@@ -40,7 +57,7 @@ When the API is right, use the ladder: draft cheaply (the subscription, or `flar
 
 ## Choosing the image model
 
-On the explicit `apikey` backend, `flare` is fast and `sunburst` is precise; on main both are GPT-Image-2.6 (`flare-2.5` / `sunburst-2.5` keep 2.5) and Sunburst is the default. Keep model choice separate from quality: use `low` for drafts, compare `high`, `xhigh` or `max` for final assets. Subscription renderer selection is unverified and named selections are refused, even though direct experimental requests can return images.
+On the explicit `apikey` backend, `flare` is fast and `sunburst` is precise; since v0.7.0 both are GPT-Image-2.6 (`flare-2.5` / `sunburst-2.5` keep 2.5) and Sunburst is the default. Keep model choice separate from quality: use `low` for drafts, compare `high`, `xhigh` or `max` for final assets. Subscription renderer selection is unverified and named selections are refused, even though direct experimental requests can return images.
 
 ## Spend limits
 

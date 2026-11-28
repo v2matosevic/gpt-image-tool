@@ -133,7 +133,7 @@ function fail(e: unknown) {
   return { isError: true, content: [{ type: "text", text: `Image operation failed: ${msg}` }] } as any;
 }
 
-const server = new McpServer({ name: "gpt-image", version: "0.6.0" });
+const server = new McpServer({ name: "gpt-image", version: "0.7.0" });
 // Each tool call is one "direct call" for the spend ledger: every paid request inside it shares one
 // per-call limit (src/spend.ts). Studio runs mark their own reserved work as managed.
 {
