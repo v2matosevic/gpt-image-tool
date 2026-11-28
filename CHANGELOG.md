@@ -12,6 +12,7 @@
 - The subscription's image-cap error states when the cap resets.
 - Bundle the MCP server into a single `dist/mcp.js` during `npm run build`, so a cold start reads one file instead of about 270 modules. Slow starts on busy disks exceeded MCP gateway start limits and made every call fail with "Request timed out".
 - Stop sending the reasoning block in subscription image requests; the renderer rejected every explicit level as an unsupported "complexity".
+- Dependency updates for reported advisories: `@modelcontextprotocol/sdk` 1.32.2, `sharp` 0.35.5 (librsvg), and compatible transitive updates (`hono`, `@hono/node-server`, `body-parser`, `proxy-addr`, `qs`, `fast-uri`, `ip-address`). Known: `zod` 3 is inside a high-severity advisory (GHSA-mrhx-c7xc-m3w5, memory exhaustion when validating oversized input); the fix is zod 4, a breaking upgrade left for a later release.
 - Documentation corrected: the subscription renders with gpt-image-2, replaces the quality and size it is sent with `auto`, and reports every image as quality `low`.
 
 ## 0.6.0 - 2026-10-03
