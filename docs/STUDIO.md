@@ -217,12 +217,31 @@ checkable defects, the request against the measured reading, drift from the
 anchor, blind pairwise critique (opinion), and above all the human's choice.
 
 Every saved image gets a local reading and, where the request or the anchor
-implies something measurable, deviations. Generate and edit takes also get a
-checklist of yes/no questions drawn from the prompt, the shot settings and the
-brief. A run writes one review sheet of its new images, labelled with the setting
+implies something measurable, deviations. The reading includes letterbox or
+pillarbox bars (uniform dark bars on two opposite edges, with their size); bars
+the request did not ask for are a deviation. Warm and cool asked together (blue
+hour with lamplight, a teal and amber grade) is one mixed-temperature request,
+met when the palette holds both. Generate and edit takes also get a checklist of
+yes/no questions an agent can answer by looking: the subject, counted objects,
+stated positions, labelled layers, literal quoted text, exclusions, the shot
+settings that were set and the brief. Clauses that are none of these are left
+out rather than turned into half-questions. A run writes one review sheet of its new images, labelled with the setting
 that differs, and `studio_status` lists sheet, deviations, readings and checklists.
 `studio_view` adds overlays (thirds grid with the visual-weight centre, palette,
 histogram), full-resolution zooms and blind A/B pairs.
+
+For a person, `gpt-image studio page <graph>` (or `studio_view {page: {...}}`)
+writes a self-contained static folder: `index.html` plus copies of the images
+named `NN-<case>-<node>.png`. Takes are grouped by the list item they came from,
+with its text; nodes that share the items sit side by side, and a finish sits
+under the case of the take it finished. Each image opens at full size and shows
+what made it, its cost, its reading and its deviations, re-measured from the
+pixels when the page is built. `--zoom "[N:]x,y,w,h[=label]"` (repeatable) adds
+crops of the same fractions from every image of a case (case N only with `N:`).
+The page holds no verdicts, critiques or approvals. Default folder:
+`views/page-<time>/`; it never overwrites an `index.html` it did not write. A
+finish whose size has a different aspect from its draft is noted in the plan with
+the nearest size that keeps the draft's aspect.
 
 An agent cannot approve a take until it has recorded a look (checklist answers or
 a critique); the refusal names the op to send. People approve freely: ADE and the
@@ -361,7 +380,9 @@ Rules:
   see "Perception pack".
 - Review fields on a take, all optional: `reading` (local measurements,
   `{version: 1, source: "local", palette, luminance, contrast, color, composition,
-  sharpness, detail}`), `deviations` (`{source: "anchor"|"request", measure,
+  sharpness, detail, frame?}`; `frame` is added 2026-11-28 and present only when bars
+  were measured: `{kind: "letterbox"|"pillarbox", top, bottom, left, right, colour,
+  picture: {width, height}}`), `deviations` (`{source: "anchor"|"request", measure,
   expected, measured, note}`), `checklist` (`{id, question, from, answer?, by?,
   at?, note?}`, answers yes/no/unsure), `critiques` (`{id, judge, at, summary,
   criteria?, against?, preferred?, blind?}`), `predictions`, `verdict`. A run
@@ -408,6 +429,7 @@ gpt-image studio budget [--graph g]
 gpt-image studio budget --grant <dollars> --approved-by <name> --words '<their words>' [--graph g] [--from-app]
 gpt-image studio nodes                 (the node registry: handles, setting docs, kind of work)
 gpt-image studio sheet <graph> [--nodes a,b] [--all-takes]
+gpt-image studio page <graph> [--nodes a,b] [--zoom "[N:]x,y,w,h[=label]"]... [--out dir] [--title t]
 gpt-image studio events <graph> [--after seq] [--limit n]
 gpt-image studio view [graph] [--port n] [--idle-exit minutes]
 gpt-image studio perception [status | install --yes]

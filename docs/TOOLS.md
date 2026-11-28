@@ -180,7 +180,7 @@ Node-graph workflows. The subscription renders by default; a node uses the paid 
 | `studio_edit` | Apply ops together or not at all | `graph`, `ops`, `expect_revision` |
 | `studio_run` | Start a background run; unchanged slots are reused; dry runs estimate paid cost | `graph`, `scope`, `nodes`, `new_take`, `concurrency`, `dry_run`, `resume`, `stop`, `wait_seconds`, `max_run_cost`, `max_day_cost` (lower only) |
 | `studio_status` | Progress, generations spent, new take paths, errors with fixes | `graph`, `job`, `wait_seconds` |
-| `studio_view` | Labelled review sheet and preview paths; zoom, blind pair, study an admired image; `serve` starts the read-only viewer | `graph`, `nodes`, `all_takes`, `overlays`, `zoom`, `pair`, `study`, `serve` |
+| `studio_view` | Labelled review sheet and preview paths; zoom, blind pair, study an admired image; `page` writes a static side-by-side page for a person (takes by case, readings, deviations, costs, matching crops, no verdicts); `serve` starts the read-only viewer | `graph`, `nodes`, `all_takes`, `overlays`, `zoom`, `pair`, `study`, `page` (`{out?, zoom?, title?}`), `serve` |
 | `studio_budget` | Today's paid spend, limits, grants and ledger; records an owner's approval as a grant (never on its own) | `graph`, `grant: {amount, words, approved_by, graph?, expires?}` |
 
 On subscription nodes Studio quality is `low` (default), `medium` or `high`, sent with `backend: "subscription"` and `image_model: "auto"`. API nodes send `backend: "apikey"` with the resolved model and accept `xhigh`, `max`, custom sizes and complexity.
