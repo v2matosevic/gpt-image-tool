@@ -58,6 +58,8 @@ Reconnect the MCP server in your coding client so it loads the new build. The se
 
 The CLI is ready as soon as the build completes. A running MCP process keeps its previously loaded code until reconnected. `npm run smoke:mcp` starts a fresh server and verifies the release version, catalog and local branding tools without credentials or image usage. The default `npm ci` includes `sharp`, which the branding exports need; do not use `--omit=dev` for the documented installation.
 
+Upgrading past v0.6.0 (main, not yet tagged) changes two things for paid API users. `flare` and `sunburst` now mean GPT-Image-2.6 rather than 2.5: a profile `imageModel: "flare"`, `GPT_IMAGE_API_MODEL=sunburst` or a call naming them moves to 2.6; write `flare-2.5` / `sunburst-2.5` (or the full ID) to stay on 2.5. Images replayed with `--from` / `from_image` keep the full model ID their sidecar recorded. And every API request is now checked against spend limits before it is sent (defaults $2 per call, $10 per project per day, $25 per day across projects); raise them in your profile's `studio.limits` and `~/.gptimage/config.json` if your use needs more. Subscription use is unchanged.
+
 Existing `GPT_IMAGE_MODEL`, `GPT_IMAGE_PROOF_MODEL`, and `GPT_IMAGE_API_MODEL` overrides still win. Remove an old override to adopt the new default, or keep it to retain your chosen model. No API key or paid backend is enabled by upgrading. See [model selection and verification](MODELS.md).
 
 ## Claude Code

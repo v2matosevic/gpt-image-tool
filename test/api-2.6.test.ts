@@ -177,3 +177,19 @@ test("a profile's complexity applies only to API calls; a subscription call in t
   assert.equal(overlay({ ...profile, backend: "apikey" } as any, { subject: "a cup" } as any).complexity, "low");
   assert.equal(overlay(profile as any, { subject: "a cup", backend: "apikey", complexity: "high" } as any).complexity, "high");
 });
+
+test("a v0.6.0 sidecar replays its recorded 2.5 model, though flare now means 2.6", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "replay-"));
+  writeFileSync(join(dir, ".secrets"), "OPENAI_API_KEY=sk-test-replay-000\n");
+  const old = join(dir, "old.png");
+  writeFileSync(`${old}.json`, JSON.stringify({ operation: "generate", subject: "a folded paper bird", backend: "apikey", imageModel: "gpt-image-2.5-flare", quality: "low", size: "1024x1024", format: "png" }));
+  const bodies: any[] = [];
+  const png = encodePng({ width: 4, height: 4, data: Buffer.alloc(64, 128) });
+  t.mock.method(globalThis, "fetch", async (_u: string, init: RequestInit) => {
+    bodies.push(JSON.parse(String(init.body)));
+    return new Response(JSON.stringify({ data: [{ b64_json: png.toString("base64") }], usage: { input_tokens: 10, output_tokens: 196 } }));
+  });
+  await generateImage({ fromImage: old, outputPath: join(dir, "again.png"), keyProject: dir } as any);
+  await generateImage({ subject: "a folded paper bird", backend: "apikey", imageModel: "flare", quality: "low", outputPath: join(dir, "new.png"), keyProject: dir } as any);
+  assert.deepEqual(bodies.map(b => b.model), ["gpt-image-2.5-flare", "gpt-image-2.6-flare"]);
+});
