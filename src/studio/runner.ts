@@ -317,7 +317,7 @@ export async function startRun(project: string, slug: string, req: RunRequest): 
   const budgetLine = plan.api.slots ? await budgetPlanLine(project, slug, plan, limits, chainOf(resumeOf ? await readRecord(dir, resumeOf).catch(() => undefined) : undefined)) : "";
   if (req.dryRun) {
     const prompts = await dryRunPrompts(project, dir, graph, state, plan);
-    return { status: blockedPlan(plan) ? "blocked" : "dry-run", plan, prompts, message: [planMessage(plan, true), ...(budgetLine ? [budgetLine] : []), ...prompts.map(p => `Prompt for ${p.node} (${p.slot}): ${p.prompt}`)].join("\n") };
+    return { status: blockedPlan(plan) ? "blocked" : "dry-run", plan, prompts, message: [planMessage(plan, true), ...(budgetLine ? [budgetLine] : []), ...prompts.map(p => `Prompt for ${p.node} (${p.slot.length > 60 ? `${p.slot.slice(0, 57)}...` : p.slot}): ${p.prompt}`)].join("\n") };
   }
   if (blockedPlan(plan)) return { status: "blocked", plan, message: planMessage(plan, false) };
   if (!plan.slots) return { status: "nothing-to-do", plan, message: `Everything in scope "${plan.scope}" is current; nothing to run. Pass ${opt("new_take")}${isCli() ? "" : ":true"} for another take.` };
@@ -378,7 +378,7 @@ async function budgetPlanLine(project: string, slug: string, plan: Plan, limits:
   const runLeft = Math.max(0, limits.run - spentChain);
   const fits = plan.api.cost <= Math.min(runLeft, v.normalLeft) + 1e-9;
   return `Estimated paid API cost: ${dollars(plan.api.cost)}${plan.api.lowerBound ? " or more" : ""} for ${plan.api.slots} image${plan.api.slots === 1 ? "" : "s"} (${plan.nodes.filter(n => n.cost !== undefined && n.toRun).map(n => `${n.node}: ${n.renderer}`).join("; ")}). ` +
-    `Limits: ${dollars(limits.run)} per run${spentChain ? ` (this resume chain has spent ${dollars(spentChain)})` : ""}, ${dollars(limits.day)} per day (spent today ${dollars(v.spentToday)}), ceiling ${dollars(limits.ceiling)}${grantLeft ? `; active grants ${dollars(grantLeft)}` : ""}. ` +
+    `Limits: ${dollars(limits.run)} per run${spentChain ? ` (this resume chain has spent ${dollars(spentChain)})` : ""}, ${dollars(limits.day)} per day (spent today ${dollars(v.spentToday)}), ceiling ${dollars(limits.ceiling)}; all projects ${dollars(v.user.limits.day)} per day (spent today ${dollars(v.user.spentToday)})${grantLeft ? `; active grants ${dollars(grantLeft)}` : ""}. ` +
     (fits ? "It fits inside the limits." : `It does not fit inside the limits${grantLeft ? " without the grant" : ""}: the run will stop cleanly, resumable, when the next image would pass one.`);
 }
 

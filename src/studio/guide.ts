@@ -35,7 +35,9 @@ How to work:
 Rules that save quota, money and mistakes:
 - Every node renders on the ChatGPT subscription unless it says renderer:"api", or is a finish node.
   The subscription is free, uses gpt-image-2, and ignores quality and size: it reports "low" for every
-  value and saves about 1254 px (tested 2026-11-28), so do not expect high to look better there.
+  value, so do not expect high to look better there. A square came back about 1254 px; six 1536x1024
+  requests on 2026-11-28 all came back 1536x1024, so the aspect can follow the request (whether the size
+  field or the prompt does that is not known). Larger sizes need the API.
   Drafts default to quality low on either renderer.
 - The paid API (GPT-Image-2.6) is for quality work only. Read topic renderer before choosing it.
 - Images have their own cap of roughly 24 hours, shared with ChatGPT Images and separate from the

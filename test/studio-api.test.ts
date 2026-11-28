@@ -348,3 +348,19 @@ test("runs started in the same second are ordered by their created time, not the
   writeFileSync(join(dir, "runs", "r20261128-031154-aaaa.json"), JSON.stringify({ created: "2026-11-28T03:11:54.000Z" }));
   assert.deepEqual(await listRecords(dir), ["r20261128-031154-aaaa", "r20261128-031155-ffff", "r20261128-031155-0000"]);
 });
+
+test("friction fixes from the hard comparison run: long list items, the plan's user line, labels", async () => {
+  const p = project();
+  const long = "A clean landing page mockup ".repeat(20).trim(); // about 560 characters
+  await createGraph({ name: "fx", nodes: [
+    { ref: "items", type: "list", settings: { items: [long, "a cup"] } },
+    { ref: "api", type: "generate", settings: { renderer: "api", model: "sunburst", quality: "high", size: "1536x1024" } },
+  ], connections: [{ from: "items", to: "api" }] }, { project: p });
+  await refusal(createGraph({ name: "fx2", nodes: [{ ref: "items", type: "list", settings: { items: ["x".repeat(2001)] } }] }, { project: p }), "BAD_SETTINGS");
+  const dry = await startRun(p, "fx", { actor: "t", dryRun: true } as any);
+  assert.match(dry.message, /all projects \$25\.00 per day \(spent today \$\d+\.\d\d\)/);
+  for (const line of dry.message.split("\n").filter(l => l.startsWith("Prompt for"))) assert.ok(line.indexOf("): ") < 80, line.slice(0, 120));
+  const snap = (await getGraph("fx", { project: p })).snapshot!;
+  assert.match(snap, /PAID api 2\.6-sunburst high 1536x1024(?! · 1536x1024)/);
+  assert.match(guide("nodes"), /Text to image, on the subscription unless renderer:"api"/);
+});

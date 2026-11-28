@@ -130,7 +130,8 @@ export const NODE_SPECS: Record<NodeType, NodeSpec> = {
     type: "list", summary: "Fans out: each item becomes its own slot downstream. With a connected text, each item fills {{item}} in it (or is appended).",
     inputs: [h("text", "text", false, "Optional template, or the text to split when items is not set.")],
     outputs: [h("items", "text", true, "One text per item.")],
-    settings: z.object({ items: z.array(short).min(1).max(MAX_SLOTS), split: z.enum(["lines", "commas"]) }).partial().strict(),
+    // Items are often whole prompts, so they get a prompt-sized cap, the same as splitting a text.
+    settings: z.object({ items: z.array(z.string().trim().min(1).max(2000)).min(1).max(MAX_SLOTS), split: z.enum(["lines", "commas"]) }).partial().strict(),
     docs: { items: "The items (1-40). Omit to split the connected text instead.", split: "How to split connected text when items is omitted: lines (default) or commas." },
     work: "none",
   },
@@ -142,14 +143,14 @@ export const NODE_SPECS: Record<NodeType, NodeSpec> = {
     work: "local",
   },
   generate: {
-    type: "generate", summary: "Text to image through the subscription. One slot per incoming list item, times takes.",
+    type: "generate", summary: "Text to image, on the subscription unless renderer:\"api\" (see topic renderer). One slot per incoming list item, times takes.",
     inputs: [h("prompt", "text", false, "The subject text (or connect a list to fan out)."), h("style", "style", false, "A style node."), h("references", IMG, true, "Reference images (max 16).")],
     outputs: [h("image", IMG, true, "The selected take of each slot.")],
     settings: z.object({ prompt: text, ...lookFields, ...renderFields }).partial().strict(),
     docs: { prompt: "Subject text when no prompt is connected.", ...lookDocs, ...renderDocs }, textField: "prompt", work: "provider",
   },
   edit: {
-    type: "edit", summary: "Image to image through the subscription. Edits each incoming image (or each instruction item).",
+    type: "edit", summary: "Image to image, on the subscription unless renderer:\"api\". Edits each incoming image (or each instruction item).",
     inputs: [h("image", IMG, true, "Image(s) to edit; each is edited separately."), h("prompt", "text", false, "The instruction (or a list to fan out)."),
       h("references", IMG, true, "Extra reference images."), h("mask", IMG, false, "PNG mask, same size: transparent = regenerate here.")],
     outputs: [h("image", IMG, true, "The selected take of each slot.")],

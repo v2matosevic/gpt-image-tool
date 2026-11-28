@@ -36,7 +36,7 @@ function details(ev: NodeEval, state: StateFile): string {
       if (r || ev.node.type === "finish" || s.renderer === "api") bits.push(r ? `PAID ${renderLabel(r)}` : "PAID api");
       if (ev.node.type === "generate" || ev.node.type === "edit") {
         if (!r) bits.push(`quality ${s.quality ?? "low"}`);
-        if (s.size) bits.push(String(s.size));
+        if (s.size && !r) bits.push(String(s.size));
         if (s.takes && s.takes !== 1) bits.push(`takes ${s.takes}`);
         const own = s.prompt ?? s.instruction;
         if (own) bits.push(q(own));
