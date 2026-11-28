@@ -197,7 +197,7 @@ async function summarize(dir: string, rec: RunRecord) {
     lines.push(`Paid API: spent ${dollars(b.spent)} in this run (estimated ${dollars(b.estimate)} at start)${b.chainSpent !== undefined && b.chain !== rec.id ? `, ${dollars(b.chainSpent)} across the resume chain from ${b.chain}` : ""}; limits ${dollars(b.limits.run)} per run, ${dollars(b.limits.day)} per day. Spent amounts come from the usage the API reported.`);
   }
   if (p.current) lines.push(`Working on ${p.current.node} slot ${p.current.slot + 1}.`);
-  if (rec.stopReason) lines.push(`Stopped${rec.stopCode ? ` by a spend limit (${rec.stopCode})` : ""}: ${rec.stopReason}${rec.stopFix ? ` Fix: ${rec.stopFix}` : ""}`);
+  if (rec.stopReason) lines.push(`Stopped${rec.stopCode === "subscription-cap" ? ` by the subscription image cap until ${rec.resetAt}` : rec.stopCode ? ` by a spend limit (${rec.stopCode})` : ""}:${rec.stopReason}${rec.stopFix ? ` Fix: ${rec.stopFix}` : ""}`);
   for (const e of rec.errors.slice(0, 5)) lines.push(`Error in ${e.node}: ${e.message.slice(0, 300)}${e.fix ? ` Fix: ${e.fix}` : ""}`);
   for (const s of rec.skipped.slice(0, 5)) lines.push(`Skipped ${s.node}: ${s.reason}`);
   if (rec.takes.length) {

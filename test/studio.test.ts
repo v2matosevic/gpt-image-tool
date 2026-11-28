@@ -411,6 +411,10 @@ test("an image-cap 429 names its reset time in the provider error and the run's 
   assert.equal(r.status, "stopped");
   const rec = JSON.parse(readFileSync(join(graphDir(p, "mug-lookbook"), "runs", `${r.job}.json`), "utf8"));
   assert.match(rec.stopFix, /resets at 2026-11-28T11:30:00\.000Z \(in 1h 30m\)/);
+  // Machine-readable for the editor, so it can hold Resume until then.
+  assert.equal(rec.stopCode, "subscription-cap");
+  assert.equal(rec.resetAt, "2026-11-28T11:30:00.000Z");
+  assert.match((await statusReport("mug-lookbook", { project: p })).text, /Stopped by the subscription image cap until 2026-11-28T11:30:00\.000Z/);
 });
 
 test("a sweep varies one look dimension per slot, reuses unchanged values and refuses a list", async () => {

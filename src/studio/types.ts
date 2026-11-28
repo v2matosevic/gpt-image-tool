@@ -212,8 +212,12 @@ export interface RunRecord {
   errors: Array<{ node: string; message: string; fix?: string }>;
   stopReason?: string;
   stopFix?: string;
-  /** Machine-readable stop cause for spend stops: "budget-run" | "budget-day" | "budget-ceiling". */
+  /** Machine-readable stop cause: spend stops ("budget-run" | "budget-day" | "budget-ceiling" |
+   *  "budget-user-day" | "budget-user-ceiling") and "subscription-cap" (the image cap was reached). */
   stopCode?: string;
+  /** Set with stopCode "subscription-cap": when the cap resets (ISO time, from the provider's
+   *  resets_at). Resuming before then fails the same way. */
+  resetAt?: string;
   /** Graph-relative path of the labelled review sheet of this run's new images. */
   sheet?: string;
   /** Paid API spend (phase 1d). chain is the first run of a resume chain; a resumed run keeps

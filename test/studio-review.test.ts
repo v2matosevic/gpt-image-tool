@@ -174,3 +174,22 @@ test("shallow depth of field reads from the soft share, not the thirds ratio", a
   const d = requestDeviations(flat as any, prompt).find(x => x.measure === "focus");
   assert.match(d!.measured, /^\d+% of the detailed areas are soft, so most of the frame is in focus$/);
 });
+
+test("unpin undoes a move: the node returns to automatic layout and a later layout manages it", async () => {
+  const { readBoth, graphDir } = await import("../dist/studio/store.js");
+  const p = mkdtempSync(join(tmpdir(), "studio-review-"));
+  await createGraph({ name: "pins", nodes: [{ ref: "a", type: "prompt", settings: { text: "a cup" } }, { ref: "g", type: "generate" }], connections: [{ from: "a", to: "g" }] }, { project: p });
+  const pos = async () => (await readBoth(graphDir(p, "pins"))).graph.nodes.find((n: any) => n.id === "g")!.position;
+  const auto = await pos();
+  assert.ok(auto && !auto.pinned);
+  await editGraph("pins", [{ op: "move", node: "g", x: 2000, y: 900 }], { project: p, actor: "t" });
+  assert.deepEqual(await pos(), { x: 2000, y: 900, pinned: true });
+  const r = await editGraph("pins", [{ op: "unpin", node: "g" }], { project: p, actor: "t" });
+  assert.match(JSON.stringify(r), /unpinned g/);
+  const back = await pos();
+  assert.ok(back && !back.pinned && back.x === auto!.x, JSON.stringify(back));
+  await editGraph("pins", [{ op: "layout" }], { project: p, actor: "t" });
+  assert.deepEqual(await pos(), { x: auto!.x, y: auto!.y }, "layout places it like any engine-placed node");
+  const again = await editGraph("pins", [{ op: "unpin", node: "g" }], { project: p, actor: "t" });
+  assert.match(JSON.stringify(again), /g was not pinned/);
+});

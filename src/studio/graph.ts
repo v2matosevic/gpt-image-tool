@@ -185,7 +185,7 @@ export async function importPath(ctx: OpContext, raw: string, what: string): Pro
 
 // ---------------------------------------------------------------- ops
 
-export const OP_NAMES = ["add", "remove", "set", "prompt_edit", "connect", "disconnect", "group", "ungroup", "move", "layout", "rename",
+export const OP_NAMES = ["add", "remove", "set", "prompt_edit", "connect", "disconnect", "group", "ungroup", "move", "unpin", "layout", "rename",
   "select", "pick", "approve", "reject", "clear_verdict", "predict", "note", "answer", "critique", "judge_pair", "canon_save", "lesson"] as const;
 
 type Op = Record<string, unknown> & { op: string };
@@ -210,6 +210,7 @@ export const OP_HELP: Record<string, string> = {
   group: '{op:"group", id:"concept", stage:"concept", label?, nodes:["p1","gen"]}',
   ungroup: '{op:"ungroup", id:"concept"}',
   move: '{op:"move", node:"gen", x:640, y:0}',
+  unpin: '{op:"unpin", node:"gen"} (undo a move: the node goes back to automatic layout)',
   layout: '{op:"layout"} (re-places every node a person has not moved)',
   rename: '{op:"rename", name:"Landing hero v2"} (the graph display name; set a node label with {op:"set", node, label})',
   select: '{op:"select", take:"gen/t4"} (use this take as the output of its slot)',
@@ -229,7 +230,7 @@ export const OP_HELP: Record<string, string> = {
 const KNOWN: Record<string, string[]> = {
   add: ["op", "id", "type", "settings", "label", "group", "position", "connect_from"], remove: ["op", "node"], set: ["op", "node", "settings", "label", "group"],
   prompt_edit: ["op", "node", "field", "find", "replace", "append", "prepend", "all"], connect: ["op", "from", "to", "to_handle", "from_handle"],
-  disconnect: ["op", "from", "to", "to_handle"], group: ["op", "id", "label", "stage", "nodes"], ungroup: ["op", "id"], move: ["op", "node", "x", "y"],
+  disconnect: ["op", "from", "to", "to_handle"], group: ["op", "id", "label", "stage", "nodes"], ungroup: ["op", "id"], move: ["op", "node", "x", "y"], unpin: ["op", "node"],
   layout: ["op"], rename: ["op", "name"], select: ["op", "take"], pick: ["op", "node", "takes"], approve: ["op", "take", "note"], reject: ["op", "take", "note"],
   clear_verdict: ["op", "take"], predict: ["op", "take", "decision", "reason"], note: ["op", "on", "text", "author", "id", "take"],
   answer: ["op", "take", "answers"], critique: ["op", "take", "summary", "criteria", "against", "preferred", "judge"], judge_pair: ["op", "pair", "preferred", "reason", "criteria"], canon_save: ["op", "name", "takes", "description", "kind", "role", "replace"], lesson: ["op", "claim", "dimension", "takes", "scope", "supersedes"],
@@ -503,6 +504,16 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
       node.position = { x: Math.round(op.x), y: Math.round(op.y), pinned: true };
       ctx.events.push({ type: "node.moved", node: node.id, x: node.position.x, y: node.position.y });
       return `moved ${node.id}`;
+    }
+    case "unpin": {
+      // Undoing a move of an engine-placed node: drop the pin and place it automatically again, so a
+      // later layout keeps managing it.
+      const node = findNode(graph, str(op, "node", path)!, path);
+      if (!node.position?.pinned) return `${node.id} was not pinned`;
+      delete node.position;
+      placeNodes(graph, new Set([node.id]));
+      ctx.events.push({ type: "node.unpinned", node: node.id, x: node.position!.x, y: node.position!.y });
+      return `unpinned ${node.id}`;
     }
     case "layout": {
       placeNodes(graph, undefined, true);

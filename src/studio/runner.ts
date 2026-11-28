@@ -220,7 +220,7 @@ export function workerScript(): string {
 
 // ---------------------------------------------------------------- errors
 
-export function classifyError(e: unknown, slug = "<graph>", api = false): { kind: "quota" | "auth" | "node"; message: string; fix: string } {
+export function classifyError(e: unknown, slug = "<graph>", api = false): { kind: "quota" | "auth" | "node"; message: string; fix: string; resetAt?: string } {
   const message = e instanceof Error ? e.message : String(e);
   if (api) {
     // The paid API: a missing or refused key, or an exhausted API balance, stops the run (every API
@@ -234,7 +234,8 @@ export function classifyError(e: unknown, slug = "<graph>", api = false): { kind
   }
   if (/\b429\b|rate.?limit|quota|usage limit|too many requests|throttl/i.test(message)) {
     const reset = /resets at (\S+) \(in ([^)]+)\)/.exec(message);
-    return { kind: "quota", message, fix: reset
+    const resetAt = reset && !Number.isNaN(Date.parse(reset[1]!)) ? new Date(reset[1]!).toISOString() : undefined;
+    return { kind: "quota", message, ...(resetAt ? { resetAt } : {}), fix: reset
       ? `The subscription image cap was reached; it resets at ${reset[1]} (in ${reset[2]}). Resume after that with ${cmd("run", { graph: slug, resume: true })}; finished slots are kept.`
       : `The subscription quota or rate limit was reached. Wait, then resume with ${cmd("run", { graph: slug, resume: true })}; finished slots are kept.` };
   }
@@ -486,7 +487,7 @@ export async function runJob(project: string, slug: string, job: string, executo
   await atomicWrite(paths(dir).runLock, JSON.stringify({ job, pid: process.pid, host: hostname(), actor: "worker", at: now() })).catch(() => {});
   await save();
   const stopFile = join(paths(dir).runs, `${job}.stop`);
-  let stop: { reason: string; fix?: string; code?: string } | undefined;
+  let stop: { reason: string; fix?: string; code?: string; resetAt?: string } | undefined;
   const beat = setInterval(() => {
     const t = new Date();
     utimes(paths(dir).runLock, t, t).catch(() => {});
@@ -576,7 +577,7 @@ export async function runJob(project: string, slug: string, job: string, executo
             if (!refused) budget.spent = Math.round((budget.spent + held.estimate) * 1e6) / 1e6;
           }
           const c = classifyError(e, slug, slot.render?.renderer === "api");
-          if (c.kind !== "node") stop ??= { reason: c.message, fix: c.fix };
+          if (c.kind !== "node") stop ??= { reason: c.message, fix: c.fix, ...(c.resetAt ? { code: "subscription-cap", resetAt: c.resetAt } : {}) };
           else {
             rec.progress.slotsFailed++;
             rec.errors.push({ node: id, message: c.message, fix: c.fix });
@@ -593,7 +594,7 @@ export async function runJob(project: string, slug: string, job: string, executo
     }
     await writeRunSheet(dir, rec).catch(e => rec.errors.push({ node: "(sheet)", message: `Review sheet failed: ${e instanceof Error ? e.message : e}`, fix: `Use ${cmd("view", { graph: slug })} instead.` }));
     rec.status = stop ? "stopped" : rec.errors.length ? "done_with_errors" : "done";
-    if (stop?.code) {
+    if (stop?.code?.startsWith("budget")) {
       // A spend stop: say what the rest needs and that the owner decides, once.
       const fresh = await readBoth(dir);
       const left = await planRun(project, dir, fresh.graph, fresh.state, rec.scope, rec.newTake, done).catch(() => undefined);
@@ -608,7 +609,7 @@ export async function runJob(project: string, slug: string, job: string, executo
         `If that is fine, ${cmd("run", { graph: slug, resume: true })} continues under the project's limits (${dollars(own.run)} per run, counted across the resume chain; ${dollars(own.day)} per day); otherwise stop here.`;
       rec.stopCode = stop.code;
     }
-    if (stop) { rec.stopReason = stop.reason; rec.stopFix = stop.fix; }
+    if (stop) { rec.stopReason = stop.reason; rec.stopFix = stop.fix; if (stop.resetAt) { rec.stopCode = stop.code; rec.resetAt = stop.resetAt; } }
   } catch (e) {
     rec.status = "failed";
     rec.errors.push({ node: "(run)", message: e instanceof Error ? e.message : String(e), fix: "This is a Studio bug or a file problem; the run log is in runs/<job>.log." });
