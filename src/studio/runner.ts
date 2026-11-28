@@ -88,8 +88,18 @@ async function writeRecord(dir: string, rec: RunRecord) {
   await atomicWrite(recordPath(dir, rec.id), JSON.stringify(rec, null, 2) + "\n");
 }
 
+/** Job ids, oldest first. Ids carry the start second and a random suffix, so two runs started in
+ *  the same second would sort at random; those are ordered by their record's created time (ms). */
 export async function listRecords(dir: string): Promise<string[]> {
-  try { return (await readdir(paths(dir).runs)).filter(f => /^r\d{8}-\d{6}-[0-9a-f]{4}\.json$/.test(f)).map(f => f.slice(0, -5)).sort(); } catch { return []; }
+  let ids: string[];
+  try { ids = (await readdir(paths(dir).runs)).filter(f => /^r\d{8}-\d{6}-[0-9a-f]{4}\.json$/.test(f)).map(f => f.slice(0, -5)).sort(); } catch { return []; }
+  const second = (id: string) => id.slice(0, 16);
+  const created = new Map<string, string>();
+  for (let i = 0; i < ids.length; i++) {
+    if (second(ids[i]!) !== second(ids[i - 1] ?? "") && second(ids[i]!) !== second(ids[i + 1] ?? "")) continue;
+    created.set(ids[i]!, await readRecord(dir, ids[i]!).then(r => r.created, () => ""));
+  }
+  return created.size ? ids.sort((a, b) => second(a).localeCompare(second(b)) || (created.get(a) ?? "").localeCompare(created.get(b) ?? "") || a.localeCompare(b)) : ids;
 }
 
 interface RunLock { job: string; pid: number; host: string; actor: string; at: string }
