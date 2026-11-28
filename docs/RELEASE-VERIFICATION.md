@@ -1,6 +1,97 @@
 # Public source release verification
 
-This is the canonical release handoff. The v0.6.0 release documentation is [here](releases/v0.6.0.md); prior release evidence is retained below.
+This is the canonical release handoff. The v0.7.0 release documentation is [here](releases/v0.7.0.md); prior release evidence is retained below.
+
+## v0.7.0, November 28, 2026
+
+Published [v0.7.0](https://github.com/v2matosevic/gpt-image-tool/releases/tag/v0.7.0)
+as Latest at 14:35:12 UTC on November 28 (15:35 local), titled "gpt-image-tool
+0.7.0: Studio". It is a normal public release, neither draft nor prerelease. The
+annotated tag and the release target both resolve to exact source
+`fb0546edf9d8bb31dae796edd34361e18e7bfe7c`. Later documentation commits on main do
+not move the tag. Marko approved the push of the night's work and asked for this
+release; the orchestrating agent relayed it.
+
+The release adds Studio (nine `studio_*` MCP tools and `gpt-image studio`), the
+paid API's GPT-Image-2.6 models with spend limits on every paid request, and the
+alias change (`flare` / `sunburst` now mean 2.6). Package, lockfile and MCP
+version are aligned at `0.7.0`; the server exposes 22 tools. The repository
+remains public and MIT licensed (GitHub's license API reports MIT); installation
+is from the GitHub source tag or archive, not an npm package or binary.
+
+Source on main for this release: `8f9d48b` (playbook: subscription-first rule and
+when to use Studio), `d77f914` (version, changelog, release notes, README, setup
+and agent docs, Studio screenshot), `fb0546e` (dependency updates). The Studio
+implementation and its reviews are the commits between `v0.6.0` and `8532b01`.
+
+- [CI run 46155282719](https://github.com/v2matosevic/gpt-image-tool/actions/runs/46155282719)
+  passed all four jobs at the exact release source: Node 22 on Windows, macOS and
+  Linux, plus Node 24 on Linux. Each job installs, runs the tests and the MCP
+  smoke, regenerates presets and checks for catalog drift.
+- Locally the release build passed 211 tests, the MCP smoke (version `0.7.0`, 22
+  tools, offline calls to the catalog, preview, logo kit, brand board and a Studio
+  loop) and the preset regeneration with no drift. `git diff --check` passed. All
+  139 relative Markdown links in 28 files resolved, anchors included.
+- A clean clone of `fb0546e` on Windows with Node 22.22.0 passed `npm ci`, build,
+  all 211 tests, the 22-tool smoke and the preset comparison.
+- Dependencies: `npm audit` on a clean install of the first candidate (`d77f914`)
+  reported ten advisories (1 critical, 4 high, 5 moderate). Compatible updates
+  (`@modelcontextprotocol/sdk` 1.32.2, `sharp` 0.35.5 and transitive `hono`,
+  `@hono/node-server`, `body-parser`, `proxy-addr`, `qs`, `fast-uri`, `ip-address`)
+  fixed nine and passed the same gates. **One high advisory remains**: `zod` 3,
+  [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5), memory
+  exhaustion when validating oversized input. Its fix is zod 4; a trial build
+  failed 23 type checks in three files and zod 4 changes validation messages and
+  tool schemas, so it was left for a later release and disclosed in the changelog
+  and release notes. Input reaches the validator only from the local agent over
+  stdio. Every earlier release shipped with zero npm findings; this one ships
+  with this one.
+- After fetching remote refs, the publication heuristic scanned 758 blobs and
+  reported 7 findings, all planted fake keys in tests: `sk-test-...` values in
+  `test/studio-api.test.ts` and `test/api-2.6.test.ts`, a sequential
+  `sk-proj-ABCDEFGHIJKLMNOP0123456789wxyz` with its masked echo, and
+  `sk-other1234567890`, used by the redaction tests. Each matched value in every
+  flagged blob was checked without printing it. This is a heuristic, not proof
+  that no secret exists. `docs/STUDIO-PLAN.md` stays untracked.
+- GitHub's source ZIP was downloaded: **8,341,160 bytes**, SHA-256
+  `18a19dc7ed74bf84c6b5882d1e211f3f8c0f47d433f37654a4b18488bc69ae18`. All **179
+  file blobs** matched the tag exactly; none missing or extra. The extracted
+  archive passed `npm ci`, build, 211 tests, the 22-tool smoke, normalized preset
+  equality and `npm audit` with the one zod finding.
+- The signed-out release page and README were opened in a real browser: title,
+  Latest badge, tag and commit `fb0546e` shown; all four README images loaded,
+  including the new [Studio graph](assets/studio-graph.png), whose provenance is
+  [documented](assets/README.md#studio-viewer-v070). The repository description now
+  names Studio and the spend limits.
+
+No paid API request and no image generation was made for this release. The
+README screenshot shows images made during the November 28 comparison run.
+
+What is and is not verified is listed in the [release notes](releases/v0.7.0.md#what-is-verified-and-what-is-not):
+live on one Windows machine and one account for Studio on the subscription and
+2.6 on the API; offline only for limits, grants, ledgers and resume; not verified
+for grants against the real API, 2.5 models live, the perception pack's download
+size on a clean machine or on macOS/Linux, the soft-share focus measure beyond its
+twelve calibration images, and anything Mac- or Linux-specific beyond CI.
+
+### Local installation
+
+The working checkout at `B:/Coding/gpt-image-tool` is built at `0.7.0`
+(`dist/mcp.js` and `dist/cli.js`). Codex starts that file directly and sees all
+22 tools after a reconnect. Claude terminals reach it through ToolHub, whose saved
+tool catalogue was still the October 26 one with 13 tools: ToolHub keys the
+catalogue by the server's command line, which did not change, and loads it once at
+hub start. `toolhub refresh gpt-image` rewrote `~/.toolhub/catalog.json` with 22
+tools (the previous file is kept in the verification folder below), but the
+running hub keeps its in-memory copy, so **Claude terminals see the Studio tools
+only after the ToolHub hub is restarted and the client reconnects MCP**. The hub
+was not restarted; stopping it needs the owner. The defect is logged for ToolHub
+(agent-coord issue `i-badf1015`). No client, terminal or service was stopped.
+
+Verification files: `C:/Users/matos/AppData/Local/Temp/gpt-image-release-0.7.0-fb0546e`
+(clean-clone and archive logs, `ci.json`, `archive-verification.json`, the
+downloaded ZIP, release and README screenshots, `toolhub-catalog.before.json`). No
+social posts or direct messages were sent.
 
 ## v0.6.0, October 3, 2026
 
