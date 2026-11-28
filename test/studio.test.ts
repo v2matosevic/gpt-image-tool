@@ -893,3 +893,20 @@ test("review 3 #5: a settings refusal says which rule broke, with the actual siz
   assert.equal(t.split("\n").length, 4, t);
   assert.match(t, /items\.2: "items\[2\]" is empty\. Fix: Give it some text, or remove it\./);
 });
+
+test("review 3 #6-8: rename explains node ids, remove names what it leaves without input, an empty slug is refused", async () => {
+  const p = project();
+  await createGraph({ name: "Six", nodes: [
+    { ref: "places", type: "prompt", settings: { text: "a {{item}} cafe" } }, { ref: "other", type: "prompt", settings: { text: "x" } },
+    { ref: "gen", type: "generate" }, { ref: "pick", type: "gallery" }, { ref: "ref1", type: "reference", settings: { path: "images/ref.png" } }, { ref: "ed", type: "edit", settings: { instruction: "night" } }],
+    connections: [{ from: "places", to: "gen" }, { from: "gen", to: "pick" }, { from: "ref1", to: "pick" }, { from: "gen", to: "ed", to_handle: "image" }] }, { project: p });
+  const r = await refusal(editGraph("six", [{ op: "rename", node: "gen", id: "draft" }], { project: p }), "BAD_OP");
+  assert.match(r.message, /does not rename nodes\. Node ids are stable/);
+  assert.match(r.fix ?? "", /\{op:"set", node:"gen", label:"Hero draft"\}/);
+  const rm = await editGraph("six", [{ op: "remove", node: "gen" }], { project: p });
+  assert.equal(rm.applied[0], "removed gen; ed lost its image input (now has none); pick lost its images input from gen (others remain)");
+  const rm2 = await editGraph("six", [{ op: "remove", node: "places" }], { project: p });
+  assert.equal(rm2.applied[0], "removed places");
+  const s = await refusal(createGraph({ name: "Empty slug", slug: "  ", nodes: [], connections: [] }, { project: p }), "BAD_SLUG");
+  assert.match(s.fix ?? "", /Omit slug to derive one from the name \("empty-slug"\)/);
+});

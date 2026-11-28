@@ -64,6 +64,9 @@ export async function createGraph(input: CreateInput, w: Who = {}) {
   const project = resolveProject(w.project);
   const actor = actorOf(w);
   if (!input?.name?.trim()) throw new StudioError("BAD_INPUT", "A graph needs a name.", `${cmd("create", { name: "Landing hero", nodes: [] })}, with your nodes and connections`);
+  if (input.slug !== undefined && (typeof input.slug !== "string" || !input.slug.trim())) {
+    throw new StudioError("BAD_SLUG", "The slug is empty.", `Omit slug to derive one from the name ("${slugify(input.name)}"), or pass one such as "landing-hero".`);
+  }
   const slug = checkSlug(input.slug?.trim() || slugify(input.name));
   const dir = graphDir(project, slug);
   if (existsSync(paths(dir).graph)) throw new StudioError("GRAPH_EXISTS", `Graph "${slug}" already exists in ${project}.`, `Change it with ${tool("edit")} on "${slug}", or pass another slug.`);

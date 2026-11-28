@@ -211,7 +211,7 @@ export const OP_HELP: Record<string, string> = {
   ungroup: '{op:"ungroup", id:"concept"}',
   move: '{op:"move", node:"gen", x:640, y:0}',
   layout: '{op:"layout"} (re-places every node a person has not moved)',
-  rename: '{op:"rename", name:"Landing hero v2"}',
+  rename: '{op:"rename", name:"Landing hero v2"} (the graph display name; set a node label with {op:"set", node, label})',
   select: '{op:"select", take:"gen/t4"} (use this take as the output of its slot)',
   pick: '{op:"pick", node:"gallery", takes:["gen/t4","gen/t6"]} ([] clears)',
   approve: '{op:"approve", take:"gen/t4", note?}',
@@ -352,6 +352,11 @@ export async function applyOps(graph: GraphFile, state: StateFile, ops: unknown[
       const c = closest(op.op, OP_NAMES);
       throw new StudioError("BAD_OP", `${path}: unknown op "${op.op}".`, `${c ? `Did you mean "${c}"? ` : ""}Ops: ${OP_NAMES.join(", ")}.`);
     }
+    if (op.op === "rename" && ["node", "id", "to", "new_id", "label"].some(k => k in op)) {
+      const node = typeof op.node === "string" ? op.node : "gen";
+      throw new StudioError("BAD_OP", `${path}: rename changes the graph's display name (its slug stays); it does not rename nodes. Node ids are stable: takes, connections, picks, feedback and handoffs refer to them.`,
+        `To show another name on a node, set its label: {op:"set", node:"${node}", label:"Hero draft"}. For a different id, add a node with that id, connect it the same way, and remove the old one (its takes stay with the old node). To rename the graph: ${OP_HELP.rename}.`);
+    }
     const extra = Object.keys(op).filter(k => !KNOWN[op.op]!.includes(k));
     if (extra.length) throw new StudioError("BAD_OP", `${path}: unknown field${extra.length > 1 ? "s" : ""} ${extra.join(", ")} for "${op.op}".`, `Shape: ${OP_HELP[op.op]}`);
     applied.push(await applyOne(graph, state, op, path, ctx, placed));
@@ -389,12 +394,15 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
     case "remove": {
       const node = findNode(graph, str(op, "node", path)!, path);
       const gone = new Set([node.id, ...graph.nodes.filter(n => n.type === "note" && n.settings.on === node.id).map(n => n.id)]);
+      const fed = graph.edges.filter(e => e.from === node.id && !gone.has(e.to));
       graph.nodes = graph.nodes.filter(n => !gone.has(n.id));
       graph.edges = graph.edges.filter(e => !gone.has(e.from) && !gone.has(e.to));
+      // Say what the removal leaves without input, so a dependent node is not discovered broken later.
+      const lost = fed.map(e => `${e.to} lost its ${e.toHandle} input${inputsOf(graph, e.to, e.toHandle).length ? ` from ${node.id} (others remain)` : " (now has none)"}`);
       for (const id of gone) delete state.nodes[id];
       for (const ns of Object.values(state.nodes)) if (ns.picks) ns.picks = ns.picks.filter(p => !gone.has(p.split("/")[0]!));
       ctx.events.push({ type: "node.removed", node: node.id, also: [...gone].filter(x => x !== node.id) });
-      return `removed ${node.id}${gone.size > 1 ? ` and ${gone.size - 1} note(s)` : ""}`;
+      return `removed ${node.id}${gone.size > 1 ? ` and ${gone.size - 1} note(s)` : ""}${lost.length ? `; ${lost.join("; ")}` : ""}`;
     }
     case "set": {
       const node = findNode(graph, str(op, "node", path)!, path);
