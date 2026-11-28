@@ -2,7 +2,7 @@
 // so every command can print machine-readable JSON (--json) and exits non-zero on refusal.
 
 import { readFile } from "node:fs/promises";
-import { createGraph, editGraph, getGraph, listGraphs, lookCloser, runGraph, statusReport, viewGraph } from "./api.js";
+import { createGraph, editGraph, getGraph, listGraphs, lookCloser, revisionLine, runGraph, statusReport, viewGraph } from "./api.js";
 import { guide, GUIDE_TOPICS, type GuideTopic } from "./guide.js";
 import { StudioError, graphDir, readEvents, resolveProject } from "./store.js";
 
@@ -119,7 +119,7 @@ ${memory}` : "");
       case "edit": {
         const ops = await jsonArg(flags.ops, "ops");
         const r = await editGraph(need(pos, 1, "graph slug"), Array.isArray(ops) ? ops : [ops], { ...who, expectRevision: num(flags["expect-revision"]) });
-        out(r, `Revision ${r.revision}:\n${r.applied.join("\n")}\n\n${r.snapshot}`);
+        out(r, `${revisionLine(r, "cli")}\n${r.applied.join("\n")}\n\n${r.snapshot}`);
         return 0;
       }
       case "run": {

@@ -54,7 +54,7 @@ export async function snapshot(project: string, dir: string, graph: GraphFile, s
   const live = await liveJob(dir);
   const evals = await evaluate(graph, state, { dir, project, liveJob: live });
   const lines: string[] = [];
-  lines.push(`Graph "${graph.name}" (${graph.slug}) · revision ${graph.revision} · ${graph.nodes.length} nodes · project ${project}`);
+  lines.push(`Graph "${graph.name}" (${graph.slug}) · graph revision ${graph.revision}, state ${state.revision} · ${graph.nodes.length} nodes · project ${project}`);
   const jobs = await listRecords(dir);
   if (live) {
     const r = await readRecord(dir, live).catch(() => undefined);

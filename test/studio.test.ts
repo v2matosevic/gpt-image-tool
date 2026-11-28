@@ -727,3 +727,19 @@ test("review 2 #11: the approve refusal suggests only routes that exist for that
   const withList = await refusal(editGraph("routes", [{ op: "approve", take: `gen/${gen.id}` }], { project: p }), "NO_LOOK");
   assert.match(withList.fix ?? "", /op:"answer"/);
 });
+
+test("review 2 #12: an edit reports the graph and state revisions and says what each guards", async () => {
+  const home = mkdtempSync(join(tmpdir(), "studio-home-"));
+  const p = project();
+  await createGraph({ name: "Revs", nodes: [{ ref: "gen", type: "generate", settings: { prompt: "a red cup" } }], connections: [] }, { project: p });
+  await startRun(p, "revs", { actor: "t", detach: false, executors: makeFakes().executors });
+  const cli = (args: string[]) => new Promise<string>((res, rej) => {
+    const c = spawn(process.execPath, [fixture("../../dist/cli.js"), "studio", ...args, "--project", p], { env: { ...process.env, GPT_IMAGE_STUDIO_HOME: home } });
+    let out = ""; c.stdout.on("data", d => (out += d)); c.stderr.on("data", d => (out += d)); c.on("exit", code => (code === 0 ? res(out) : rej(new Error(out))));
+  });
+  const state = await cli(["edit", "revs", "--ops", JSON.stringify([{ op: "critique", take: "gen/t1", summary: "a red cup, centred" }])]);
+  assert.match(state.split("\n")[0]!, /^Graph revision 1 \(unchanged: these ops recorded state, not the definition\), state revision \d+\. --expect-revision guards the definition/);
+  const def = await cli(["edit", "revs", "--ops", JSON.stringify([{ op: "set", node: "gen", settings: { quality: "medium" } }])]);
+  assert.match(def.split("\n")[0]!, /^Graph revision 2 \(the definition changed\), state revision \d+\.$/);
+  assert.match(def, /graph revision 2, state \d+ ·/);
+});

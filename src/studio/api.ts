@@ -113,7 +113,15 @@ export async function editGraph(slug: string, ops: unknown[], opts: Who & { expe
   }
   const { graph, state } = await readBoth(dir);
   const snap = await snapshot(project, dir, graph, state);
-  return { project, slug, revision: res.revision, stateRevision: res.stateRevision, applied: res.result, notes: ctx.notes, snapshot: snap.text };
+  return { project, slug, revision: res.revision, stateRevision: res.stateRevision, graphChanged: res.graphChanged, applied: res.result, notes: ctx.notes, snapshot: snap.text };
+}
+
+/** What an edit did to the two revisions, and what each one guards. */
+export function revisionLine(r: { revision: number; stateRevision: number; graphChanged: boolean }, dialect: "mcp" | "cli" = "mcp"): string {
+  const guard = dialect === "cli" ? "--expect-revision" : "expect_revision";
+  return r.graphChanged
+    ? `Graph revision ${r.revision} (the definition changed), state revision ${r.stateRevision}.`
+    : `Graph revision ${r.revision} (unchanged: these ops recorded state, not the definition), state revision ${r.stateRevision}. ${guard} guards the definition (nodes, settings, connections); verdicts, critiques, answers, picks, canon and takes move the state revision.`;
 }
 
 export async function getGraph(slug: string, opts: Who & { node?: string; raw?: boolean } = {}) {

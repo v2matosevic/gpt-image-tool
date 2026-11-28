@@ -3,7 +3,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createGraph, editGraph, getGraph, listGraphs, lookCloser, runGraph, serveDetached, statusReport, studyImage, viewGraph } from "./api.js";
+import { createGraph, editGraph, getGraph, listGraphs, lookCloser, revisionLine, runGraph, serveDetached, statusReport, studyImage, viewGraph } from "./api.js";
 import { guide, GUIDE_TOPICS } from "./guide.js";
 import { StudioError, resolveProject } from "./store.js";
 
@@ -83,11 +83,11 @@ export function registerStudioTools(server: McpServer) {
     description: "Apply a list of ops together or not at all: add, remove, set, prompt_edit, connect, disconnect, group, ungroup, move, layout, rename, select, pick, approve, reject, clear_verdict, predict, note, answer, critique, judge_pair, canon_save. Shapes are in studio_guide topic ops. An agent must record a look (answer or critique) before approve; put both in one call.",
     inputSchema: {
       graph, ops: z.array(z.record(z.unknown()).describe('e.g. {op:"set", node:"gen", settings:{quality:"high"}}')).min(1),
-      expect_revision: z.number().int().optional().describe("Refuse if the graph changed since this revision."), project,
+      expect_revision: z.number().int().optional().describe("Refuse if the graph definition (nodes, settings, connections) changed since this revision. Verdicts and takes are state and do not move it."), project,
     },
   }, wrap(async a => {
     const r = await editGraph(a.graph, a.ops, { project: a.project, expectRevision: a.expect_revision });
-    return `Applied to "${r.slug}", now revision ${r.revision}:\n${r.applied.map(x => `  ${x}`).join("\n")}${r.notes.length ? `\n${r.notes.join("\n")}` : ""}\n\n${r.snapshot}`;
+    return `Applied to "${r.slug}". ${revisionLine(r)}\n${r.applied.map(x => `  ${x}`).join("\n")}${r.notes.length ? `\n${r.notes.join("\n")}` : ""}\n\n${r.snapshot}`;
   }));
 
   server.registerTool("studio_run", {
