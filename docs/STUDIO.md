@@ -370,7 +370,8 @@ Rules:
   (`{renderer: "subscription"|"api", model, quality?, size?, complexity?}`; the
   subscription's model is recorded as `gpt-image-2 (server-chosen)`), and on API takes
   `usage` (the API's numeric usage fields) and `cost` (`{dollars, estimate, rates,
-  funding}`). Node type `finish` is new. Events: `take.saved` gains `cost?` and
+  funding, keySource?}`; `keySource` names where the key came from, an env variable or a file
+  path, never the key). Node type `finish` is new. Events: `take.saved` gains `cost?` and
   `funding?`, `run.finished` gains `stopCode?` and `cost?`, and `budget.grant` is
   written to a graph's log when a grant is scoped to it. Lessons gain a `renderer`
   value naming the model of their evidence (`api gpt-image-2.6-sunburst`,
