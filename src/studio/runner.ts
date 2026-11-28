@@ -45,13 +45,14 @@ export const describeScope = (s: RunScope) => s.kind === "all" ? "all" : s.kind 
 // ---------------------------------------------------------------- planning
 
 export interface PlanNode { node: string; type: string; work: "local" | "provider"; slots: number; toRun: number; cached: number; estimate?: boolean }
-export interface Plan { scope: string; nodes: PlanNode[]; generations: number; localSteps: number; slots: number; estimate: boolean; skipped: Array<{ node: string; reason: string; fix?: string }>; staleAfter: string[] }
+/** estimate: some count is a lower bound; generationsEstimate / localStepsEstimate say which. */
+export interface Plan { scope: string; nodes: PlanNode[]; generations: number; localSteps: number; slots: number; estimate: boolean; generationsEstimate: boolean; localStepsEstimate: boolean; skipped: Array<{ node: string; reason: string; fix?: string }>; staleAfter: string[] }
 
 export async function planRun(project: string, dir: string, graph: GraphFile, state: StateFile, scope: RunScope, newTake: boolean, done = new Set<string>()): Promise<Plan> {
   const evals = await evaluate(graph, state, { dir, project });
   const inScope = scopeSet(graph, scope);
   const changed = new Set<string>();
-  const plan: Plan = { scope: describeScope(scope), nodes: [], generations: 0, localSteps: 0, slots: 0, estimate: false, skipped: [], staleAfter: [] };
+  const plan: Plan = { scope: describeScope(scope), nodes: [], generations: 0, localSteps: 0, slots: 0, estimate: false, generationsEstimate: false, localStepsEstimate: false, skipped: [], staleAfter: [] };
   for (const id of topoOrder(graph)) {
     const ev = evals.get(id)!;
     const node = ev.node;
@@ -73,6 +74,7 @@ export async function planRun(project: string, dir: string, graph: GraphFile, st
     plan.slots += toRun;
     if (work === "provider") plan.generations += toRun; else plan.localSteps += toRun;
     plan.estimate ||= estimate;
+    if (estimate) { if (work === "provider") plan.generationsEstimate = true; else plan.localStepsEstimate = true; }
   }
   return plan;
 }
@@ -299,9 +301,11 @@ async function dryRunPrompts(project: string, dir: string, graph: GraphFile, sta
 }
 
 function planMessage(plan: Plan, dry: boolean): string {
-  const gen = `${plan.generations}${plan.estimate ? "+" : ""} generation${plan.generations === 1 ? "" : "s"}`;
-  const lines = [`${dry ? "Would run" : "Running"} scope "${plan.scope}": ${gen} and ${plan.localSteps} local step${plan.localSteps === 1 ? "" : "s"}; ${plan.nodes.reduce((a, n) => a + n.cached, 0)} slot(s) reused from cache.`];
-  if (plan.estimate) lines.push(`"+" means at least: ${plan.nodes.filter(n => n.estimate).map(n => n.node).join(", ")} wait${plan.nodes.filter(n => n.estimate).length === 1 ? "s" : ""} on upstream images this run makes, so their slot count is known only then.`);
+  const gen = `${plan.generations}${plan.generationsEstimate ? "+" : ""} generation${plan.generations === 1 ? "" : "s"}`;
+  const local = `${plan.localSteps}${plan.localStepsEstimate ? "+" : ""} local step${plan.localSteps === 1 ? "" : "s"}`;
+  const lines = [`${dry ? "Would run" : "Running"} scope "${plan.scope}": ${gen} and ${local}; ${plan.nodes.reduce((a, n) => a + n.cached, 0)} slot(s) reused from cache.`];
+  const est = plan.nodes.filter(n => n.estimate);
+  if (est.length) lines.push(`"+" means at least: ${est.map(n => `${n.node} (${n.work === "provider" ? "generation" : "local step"})`).join(", ")} wait${est.length === 1 ? "s" : ""} on upstream images this run makes, so ${est.length === 1 ? "its" : "their"} count is known only then.`);
   for (const s of plan.skipped) lines.push(`Skipped ${s.node}: ${s.reason}.${s.fix ? ` Fix: ${s.fix}` : ""}`);
   if (dry && plan.skipped.length && !plan.slots) lines.push("Nothing in scope can run until the skipped nodes are fixed.");
   return lines.join("\n");

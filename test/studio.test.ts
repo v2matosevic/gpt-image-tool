@@ -753,7 +753,7 @@ test("review 2 #13: the header counts notes apart from nodes, null removal says 
   assert.match(r.snapshot.split("\n")[0]!, / · 2 nodes \+ 1 note · /);
   const dry: any = await startRun(p, "small", { actor: "t", detach: false, dryRun: true });
   assert.match(dry.message, /2\+ generations/);
-  assert.match(dry.message, /"\+" means at least: ed waits on upstream images this run makes/);
+  assert.match(dry.message, /"\+" means at least: ed \(generation\) waits on upstream images this run makes/);
 });
 
 test("review 2 limit: a critique or canon description naming a colour the image lacks gets a warning, never a refusal", async () => {
@@ -855,4 +855,17 @@ test("review 3 #1: each named colour is checked on its own hues, and notes print
   assert.match(out, /"green" names green/);
   const fine = await editGraph("tan", [{ op: "critique", take: "gen/t1", summary: "a cream teapot with a tan orange patch" }], { project: p });
   assert.equal(fine.notes.length, 0, fine.notes.join("\n"));
+});
+
+test("review 3 #3: the plus sits on the count that is uncertain", async () => {
+  const p = project();
+  await createGraph({ name: "Plus", nodes: [
+    { ref: "subj", type: "prompt", settings: { text: "a {{item}} cup" } }, { ref: "kinds", type: "list", settings: { items: ["red", "green", "blue"] } },
+    { ref: "gen", type: "generate" }, { ref: "hand", type: "handoff", settings: { intent: "hero" } }],
+    connections: [{ from: "subj", to: "kinds" }, { from: "kinds", to: "gen" }, { from: "gen", to: "hand" }] }, { project: p });
+  const r: any = await startRun(p, "plus", { actor: "t", detach: false, dryRun: true });
+  assert.match(r.message, /: 3 generations and 1\+ local step;/);
+  assert.match(r.message, /hand \(local step\) waits on upstream images/);
+  assert.equal(r.plan.generationsEstimate, false);
+  assert.equal(r.plan.localStepsEstimate, true);
 });
