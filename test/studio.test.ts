@@ -379,14 +379,15 @@ test("a run started over MCP finishes after the MCP server is closed the way Too
   const job = /r\d{8}-\d{6}-[0-9a-f]{4}/.exec(started)![0];
   const serverPid = transport.pid!;
   await client.close(); // stdin end, then SIGTERM: what the SDK client close (and so ToolHub) does
-  const { pidAlive } = await import("../dist/studio/store.js");
+  const { pidAlive, readJson } = await import("../dist/studio/store.js");
   assert.equal(pidAlive(serverPid), false, `the MCP server ${serverPid} is gone (exitCode ${(transport as any)._process?.exitCode ?? "n/a"})`);
   const dir = graphDir(p, "survive");
-  const before = JSON.parse(readFileSync(join(dir, "runs", `${job}.json`), "utf8"));
+  // Read the record the way STUDIO.md tells external readers to: a read can meet the worker's rename.
+  const before: any = await readJson(join(dir, "runs", `${job}.json`));
   assert.ok(before.progress.slotsDone < 3, `still mid-run when the server closed (${before.progress.slotsDone}/3)`);
   let rec: any;
   for (let i = 0; i < 100; i++) {
-    rec = JSON.parse(readFileSync(join(dir, "runs", `${job}.json`), "utf8"));
+    rec = await readJson(join(dir, "runs", `${job}.json`));
     if (!["starting", "running"].includes(rec.status)) break;
     await new Promise(r => setTimeout(r, 200));
   }
