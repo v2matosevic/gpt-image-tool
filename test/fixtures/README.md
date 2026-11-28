@@ -14,3 +14,13 @@ node dist/cli.js --brand-board test/fixtures/brand-board.json -o generated-image
 
 These calls are offline. Visual typography checks use separately supplied static
 font files, recorded with their family names and hashes in the output manifests.
+
+# Depth-of-field readings
+
+`dof-shallow-subscription.jpg`, `dof-shallow-api.jpg` and `dof-flat-sheet.jpg` are
+768 px JPEG copies of three images this project generated on 2026-11-28 (the
+pottery-wheel portrait on the subscription and on GPT-Image-2.6 Sunburst, and the
+fox character sheet). The two portraits are visibly shallow depth of field; the
+sheet is flat and sharp everywhere. `test/studio-review.test.ts` uses them to
+check that the depth-of-field measure tells those apart where the old thirds
+sharpness ratio (2.9x for a portrait, 2.4x for the sheet) could not.

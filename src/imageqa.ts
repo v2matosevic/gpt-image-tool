@@ -110,8 +110,11 @@ export interface LookReading {
   color: { warmth: number; temperature: "warm" | "neutral" | "cool"; chroma: number; saturation: "muted" | "moderate" | "vivid" };
   /** Visual weight per thirds cell (row-major, sums to 1), its centroid (0..1), and the share of quiet area. */
   composition: { thirds: number[]; centroid: { x: number; y: number }; heaviest: string; negativeSpace: number };
-  /** Relative sharpness per thirds cell (max = 1), and max/min ratio as a focus-separation measure. */
-  sharpness: { thirds: number[]; sharpest: string; separation: number };
+  /** Relative sharpness per thirds cell (max = 1) and their max/min ratio. softShare: the share of
+   *  textured patches that are soft (fine edges under a quarter of the crisp patches'); shallow depth
+   *  of field reads from about 0.4. The thirds ratio cannot tell that apart when the subject fills
+   *  the frame (a flat, fully sharp sheet measured 2.4x, a shallow-focus portrait 2.9x). */
+  sharpness: { thirds: number[]; sharpest: string; separation: number; softShare?: number };
   /** Share of pixels on a strong edge: a proxy for detail density. */
   detail: { edgeDensity: number };
   /** Share of opaque pixels per colour family (HSV hue, saturation >= 0.25, value >= 0.15). Optional:
@@ -126,6 +129,42 @@ export interface LookReading {
 }
 
 export interface FrameBars { kind: "letterbox" | "pillarbox"; top: number; bottom: number; left: number; right: number; colour: string; picture: { width: number; height: number } }
+
+/** The share of textured patches that are out of focus. The image is averaged down to a long edge of
+ *  about 768 px and cut into 24 px patches; a patch with tonal variation (lightness std > 6) is soft
+ *  when its 95th-percentile Laplacian is under a quarter of the 90th percentile across such patches.
+ *  Calibrated 2026-11-28 on twelve images: two shallow-focus portraits 0.49 and 0.51; flat graphics,
+ *  a fully sharp top-down still life, a deep street scene and UI layouts 0.01 to 0.31. */
+export function softShare(img: RGBA): number | undefined {
+  const s = Math.max(1, Math.round(Math.max(img.width, img.height) / 768));
+  const w = Math.floor(img.width / s), h = Math.floor(img.height / s);
+  const B = 24;
+  if (w < B * 3 || h < B * 3) return undefined;
+  const L = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let a = 0;
+    for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) {
+      const i = ((y * s + dy) * img.width + x * s + dx) * 4;
+      a += 0.299 * img.data[i]! + 0.587 * img.data[i + 1]! + 0.114 * img.data[i + 2]!;
+    }
+    L[y * w + x] = a / (s * s);
+  }
+  const edges: number[] = [];
+  const lap = new Float32Array((B - 2) * (B - 2));
+  for (let by = 0; by + B <= h; by += B) for (let bx = 0; bx + B <= w; bx += B) {
+    let sum = 0, sum2 = 0, n = 0;
+    for (let y = by + 1; y < by + B - 1; y++) for (let x = bx + 1; x < bx + B - 1; x++) {
+      const i = y * w + x, v = L[i]!;
+      sum += v; sum2 += v * v;
+      lap[n++] = Math.abs(4 * v - L[i - 1]! - L[i + 1]! - L[i - w]! - L[i + w]!);
+    }
+    if (Math.sqrt(Math.max(0, sum2 / n - (sum / n) ** 2)) <= 6) continue;
+    edges.push(Array.from(lap).sort((a, b) => a - b)[Math.floor(n * 0.95)]!);
+  }
+  if (edges.length < 8) return undefined;
+  const ref = [...edges].sort((a, b) => a - b)[Math.floor(edges.length * 0.9)]! || 1;
+  return Math.round((edges.filter(e => e < 0.25 * ref).length / edges.length) * 1000) / 1000;
+}
 
 /** Find letterbox or pillarbox bars: runs of uniform dark rows (or columns) at both opposite edges,
  *  each ending in a straight boundary into the picture. A white background around a
@@ -299,7 +338,7 @@ export function readLook(src: RGBA): LookReading {
     contrast: { rms: r3(Math.sqrt(varL / count) / 100), range: r3(q(0.95) - q(0.05)) },
     color: { warmth: r3(warmth), temperature: warmth > 8 ? "warm" : warmth < -4 ? "cool" : "neutral", chroma: r3(chroma), saturation: chroma < 15 ? "muted" : chroma > 40 ? "vivid" : "moderate" },
     composition: { thirds, centroid: { x: r3(wsum ? wx / wsum : 0.5), y: r3(wsum ? wy / wsum : 0.5) }, heaviest: CELLS[heaviest]!, negativeSpace: r3(blocks ? quiet / blocks : 0) },
-    sharpness: { thirds: sh.map(v => r3(v / shMax)), sharpest: CELLS[sharpest]!, separation: r3(Math.min(9999, shMax / shMin)) },
+    sharpness: { thirds: sh.map(v => r3(v / shMax)), sharpest: CELLS[sharpest]!, separation: r3(Math.min(9999, shMax / shMin)), ...((): { softShare?: number } => { const v = softShare(src); return v === undefined ? {} : { softShare: v }; })() },
     detail: { edgeDensity: r3(inner ? edges / inner : 0) },
     ...hueReading(img),
     ...((): { frame?: FrameBars } => { const f = frameBars(src); return f ? { frame: f } : {}; })(),

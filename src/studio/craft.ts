@@ -104,7 +104,10 @@ const EXPECT: Array<{ re: RegExp; measure: string; expected: string; ok: (r: Loo
   { re: /\bvivid\b|\bsaturated\b|\bneon\b/i, measure: "saturation", expected: "vivid", ok: r => r.color.chroma > 30, measured: r => `${r.color.saturation} (C* ${r.color.chroma.toFixed(0)})` },
   { re: /rule of thirds|off[- ]cent(?:re|er)/i, measure: "composition", expected: "weight off centre", ok: r => r.composition.heaviest !== "centre", measured: r => `heaviest ${r.composition.heaviest}` },
   { re: /\bcent(?:red|ered)\b|symmetr/i, measure: "composition", expected: "weight in the centre", ok: r => r.composition.heaviest === "centre" || Math.hypot(r.composition.centroid.x - 0.5, r.composition.centroid.y - 0.5) < 0.12, measured: r => `heaviest ${r.composition.heaviest}, centroid ${r.composition.centroid.x.toFixed(2)},${r.composition.centroid.y.toFixed(2)}` },
-  { re: /f\/1\.\d|f\/2(?:\.\d)?\b|shallow depth|bokeh/i, measure: "focus", expected: "focus separation (shallow depth of field)", ok: r => r.sharpness.separation > 3, measured: r => `sharpest/softest ${r.sharpness.separation.toFixed(1)}x` },
+  { re: /f\/1\.\d|f\/2(?:\.\d)?\b|shallow depth|bokeh/i, measure: "focus", expected: "shallow depth of field (about 40% or more of the detailed areas soft)",
+    // Readings from before softShare existed are not judged: the thirds ratio could not tell.
+    ok: r => r.sharpness.softShare === undefined || r.sharpness.softShare >= 0.4,
+    measured: r => `${Math.round((r.sharpness.softShare ?? 0) * 100)}% of the detailed areas are soft, so most of the frame is in focus` },
   { re: /negative space|minimal/i, measure: "space", expected: "generous quiet space", ok: r => r.composition.negativeSpace > 0.3, measured: r => `${Math.round(r.composition.negativeSpace * 100)}% quiet` },
 ];
 

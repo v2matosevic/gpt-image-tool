@@ -156,3 +156,21 @@ test("studio page: cases side by side with readable names, crops, costs and no v
   assert.equal(readFileSync(join(p, "mine", "index.html"), "utf8"), "<p>hand made</p>");
   await assert.rejects(pageGraph("page-test", { project: p, zoom: ["0.8,0,0.5,0.5"] }), (e: any) => e.code === "BAD_ZOOM");
 });
+
+test("shallow depth of field reads from the soft share, not the thirds ratio", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { readLook } = await import("../dist/imageqa.js");
+  const { decodeRGBA } = await import("../dist/imageops.js");
+  const read = async (f: string) => readLook(await decodeRGBA(readFileSync(join("test", "fixtures", f))));
+  const prompt = "A woman at a pottery wheel. Late afternoon window light, 50mm lens at f/2, workshop shelves softly out of focus behind her.";
+  const sub = await read("dof-shallow-subscription.jpg"), api = await read("dof-shallow-api.jpg"), flat = await read("dof-flat-sheet.jpg");
+  // The old measure: the shallow portrait (2.9x) sits next to the flat, fully sharp sheet (2.4x).
+  assert.ok(sub.sharpness.separation < 3 && flat.sharpness.separation > 2);
+  for (const r of [sub, api]) {
+    assert.ok(r.sharpness.softShare! >= 0.45, String(r.sharpness.softShare));
+    assert.deepEqual(requestDeviations(r as any, prompt).filter(d => d.measure === "focus"), []);
+  }
+  assert.ok(flat.sharpness.softShare! < 0.2, String(flat.sharpness.softShare));
+  const d = requestDeviations(flat as any, prompt).find(x => x.measure === "focus");
+  assert.match(d!.measured, /^\d+% of the detailed areas are soft, so most of the frame is in focus$/);
+});

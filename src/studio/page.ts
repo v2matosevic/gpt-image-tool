@@ -38,6 +38,36 @@ export function parseZoom(spec: string): PageZoom {
   return { region, ...(m[6] ? { label: m[6].trim() } : {}), ...(m[1] ? { cases: m[1].split("+").map(Number) } : {}) };
 }
 
+/** "4.2 cents" or "$1.23": costs as a person reads them. */
+const cents = (d: number) => (d < 1 ? `${(d * 100).toFixed(1)} cents` : `$${d.toFixed(2)}`);
+
+/** "Sunburst 2.6, high quality" or "ChatGPT subscription (gpt-image-2)". */
+function plainModel(t: Take): string {
+  const r = t.render;
+  if (!r || r.renderer !== "api") return "ChatGPT subscription (gpt-image-2)";
+  const m = /^gpt-image-(\d+(?:\.\d+)?)(?:-(\w+))?$/.exec(r.model);
+  const name = m ? (m[2] ? `${m[2].charAt(0).toUpperCase()}${m[2].slice(1)} ${m[1]}` : `GPT Image ${m[1]}`) : r.model;
+  return `${name}${r.quality ? `, ${r.quality} quality` : ""}`;
+}
+
+/** A deviation in plain words; the measured numbers stay in the Measurements disclosure. */
+function plainDeviation(d: { source: string; measure: string; expected: string; measured: string; note: string }, reading: unknown): string {
+  const f = (reading as { frame?: { kind: string; top: number; bottom: number; left: number; right: number; colour: string; picture: { width: number; height: number } } } | undefined)?.frame;
+  const strip = (s: string) => s.replace(/\s*\([^)]*\)/g, "").trim();
+  if (d.measure === "frame" && f) {
+    const dark = parseInt(f.colour.slice(1), 16) < 0x202020 ? "Black" : "Solid";
+    return f.kind === "letterbox"
+      ? `${dark} bars top and bottom (${f.top} and ${f.bottom} px) that the prompt did not ask for; the picture itself is ${f.picture.width} x ${f.picture.height}.`
+      : `${dark} bars left and right (${f.left} and ${f.right} px) that the prompt did not ask for; the picture itself is ${f.picture.width} x ${f.picture.height}.`;
+  }
+  if (d.measure === "focus") return `The prompt asks for shallow depth of field, but most of the frame is in focus.`;
+  if (d.measure === "temperature" && d.expected.startsWith("mixed")) return `The prompt asks for warm and cool light together; the colours measure ${strip(d.measured)}.`;
+  if (d.source === "request") return `The prompt asks for ${strip(d.expected)}; the image measures ${strip(d.measured)}.`;
+  return `${d.note.charAt(0).toUpperCase()}${d.note.slice(1)}: ${strip(d.measured)}.`;
+}
+
+const groupLabel = (g: Group, node: string) => g.entries.find(x => x.node === node)?.nodeLabel ?? node;
+
 interface Entry { node: string; nodeLabel: string; take: Take; file: string; from?: { node: string; take: string; reading?: Take["reading"] } }
 interface Group { key: string; item?: string; entries: Entry[] }
 
@@ -91,6 +121,8 @@ export async function writePage(project: string, dir: string, slug: string, opts
   let apiTotal = 0, apiCount = 0, subCount = 0;
   const sections: string[] = [];
   const files: string[] = [];
+  // Everything measured, for agents: embedded as JSON so the page stays the single artifact.
+  const data: Array<Record<string, unknown>> = [];
   for (const [gi, g] of groups.entries()) {
     const n = String(gi + 1).padStart(2, "0");
     const caseSlug = g.item ? slugOf(g.item) : slugOf(graph.name ?? slug);
@@ -109,12 +141,20 @@ export async function writePage(project: string, dir: string, slug: string, opts
       const made = api ? renderLabel(t.render) : `subscription, ${t.render?.model ?? "gpt-image-2 (server-chosen)"}`;
       const cost = api ? (t.cost ? `${money(t.cost.dollars)} from the usage the API reported (${t.usage?.output_tokens ?? "?"} output tokens; estimate ${money(t.cost.estimate)})` : "cost not reported") : "no API cost (subscription allowance)";
       const drift = e.from ? craft.driftLine(reading, e.from.reading, `${e.from.node}/${e.from.take}`) : undefined;
+      const r = reading as unknown as { palette?: Array<{ hex: string; share: number }> } | undefined;
+      const plain = [plainModel(t), t.width ? `${t.width} x ${t.height}` : "", api ? (t.cost ? cents(t.cost.dollars) : "cost not reported") : "no charge (subscription)"].filter(Boolean).join(", ");
+      data.push({ case: gi + 1, item: g.item, node: e.node, take: t.id, file: rel, from: e.from ? `${e.from.node}/${e.from.take}` : undefined, render: t.render, width: t.width, height: t.height, usage: t.usage, cost: t.cost, reading, deviations: devs, drift });
       cards[rel] = [
-        `<div class="who"><span class="tag ${api ? "api" : "sub"}">${api ? "API" : "Subscription"}</span> <b>${esc(e.nodeLabel)}</b> <code>${esc(`${e.node}/${t.id}`)}</code>${e.from ? ` from <code>${esc(`${e.from.node}/${e.from.take}`)}</code>` : ""}</div>`,
-        `<div class="d">${esc(made)}; saved ${t.width ?? "?"}x${t.height ?? "?"}. ${esc(cost)}.</div>`,
-        `<div class="d"><span class="k">Reads</span> ${esc(await craft.summaryOf(reading))}</div>`,
-        drift ? `<div class="d"><span class="k">Drift</span> ${esc(drift)}</div>` : "",
-        devs.length ? `<div class="dev"><span class="k">Deviations (measured)</span><ul>${devs.map(d => `<li>${esc(d.note)}: expected ${esc(d.expected)}, measured ${esc(d.measured)}</li>`).join("")}</ul></div>` : `<div class="d"><span class="k">Deviations</span> none measured</div>`,
+        `<div class="who"><span class="tag ${api ? "api" : "sub"}">${api ? "API" : "Subscription"}</span> <b>${esc(e.nodeLabel)}</b></div>`,
+        `<div class="line">${esc(plain)}${e.from ? `. Finished from the ${esc(groupLabel(g, e.from.node))} image above` : ""}</div>`,
+        devs.length ? `<ul class="dev">${devs.map(d => `<li>${esc(plainDeviation(d, reading))}</li>`).join("")}</ul>` : `<div class="ok">Nothing measured against the request.</div>`,
+        `<details><summary>Measurements</summary><div class="m">`,
+        `<div><code>${esc(`${e.node}/${t.id}`)}</code>${e.from ? ` from <code>${esc(`${e.from.node}/${e.from.take}`)}</code>` : ""}; ${esc(made)}; saved ${t.width ?? "?"}x${t.height ?? "?"}. ${esc(cost)}.</div>`,
+        r?.palette?.length ? `<div class="chips">${r.palette.map(p => `<span class="chip" style="background:${esc(p.hex)}" title="${esc(`${p.hex} ${Math.round(p.share * 100)}%`)}"></span><span class="cl">${esc(p.hex)} ${Math.round(p.share * 100)}%</span>`).join("")}</div>` : "",
+        `<div>Reads: ${esc(await craft.summaryOf(reading))}</div>`,
+        drift ? `<div>Drift: ${esc(drift)}</div>` : "",
+        devs.length ? `<div>Deviations as measured: ${devs.map(d => esc(`${d.note}; expected ${d.expected}, measured ${d.measured}`)).join(". ")}</div>` : "",
+        `</div></details>`,
       ].join("");
     }
     const row = (es: Entry[], extra = "") => `<div class="row c${Math.min(3, Math.max(2, es.length))}">${es.map(e => figure(name(e, extra), `${e.nodeLabel} ${e.node}/${e.take.id}`, cards[name(e)]!)).join("")}</div>`;
@@ -126,11 +166,11 @@ export async function writePage(project: string, dir: string, slug: string, opts
         const rel = name(e, `-${z.label ? slugOf(z.label, 4) : `crop${zi + 1}`}`);
         const r = await craft.zoomRegion(e.file, z.region, join(out, rel));
         files.push(rel);
-        cells.push(figure(rel, `${z.label ?? "detail"}, ${e.node}/${e.take.id}`, `<div class="who"><code>${esc(`${e.node}/${e.take.id}`)}</code> ${esc(z.label ?? "detail")}</div><div class="d">pixels ${r.box.join(", ")} (x, y, w, h) at full resolution</div>`));
+        cells.push(figure(rel, `${z.label ?? "detail"}, ${e.node}/${e.take.id}`, `<div class="who"><span class="tag ${e.take.render?.renderer === "api" ? "api" : "sub"}">${e.take.render?.renderer === "api" ? "API" : "Subscription"}</span> <b>${esc(e.nodeLabel)}</b>${z.label ? `, ${esc(z.label)}` : ""}</div><details><summary>Measurements</summary><div class="m"><code>${esc(`${e.node}/${e.take.id}`)}</code>; pixels ${r.box.join(", ")} (x, y, w, h) at full resolution</div></details>`));
       }
       const aspects = new Set(g.entries.map(e => (e.take.width && e.take.height ? (e.take.width / e.take.height).toFixed(2) : "?")));
-      const mixed = aspects.size > 1 ? " The images in this case have different aspects, so the same fractions cover a different part of the scene in some of them." : "";
-      crops.push(`<p class="small">Same region of every image in this case: ${z.region.join(", ")} as fractions (x, y, w, h)${z.label ? `, ${esc(z.label)}` : ""}.${mixed}</p><div class="row c${Math.min(3, Math.max(2, cells.length))}">${cells.join("")}</div>`);
+      const mixed = aspects.size > 1 ? " These images have different shapes, so the crop covers a slightly different part of the scene in some of them." : "";
+      crops.push(`<p class="small">${z.label ? `${esc(z.label.charAt(0).toUpperCase() + z.label.slice(1))}: the` : "The"} same area of each image, at full resolution.${mixed}</p><div class="row c${Math.min(3, Math.max(2, cells.length))}">${cells.join("")}</div>`);
     }
     const title = g.item ? clip(g.item.split(/(?<=[.!?])\s/)[0]!, 90) : (graph.name ?? slug);
     sections.push([
@@ -165,18 +205,23 @@ figure a { display:block; background:#000; } img { display:block; width:100%; he
 figcaption { padding:12px 14px 14px; } code { font-size:12px; }
 .tag { display:inline-block; font-size:11px; letter-spacing:.06em; text-transform:uppercase; font-weight:600; padding:1px 8px; border-radius:99px; }
 .sub { color:var(--sub); border:1px solid var(--sub); } .api { color:var(--api); border:1px solid var(--api); }
-.d, .dev { color:var(--muted); font-size:13px; margin-top:4px; } .k { color:var(--text); font-weight:600; margin-right:4px; }
-.dev .k { color:var(--warn); } .dev ul { margin:2px 0 0; padding-left:18px; }
+.line { margin-top:4px; } .ok { color:var(--muted); font-size:13px; margin-top:4px; }
+ul.dev { margin:6px 0 0; padding-left:18px; color:var(--text); font-size:14px; } ul.dev li::marker { color:var(--warn); }
+details { margin-top:8px; font-size:12px; color:var(--muted); } summary { cursor:pointer; width:max-content; }
+.m { margin-top:6px; display:grid; gap:4px; overflow-wrap:anywhere; }
+.chips { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:center; }
+.chip { display:inline-block; width:14px; height:14px; border-radius:3px; border:1px solid var(--line); margin-right:-6px; } .cl { font-size:11px; }
 @media (max-width:900px) { .c2, .c3 { grid-template-columns:minmax(0,1fr); } }
 </style>
 </head>
 <body>
 <main>
 <h1>${esc(title)}</h1>
-<p class="lead">Studio graph <code>${esc(slug)}</code>, ${groups.length} case${groups.length === 1 ? "" : "s"}, ${total} image${total === 1 ? "" : "s"}. Page built ${esc((opts.now ?? new Date().toISOString()).slice(0, 16).replace("T", " "))} UTC. Click an image to open it at full size. Readings and deviations are measured locally from the pixels when the page is built; they are measurements, not judgements, and there is no verdict here.</p>
-<p class="lead">Paid API: ${apiCount} image${apiCount === 1 ? "" : "s"}, ${money(apiTotal)} from the usage the API reported. Subscription: ${subCount} image${subCount === 1 ? "" : "s"} from the account's allowance.</p>
+<p class="lead">${groups.length} prompt${groups.length === 1 ? "" : "s"}, ${total} image${total === 1 ? "" : "s"}. Click any image to open it at full size. Under each image: what made it, its size and cost, and anything the tool measured that contradicts the prompt. These are measurements, not a verdict; the numbers are under "Measurements".</p>
+<p class="lead">Paid API: ${apiCount} image${apiCount === 1 ? "" : "s"}, ${cents(apiTotal)} in total. Subscription: ${subCount} image${subCount === 1 ? "" : "s"}, no charge. Built ${esc((opts.now ?? new Date().toISOString()).slice(0, 16).replace("T", " "))} UTC from Studio graph <code>${esc(slug)}</code>.</p>
 ${sections.join("\n")}
 </main>
+<script type="application/json" id="studio-page-data">${JSON.stringify({ graph: slug, built: opts.now, images: data }).replace(/</g, "\\u003c")}</script>
 </body>
 </html>
 `;

@@ -35,6 +35,8 @@ auth.json.*
 !docs/launch/*.png
 !docs/launch/*.jpg
 !docs/launch/*.webp
+# Small test inputs for the depth-of-field reading (see test/fixtures/README.md)
+!test/fixtures/dof-*.jpg
 
 # Clipboard images pasted into terminals
 .clipboard-images/
