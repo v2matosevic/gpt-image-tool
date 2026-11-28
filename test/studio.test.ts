@@ -713,3 +713,17 @@ test("review 2 #10: the CLI guide speaks CLI, with a CLI worked example and --sp
   assert.match(mcp, /studio_view \{study:"images\/admired\.png"\}/);
   assert.doesNotMatch(mcp, /gpt-image studio /);
 });
+
+test("review 2 #11: the approve refusal suggests only routes that exist for that take", async () => {
+  const p = project();
+  await createGraph({ name: "Routes", nodes: [{ ref: "ref", type: "reference", settings: { path: "images/ref.png" } }, { ref: "gen", type: "generate", settings: { prompt: "a red cup" } }], connections: [] }, { project: p });
+  await startRun(p, "routes", { actor: "t", detach: false, executors: makeFakes().executors });
+  const noList = await refusal(editGraph("routes", [{ op: "approve", take: "ref/t1" }], { project: p }), "NO_LOOK");
+  assert.doesNotMatch(noList.fix ?? "", /op:"answer"/);
+  assert.match(noList.fix ?? "", /op:"critique", take:"ref\/t1"/);
+  assert.match(noList.fix ?? "", /has no checklist/);
+  const gen = (await readBoth(graphDir(p, "routes"))).state.nodes.gen.takes[0];
+  assert.ok(gen.checklist?.length, "generated take has a checklist");
+  const withList = await refusal(editGraph("routes", [{ op: "approve", take: `gen/${gen.id}` }], { project: p }), "NO_LOOK");
+  assert.match(withList.fix ?? "", /op:"answer"/);
+});

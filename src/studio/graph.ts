@@ -246,7 +246,13 @@ function takeFeedback(graph: GraphFile, node: GraphNode, take: Take, action: str
   return { action, human: humanAct, node: node.id, type: node.type, take: take.id, settings: take.settings, text: take.text?.prompt, reading: take.reading, deviations: take.deviations, graphRevision: graph.revision, ...extra };
 }
 
-const LOOK_FIX = (ref: string) => `First record a look: answer its checklist ({op:"answer", take:"${ref}", answers:{c1:"yes", ...}}; studio_get node shows the questions) or add a critique ({op:"critique", take:"${ref}", summary:"what you saw"}). Both can go in the same studio_edit call, before the approve. People approve freely.`;
+const LOOK_FIX = (ref: string, checklist: boolean) => {
+  const critique = `add a critique ({op:"critique", take:"${ref}", summary:"what you saw"})`;
+  const routes = checklist
+    ? `answer its checklist ({op:"answer", take:"${ref}", answers:{c1:"yes", ...}}; reading the node shows the questions) or ${critique}`
+    : `${critique}; this take has no checklist to answer`;
+  return `First record a look: ${routes}. The look and the approve can go in the same edit call, look first. People approve freely.`;
+};
 
 async function addNode(graph: GraphFile, state: StateFile, ctx: OpContext, spec: Record<string, unknown>, path: string, placed: Set<string>): Promise<GraphNode> {
   const id = spec.id ?? spec.ref;
@@ -525,7 +531,7 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
     case "reject": {
       const { node, take } = parseTakeRef(graph, state, op.take, `${path}.take`);
       if (op.op === "approve" && !ctx.human && !take.critiques?.length && !take.checklist?.some(c => c.answer)) {
-        throw new StudioError("NO_LOOK", `${path}: an agent cannot approve ${node.id}/${take.id} without a recorded look.`, LOOK_FIX(`${node.id}/${take.id}`));
+        throw new StudioError("NO_LOOK", `${path}: an agent cannot approve ${node.id}/${take.id} without a recorded look.`, LOOK_FIX(`${node.id}/${take.id}`, Boolean(take.checklist?.length)));
       }
       const decision = op.op === "approve" ? "approved" : "rejected";
       take.verdict = { decision, by: ctx.actor, at: now(), ...(ctx.human ? { human: true } : {}), ...(typeof op.note === "string" ? { note: op.note } : {}) };
