@@ -29,7 +29,7 @@
     "check": "node dist/cli.js --check",
     "docs:presets": "node scripts/gen-presets-doc.mjs",
     "bench": "npm run build && node scripts/bench.mjs",
-    "test": "npm run build && node --experimental-strip-types --test test/*.test.ts",
+    "test": "npm run build && node --experimental-strip-types --import ./test/setup-env.mjs --test test/*.test.ts",
     "dev:cli": "node --experimental-strip-types src/cli.ts",
     "smoke:mcp": "node scripts/smoke-mcp.mjs",
     "audit:publication": "node scripts/audit-publication.mjs",
