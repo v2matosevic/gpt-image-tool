@@ -38,3 +38,5 @@ auth.json.*
 
 # Clipboard images pasted into terminals
 .clipboard-images/
+.secrets
+.secrets.*
