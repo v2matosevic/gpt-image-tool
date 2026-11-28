@@ -380,7 +380,7 @@ test("a run started over MCP finishes after the MCP server is closed the way Too
   const serverPid = transport.pid!;
   await client.close(); // stdin end, then SIGTERM: what the SDK client close (and so ToolHub) does
   const { pidAlive } = await import("../dist/studio/store.js");
-  assert.equal(pidAlive(serverPid), false, "the MCP server is gone");
+  assert.equal(pidAlive(serverPid), false, `the MCP server ${serverPid} is gone (exitCode ${(transport as any)._process?.exitCode ?? "n/a"})`);
   const dir = graphDir(p, "survive");
   const before = JSON.parse(readFileSync(join(dir, "runs", `${job}.json`), "utf8"));
   assert.ok(before.progress.slotsDone < 3, `still mid-run when the server closed (${before.progress.slotsDone}/3)`);
@@ -390,7 +390,7 @@ test("a run started over MCP finishes after the MCP server is closed the way Too
     if (!["starting", "running"].includes(rec.status)) break;
     await new Promise(r => setTimeout(r, 200));
   }
-  assert.equal(rec.status, "done", JSON.stringify(rec.errors));
+  assert.equal(rec.status, "done", JSON.stringify({ status: rec.status, progress: rec.progress, errors: rec.errors, skipped: rec.skipped, stopReason: rec.stopReason, created: rec.created, started: rec.started, heartbeat: rec.heartbeat, finished: rec.finished, now: new Date().toISOString() }));
   assert.equal(rec.takes.length, 3);
   assert.notEqual(rec.pid, serverPid, "the worker is its own process");
 });
@@ -793,4 +793,25 @@ test("review 2 #10: CLI results and refusals use CLI wording, JSON stays raw", a
 test("editing a graph that does not exist names it instead of a raw lock-file error", async () => {
   const p = project();
   await refusal(editGraph("nope", [{ op: "critique", take: "g/t1", summary: "x" }], { project: p }), "GRAPH_NOT_FOUND");
+});
+
+test("a live run whose lock body cannot be read at that instant is not reported or recorded as interrupted", async () => {
+  const p = project();
+  await createGraph({ name: "Torn", nodes: [{ ref: "gen", type: "generate", settings: { prompt: "a cup" } }], connections: [] }, { project: p });
+  const dir = graphDir(p, "torn");
+  const job = "r20261128-120000-abcd";
+  mkdirSync(join(dir, "runs"), { recursive: true });
+  const rec = { schema: "gpt-image-studio/run@1", id: job, graph: "torn", status: "running", scope: { kind: "all" }, newTake: false, concurrency: 1, actor: "t",
+    created: new Date().toISOString(), started: new Date().toISOString(), heartbeat: new Date().toISOString(), graphRevision: 1,
+    planned: { generations: 1, slots: 1, estimate: false }, progress: { slotsDone: 0, slotsCached: 0, slotsFailed: 0, generations: 0 }, completed: [], takes: [], skipped: [], errors: [] };
+  writeFileSync(join(dir, "runs", `${job}.json`), JSON.stringify(rec));
+  // A fresh lock whose body is mid-write: what a reader sees when it races the rename that replaces it.
+  writeFileSync(join(dir, "run.lock"), '{"job":"r2026');
+  const st = await runStatus(p, "torn", job, 0);
+  assert.equal(st.status, "running", "an unreadable but fresh lock is not proof the worker died");
+  const { stopRun } = await import("../dist/studio/runner.js");
+  const s = await stopRun(p, "torn", "t");
+  assert.notEqual(s.status, "interrupted");
+  assert.equal(JSON.parse(readFileSync(join(dir, "runs", `${job}.json`), "utf8")).status, "running", "stop did not overwrite a live run as interrupted");
+  assert.ok(existsSync(join(dir, "runs", `${job}.stop`)), "stop asked the run to stop");
 });

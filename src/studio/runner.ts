@@ -94,7 +94,9 @@ async function readRunLock(dir: string): Promise<{ lock?: RunLock; mtimeMs: numb
   try {
     const st = await stat(paths(dir).runLock);
     let lock: RunLock | undefined;
-    try { lock = JSON.parse(await readFile(paths(dir).runLock, "utf8")); } catch { /* being written */ }
+    // The body is replaced by rename at start; a read can meet a sharing error or a torn body.
+    // readJson waits those out; if it still cannot read it, lock stays undefined ("unknown").
+    try { lock = await readJson<RunLock>(paths(dir).runLock); } catch { /* unknown, not absent */ }
     return { lock, mtimeMs: st.mtimeMs };
   } catch { return null; }
 }
@@ -315,6 +317,11 @@ export async function stopRun(project: string, slug: string, actor: string): Pro
   if (!jobs.length) return { status: "none", message: "No run to stop." };
   const rec = await readRecord(dir, jobs.at(-1)!);
   const st = await derivedStatus(dir, rec);
+  if (st === "starting" || st === "running") {
+    // Live, but its lock body could not be read just now: ask it to stop rather than declare it dead.
+    await writeFile(join(paths(dir).runs, `${rec.id}.stop`), JSON.stringify({ by: actor, at: now() }));
+    return { job: rec.id, status: "stopping", message: `Asked run ${rec.id} to stop after its current image. Generations already in flight finish and are kept.` };
+  }
   if (st === "interrupted") await markInterrupted(dir, rec.id);
   return { job: rec.id, status: st, message: `No live run. Last run ${rec.id} is ${st}.` };
 }
@@ -323,6 +330,9 @@ async function derivedStatus(dir: string, rec: RunRecord): Promise<RunStatus> {
   if (TERMINAL.includes(rec.status)) return rec.status;
   const l = await readRunLock(dir);
   if (l && l.lock?.job === rec.id && lockLive(l)) return rec.status;
+  // A fresh lock whose body cannot be read is not proof the worker died: the heartbeat keeps its
+  // mtime fresh while the worker lives, and a dead worker's lock goes stale after RUN_STALE_MS.
+  if (l && !l.lock && lockLive(l)) return rec.status;
   // Starting runs get a grace period: the worker may still be loading.
   if (rec.status === "starting" && Date.now() - Date.parse(rec.created) < RUN_STALE_MS && l?.lock?.job === rec.id) return rec.status;
   return "interrupted";
