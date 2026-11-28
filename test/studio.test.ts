@@ -682,3 +682,21 @@ test("review 2 #8: a nested typo names the bad key, suggests the nearest and lis
   const b = await refusal(editGraph("typo", [{ op: "set", node: "look", settings: { brief: { audiance: "x" } } }], { project: p }), "BAD_SETTINGS");
   assert.match(b.issues![0]!.fix, /Did you mean "brief.audience"/);
 });
+
+test("review 2 #9: a dry run shows the compiled prompt of one slot per provider node, offline", async () => {
+  const p = project();
+  await createGraph({ name: "Dry", nodes: [
+    { ref: "gen", type: "generate", settings: { prompt: "a cobalt teapot", shot: { key_light: "low warm sidelight" } } },
+    { ref: "ref", type: "reference", settings: { path: "images/ref.png", role: "subject" } },
+    { ref: "sw", type: "generate", settings: { prompt: "a cobalt teapot", sweep: { dim: "shot.lens", values: ["35mm", "85mm"] } } },
+  ], connections: [{ from: "ref", to: "sw", to_handle: "references" }] }, { project: p });
+  const r: any = await startRun(p, "dry", { actor: "t", detach: false, dryRun: true });
+  assert.equal(r.prompts.length, 2);
+  const gen = r.prompts.find((x: any) => x.node === "gen");
+  assert.match(gen.prompt, /cobalt teapot/);
+  assert.match(gen.prompt, /low warm sidelight/);
+  const sw = r.prompts.find((x: any) => x.node === "sw");
+  assert.equal(sw.slot, "shot.lens: 35mm");
+  assert.match(sw.prompt, /Change only the lens to: 35mm/);
+  assert.match(r.message, /^Prompt for gen \(slot 1\): A cobalt teapot/m);
+});

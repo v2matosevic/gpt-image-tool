@@ -198,7 +198,7 @@ export interface RunRequest {
   executors?: Executors;
 }
 
-export interface StartResult { job?: string; status: string; plan: Plan; message: string; resumeOf?: string }
+export interface StartResult { job?: string; status: string; plan: Plan; message: string; resumeOf?: string; prompts?: Array<{ node: string; slot: string; prompt: string }> }
 
 function completedChain(dir: string, rec: RunRecord | undefined): Promise<Set<string>> {
   const out = new Set<string>();
@@ -229,7 +229,10 @@ export async function startRun(project: string, slug: string, req: RunRequest): 
   } else scope = parseScope(graph, req.scope, req.nodes);
 
   const plan = await planRun(project, dir, graph, state, scope, newTake, done);
-  if (req.dryRun) return { status: "dry-run", plan, message: planMessage(plan, true) };
+  if (req.dryRun) {
+    const prompts = await dryRunPrompts(project, dir, graph, state, plan);
+    return { status: "dry-run", plan, prompts, message: [planMessage(plan, true), ...prompts.map(p => `Prompt for ${p.node} (${p.slot}): ${p.prompt}`)].join("\n") };
+  }
   if (!plan.slots) return { status: "nothing-to-do", plan, message: `Everything in scope "${plan.scope}" is current; nothing to run.${plan.skipped.length ? " Some nodes were skipped, see plan.skipped." : " Pass new_take:true for another take."}` };
 
   const job = newJobId();
@@ -272,6 +275,24 @@ export async function startRun(project: string, slug: string, req: RunRequest): 
     throw e;
   }
   return { job, status: "starting", plan, resumeOf, message: planMessage(plan, false) };
+}
+
+/** The compiled prompt of the first slot of each provider node a run would render, offline. */
+async function dryRunPrompts(project: string, dir: string, graph: GraphFile, state: StateFile, plan: Plan) {
+  const { previewPrompt } = await import("./execute.js");
+  const evals = await evaluate(graph, state, { dir, project });
+  const out: Array<{ node: string; slot: string; prompt: string }> = [];
+  for (const n of plan.nodes) {
+    if (n.work !== "provider" || n.estimate) continue;
+    const ev = evals.get(n.node);
+    const slot = ev?.slots[0];
+    if (!ev || !slot) continue;
+    let prompt: string;
+    try { prompt = (await previewPrompt({ dir, node: ev.node, slot })) ?? ""; } catch (e) { prompt = `(could not compile: ${e instanceof Error ? e.message : String(e)})`; }
+    if (!prompt) continue;
+    out.push({ node: n.node, slot: slot.label && slot.label !== n.node ? slot.label : "slot 1", prompt: prompt.length > 1500 ? `${prompt.slice(0, 1500)}…` : prompt });
+  }
+  return out;
 }
 
 function planMessage(plan: Plan, dry: boolean): string {

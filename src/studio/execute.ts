@@ -48,7 +48,7 @@ function lookArgs(slot: Slot) {
   };
 }
 
-const refArgs = (x: ExecInput) => x.slot.refs.map(r => ({ path: resolve(x.dir, r.asset), role: (r.role ?? "style") as any, ...(r.instruction ? { instruction: r.instruction } : {}) }));
+const refArgs = (x: Pick<ExecInput, "dir" | "slot">) => x.slot.refs.map(r => ({ path: resolve(x.dir, r.asset), role: (r.role ?? "style") as any, ...(r.instruction ? { instruction: r.instruction } : {}) }));
 
 /** "Change only the key light to: backlight", so a sweep varies one thing and holds the subject. */
 export function sweepInstruction(dim: string, value: string): string {
@@ -56,37 +56,53 @@ export function sweepInstruction(dim: string, value: string): string {
   return `Keep the subject, its shape, materials and position, and the composition exactly as in the image. Change only the ${name} to: ${value}.`;
 }
 
+type PromptInput = Pick<ExecInput, "dir" | "node" | "slot">;
+const common = (x: PromptInput) => {
+  const s = x.node.settings as Record<string, any>;
+  return { size: s.size, quality: s.quality ?? "low", format: s.format ?? "png", transparent: s.transparent, platform: s.platform, proof: s.proof, backend: BACKEND, imageModel: MODEL, count: 1 };
+};
+
+/** A sweep slot with an anchor: an edit of the anchor that changes only the swept dimension. */
+function sweepEditArgs(x: PromptInput) {
+  const sw = x.slot.sweep!;
+  return { imagePaths: [resolve(x.dir, sw.anchor!.asset)], instruction: sweepInstruction(sw.dim, sw.value), ...lookArgs(x.slot),
+    references: refArgs(x).filter(r => r.path !== resolve(x.dir, sw.anchor!.asset)), ...common(x) };
+}
+function generateArgs(x: PromptInput) {
+  return { subject: x.slot.text, ...lookArgs(x.slot), references: refArgs(x), ...common(x), contactSheet: false };
+}
+function editArgs(x: PromptInput) {
+  const s = x.node.settings as Record<string, any>;
+  return {
+    imagePaths: [resolve(x.dir, x.slot.image!.asset)], ...lookArgs(x.slot), references: refArgs(x),
+    instruction: x.slot.sweep ? [x.slot.text, sweepInstruction(x.slot.sweep.dim, x.slot.sweep.value)].filter(Boolean).join(". ") : x.slot.text || undefined,
+    maskPath: x.slot.mask ? resolve(x.dir, x.slot.mask.asset) : undefined, preserveUnmasked: s.preserve_unmasked, ...common(x),
+  };
+}
+
+/** The prompt a provider slot would send, compiled offline (no provider call). For dry runs. */
+export async function previewPrompt(x: PromptInput): Promise<string | undefined> {
+  const { previewImageRequest, previewEditPrompt } = await import("../generate.js");
+  if (x.node.type === "generate") {
+    if (x.slot.sweep?.anchor) return previewEditPrompt(sweepEditArgs(x));
+    return (await previewImageRequest(generateArgs(x))).compiledPrompt;
+  }
+  if (x.node.type === "edit" && x.slot.image) return previewEditPrompt(editArgs(x));
+  return undefined;
+}
+
+const result = (out: Awaited<ReturnType<typeof import("../generate.js").generateImage>>): ExecOutput =>
+  ({ path: out.path, compiledPrompt: out.prompt, revisedPrompt: out.revisedPrompt, generations: out.proof?.attempts ?? 1, warnings: out.qa?.warnings });
+
 async function execGenerate(x: ExecInput): Promise<ExecOutput> {
   const { generateImage, editImage } = await import("../generate.js");
-  const s = x.node.settings as Record<string, any>;
-  if (x.slot.sweep?.anchor) {
-    // A sweep with an anchor: edit the anchor so only the swept dimension changes.
-    const out = await editImage({
-      imagePaths: [resolve(x.dir, x.slot.sweep.anchor.asset)], instruction: sweepInstruction(x.slot.sweep.dim, x.slot.sweep.value), ...lookArgs(x.slot),
-      size: s.size, quality: s.quality ?? "low", format: s.format ?? "png", transparent: s.transparent, platform: s.platform, proof: s.proof,
-      outputPath: `${x.outBase}.png`, backend: BACKEND, imageModel: MODEL, count: 1,
-    });
-    return { path: out.path, compiledPrompt: out.prompt, revisedPrompt: out.revisedPrompt, generations: out.proof?.attempts ?? 1, warnings: out.qa?.warnings };
-  }
-  const out = await generateImage({
-    subject: x.slot.text, ...lookArgs(x.slot), references: refArgs(x),
-    size: s.size, quality: s.quality ?? "low", format: s.format ?? "png", transparent: s.transparent, platform: s.platform, proof: s.proof,
-    outputPath: `${x.outBase}.png`, backend: BACKEND, imageModel: MODEL, count: 1, contactSheet: false,
-  });
-  return { path: out.path, compiledPrompt: out.prompt, revisedPrompt: out.revisedPrompt, generations: out.proof?.attempts ?? 1, warnings: out.qa?.warnings };
+  if (x.slot.sweep?.anchor) return result(await editImage({ ...sweepEditArgs(x), outputPath: `${x.outBase}.png` }));
+  return result(await generateImage({ ...generateArgs(x), outputPath: `${x.outBase}.png` }));
 }
 
 async function execEdit(x: ExecInput): Promise<ExecOutput> {
   const { editImage } = await import("../generate.js");
-  const s = x.node.settings as Record<string, any>;
-  const out = await editImage({
-    imagePaths: [resolve(x.dir, x.slot.image!.asset)], ...lookArgs(x.slot), references: refArgs(x),
-    instruction: x.slot.sweep ? [x.slot.text, sweepInstruction(x.slot.sweep.dim, x.slot.sweep.value)].filter(Boolean).join(". ") : x.slot.text || undefined,
-    maskPath: x.slot.mask ? resolve(x.dir, x.slot.mask.asset) : undefined, preserveUnmasked: s.preserve_unmasked,
-    size: s.size, quality: s.quality ?? "low", format: s.format ?? "png", transparent: s.transparent, platform: s.platform, proof: s.proof,
-    outputPath: `${x.outBase}.png`, backend: BACKEND, imageModel: MODEL, count: 1,
-  });
-  return { path: out.path, compiledPrompt: out.prompt, revisedPrompt: out.revisedPrompt, generations: out.proof?.attempts ?? 1, warnings: out.qa?.warnings };
+  return result(await editImage({ ...editArgs(x), outputPath: `${x.outBase}.png` }));
 }
 
 async function execProcess(x: ExecInput): Promise<ExecOutput> {

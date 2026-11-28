@@ -92,7 +92,7 @@ export function registerStudioTools(server: McpServer) {
 
   server.registerTool("studio_run", {
     title: "Run a Studio graph",
-    description: "Start a background run (subscription only) and return its job id; unchanged slots are reused, never regenerated. scope: all | <id> | <id>+ (downstream). dry_run plans without spending. resume continues a stopped run; stop asks the live run to stop.",
+    description: "Start a background run (subscription only) and return its job id; unchanged slots are reused, never regenerated. scope: all | <id> | <id>+ (downstream). dry_run plans without spending and shows the compiled prompt of one slot per node. resume continues a stopped run; stop asks the live run to stop.",
     inputSchema: {
       graph, scope: z.string().optional(), nodes: z.array(z.string()).optional().describe("Run exactly these nodes."),
       new_take: z.boolean().optional().describe("Render one more take per slot in scope."),

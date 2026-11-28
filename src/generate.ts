@@ -764,6 +764,41 @@ export interface EditInput extends StyleInput {
 const EDIT_PRESERVE = " Change only what is described; keep all other elements, composition, framing, lighting, and style identical to the reference.";
 
 /** Image-to-image edit / variation / restyle, guided by reference image(s). */
+/** The edit prompt as editImage sends it (before any chroma-key suffix). Pure: no image reads. */
+function composeEdit(opts: EditInput, sentRefs: Array<ReturnType<typeof referenceSchema.parse>>, dim: Parameters<typeof sizeForAspect>[0] = null) {
+  const hasStyle = Boolean(opts.preset || opts.subject || opts.modifiers?.length || opts.style);
+  const instruction = opts.instruction?.trim();
+  if (!instruction && !hasStyle) {
+    throw new Error("editImage requires `instruction` (what to change) or a preset/subject/style.");
+  }
+  // Platform target works on edits too (reframe an existing asset for a story/post).
+  const plat: PlatformTarget | undefined = opts.platform ? getPlatform(opts.platform) : undefined;
+  // If a style is requested, compose it; otherwise the instruction alone drives the edit.
+  const composed = build({
+    subject: opts.subject ?? "the result",
+    rawPrompt: hasStyle ? undefined : instruction,
+    preset: opts.preset,
+    modifiers: opts.modifiers,
+    overrides: opts.style,
+    extraClauses: [...briefClauses(opts.brief), ...referenceClauses(sentRefs, opts.imagePaths.length), ...(plat ? [plat.clause] : [])],
+    size: opts.size ?? plat?.size ?? sizeForAspect(dim),
+    quality: opts.quality,
+    format: opts.format,
+    background: opts.transparent ? "transparent" : opts.background,
+  });
+  let prompt = composed.prompt;
+  if (instruction && hasStyle) prompt = `${instruction}. Apply this to the reference image. ${composed.prompt}`;
+  else if (instruction) prompt = composed.prompt + EDIT_PRESERVE;
+  return { composed, plat, prompt, instruction, hasStyle };
+}
+
+/** The compiled edit prompt without reading images or calling a provider (Studio dry runs). */
+export async function previewEditPrompt(rawOpts: EditInput): Promise<string> {
+  const opts: EditInput = { ...rawOpts, ...(await resolveOpts(rawOpts, false)) };
+  const sentRefs = (opts.references ?? []).map(r => referenceSchema.parse(r)).filter(r => !["logo", "palette"].includes(r.role));
+  return composeEdit(opts, sentRefs).prompt;
+}
+
 export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
   // Merge profile's operational defaults (+ a --from sidecar) without re-branding the edit.
   const opts: EditInput = { ...rawOpts, ...(await resolveOpts(rawOpts, false)) };
@@ -791,32 +826,8 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
     maskImage = m.image;
   }
 
-  const hasStyle = Boolean(opts.preset || opts.subject || opts.modifiers?.length || opts.style);
-  const instruction = opts.instruction?.trim();
-  if (!instruction && !hasStyle) {
-    throw new Error("editImage requires `instruction` (what to change) or a preset/subject/style.");
-  }
-
-  // Platform target works on edits too (reframe an existing asset for a story/post).
-  const plat: PlatformTarget | undefined = opts.platform ? getPlatform(opts.platform) : undefined;
-
-  // If a style is requested, compose it; otherwise the instruction alone drives the edit.
-  const composed = build({
-    subject: opts.subject ?? "the result",
-    rawPrompt: hasStyle ? undefined : instruction,
-    preset: opts.preset,
-    modifiers: opts.modifiers,
-    overrides: opts.style,
-    extraClauses: [...briefClauses(opts.brief), ...referenceClauses(sentRefs, opts.imagePaths.length), ...(plat ? [plat.clause] : [])],
-    size: opts.size ?? plat?.size ?? sizeForAspect(loaded[0]!.dim),
-    quality: opts.quality,
-    format: opts.format,
-    background: opts.transparent ? "transparent" : opts.background,
-  });
-
-  let prompt = composed.prompt;
-  if (instruction && hasStyle) prompt = `${instruction}. Apply this to the reference image. ${composed.prompt}`;
-  else if (instruction) prompt = composed.prompt + EDIT_PRESERVE;
+  const { composed, plat, prompt: editPrompt } = composeEdit(opts, sentRefs, loaded[0]!.dim);
+  let prompt = editPrompt;
 
   // Edits need the same fake-transparency path as generate: without it, a
   // `transparent` edit on the subscription backend renders on a white field
