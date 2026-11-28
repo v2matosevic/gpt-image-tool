@@ -743,3 +743,14 @@ test("review 2 #12: an edit reports the graph and state revisions and says what 
   assert.match(def.split("\n")[0]!, /^Graph revision 2 \(the definition changed\), state revision \d+\.$/);
   assert.match(def, /graph revision 2, state \d+ ·/);
 });
+
+test("review 2 #13: the header counts notes apart from nodes, null removal says removed, and a + estimate is explained", async () => {
+  const p = project();
+  await createGraph({ name: "Small", nodes: [{ ref: "gen", type: "generate", settings: { prompt: "a red cup", sweep: { dim: "shot.lens", values: ["35mm", "85mm"] } } }, { ref: "ed", type: "edit", settings: { instruction: "make it blue" } }], connections: [{ from: "gen", to: "ed", to_handle: "image" }] }, { project: p });
+  const r = await editGraph("small", [{ op: "note", on: "gen", text: "check the handle" }, { op: "set", node: "gen", settings: { sweep: null } }], { project: p });
+  assert.equal(r.applied[1], "gen: removed sweep");
+  assert.match(r.snapshot.split("\n")[0]!, / · 2 nodes \+ 1 note · /);
+  const dry: any = await startRun(p, "small", { actor: "t", detach: false, dryRun: true });
+  assert.match(dry.message, /2\+ generations/);
+  assert.match(dry.message, /"\+" means at least: ed waits on upstream images this run makes/);
+});
