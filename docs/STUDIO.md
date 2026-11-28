@@ -84,21 +84,43 @@ finish is never planned or priced in the same run as its drafts, since an approv
 has to come between. Its take reports measured drift from the draft always, and
 similarity when the perception pack is installed.
 
-Money. Every API request is first reserved at its estimated cost and then settled at
-the cost its reported usage implies, in one project ledger
-(`.gptimage/studio/_budget/ledger.jsonl`) written under its own cross-process lock.
-The limits are checked before each request, against everything reserved in the
-project that day (other graphs and other processes included) and against the resume
-chain the run belongs to:
+Money. Every paid API request in the tool, Studio's and direct tool calls alike, is
+first reserved at its estimated cost and then settled at the cost its reported usage
+implies, in two append-only ledgers with one file per local day: the project's
+(`.gptimage/studio/_budget/<day>.jsonl`) and the user's across all projects
+(`~/.gptimage/budget/<day>.jsonl`). Both are written under their own cross-process
+locks, taken user first, then project. The limits are checked before each request,
+against everything reserved that day (other graphs, projects and processes included)
+and against the resume chain or tool call the request belongs to:
 
 | Limit | Default | Counts | Raised by |
 | --- | --- | --- | --- |
 | Per run | $2 | the run and its resumes | a grant, or the owner editing `studio.limits.run` |
+| Per direct call | the run limit | one MCP tool call or one CLI process (`count`, series and all) | as above |
 | Per day | $10 | every API request in the project that local day | a grant, or the owner editing `studio.limits.day` |
 | Ceiling | $50 | the same day total | only the owner editing `studio.limits.ceiling`; no grant lifts it |
+| User per day | $25 | every API request in every project that local day | a grant (up to the user ceiling), or the owner editing `~/.gptimage/config.json` |
+| User ceiling | $100 | the same | only the owner editing `~/.gptimage/config.json` |
 
-The run and day defaults were accepted by the owner on 2026-11-28; the ceiling is the
-orchestrating agent's default. `max_run_cost` / `max_day_cost` (CLI `--max-run-cost`,
+The user limits live only in `~/.gptimage/config.json` (`{"limits": {"day": 25,
+"ceiling": 100}}`; `$GPT_IMAGE_SECRETS_HOME/.gptimage/` when that is set), never in a
+project profile, so no project can raise them. Someone with no profile and no user
+config gets all the defaults above and can raise them in their own files. The run and
+day defaults were accepted by the owner on 2026-11-28; both ceilings and the user day
+limit are the orchestrating agent's defaults.
+
+Direct calls: `generate_image`, `edit_image`, `upscale_image` and every other tool on
+`backend: "apikey"` reserve each request under the graph name `_direct` in the project
+the key is looked up in. A refusal is an error before anything is sent: "Spend limit:
+...", with the fix (ask the owner once; record a grant; call again).
+
+Fail closed: a ledger line that does not parse, or has an impossible number (a negative
+cost, a missing estimate), refuses every paid request with the file and line named; it
+is never skipped, so a torn write or a hand edit cannot lower a tally. An unreadable
+`config.json` refuses the same way. Clock: days follow the local clock. If the clock is
+set back, spend recorded under a later date still counts against today, and grants
+recorded under a later date do not apply. A clock set forward starts a new day early;
+the files cannot show that, which is one more reason this is a guard and not a boundary. `max_run_cost` / `max_day_cost` (CLI `--max-run-cost`,
 `--max-day-cost`) lower a limit for one run and are refused if they would raise it.
 A request whose cost would pass a limit is not sent: the run stops cleanly (status
 `stopped`, `stopCode` `budget-run`, `budget-day` or `budget-ceiling`), and its fix
@@ -301,8 +323,9 @@ interface; schema names carry a version.
 | `state.json` | edits and runs | `gpt-image-studio/state@1`: `revision`, `eventSeq`, `nextTake`, and per node: `takes`, `selected`, gallery `picks`, `error`, and `activity` while a run works on it. |
 | `events.jsonl` | every write | One JSON object per line: `seq`, `ts`, `type`, `actor`, `graphRevision`, details. Rotated to `events.1.jsonl` past 1 MB. |
 | `feedback.jsonl` | edits | Append-only verdicts, picks, predictions and comments, each with the take's settings and reading. Never rotated. |
-| `runs/<job>.json` | the run's worker | `gpt-image-studio/run@1`: status, scope, planned and done counts, generations, completed slot keys, new takes, skips, errors, stop reason and fix, and `origin: {terminal?, workspace?}` when the run was started from an ADE terminal (`HEPHAESTUS_TERMINAL_ID` / `HEPHAESTUS_WORKSPACE` in the starting process). Phase 1d adds `stopCode?` (`budget-run`, `budget-day`, `budget-ceiling`) and `budget?: {chain, limits: {run, day, ceiling}, estimate, spent, chainSpent?, needed?}` in dollars. |
-| `../_budget/ledger.jsonl` | runs, `budget --grant` | Per project, next to the graph folders. One JSON object per line with `schema: "gpt-image-studio/budget@1"` and `t`: `reserve` `{id, ts, day, run, chain, graph, node, slot, estimate, model, funding: "limit"\|"grant:<id>", by}`, `settle` `{id, ts, cost, uncertain?, take?, note?}`, `grant` `{id, ts, day, amount, graph?, approvedBy, words, expires, source: "agent"\|"app", by}`. Append-only, under `_budget/.lock`. A reservation without a settlement counts at its estimate. |
+| `runs/<job>.json` | the run's worker | `gpt-image-studio/run@1`: status, scope, planned and done counts, generations, completed slot keys, new takes, skips, errors, stop reason and fix, and `origin: {terminal?, workspace?}` when the run was started from an ADE terminal (`HEPHAESTUS_TERMINAL_ID` / `HEPHAESTUS_WORKSPACE` in the starting process). Phase 1d adds `stopCode?` (`budget-run`, `budget-day`, `budget-ceiling`, `budget-user-day`, `budget-user-ceiling`) and `budget?: {chain, limits: {run, day, ceiling}, estimate, spent, chainSpent?, needed?}` in dollars. |
+| `../_budget/<YYYY-MM-DD>.jsonl` | runs, direct API calls, `budget --grant` | Per project, next to the graph folders, one file per local day. One JSON object per line with `schema: "gpt-image-studio/budget@1"` and `t`: `reserve` `{id, ts, day, run, chain, graph, node, slot, estimate, model, funding: "limit"\|"grant:<id>", by}` (`graph` is `_direct` for tool calls outside Studio), `settle` `{id, ts, cost, uncertain?, take?, note?}` (in the reservation's day file; ids `s<YYYYMMDD>-...` name it), `grant` `{id, ts, day, amount, graph?, approvedBy, words, expires, source: "agent"\|"app", by}`. Append-only, under `_budget/.lock`. A reservation without a settlement counts at its estimate. `_budget/ledger.jsonl` (2026-11-28 only, before per-day files) is still read, never written. |
+| `~/.gptimage/budget/<YYYY-MM-DD>.jsonl` | the same writers | User level, across projects: `reserve` `{id, ts, day, project, graph, estimate, funding, by}` and `settle` `{id, ts, cost}`, same schema and ids. User limits: `~/.gptimage/config.json`. |
 | `assets/` | runs, reference imports | Image files. Generated ones keep the usual JSON sidecar. |
 | `handoff/<name>/` | handoff runs | The package above. |
 

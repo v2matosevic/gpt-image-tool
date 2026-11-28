@@ -7,6 +7,7 @@ import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node
 import { resolveImageModel, validateComplexity, validateImageQuality, validateSize } from "./models.js";
 import { PRICING, costFromUsage, estimateCost, type ImageUsage } from "./pricing.js";
 import { getProvider } from "./providers/index.js";
+import { guardPaidRequest } from "./spend.js";
 import type { GenerateInput, ImageBackground, ImageFormat, ImageProvider, ImageQuality, ImageSize, InputImage } from "./providers/types.js";
 import { build, type PromptOverrides } from "./presets/index.js";
 import { imageSize, looksLikeImage, sizeForAspect, upscaleSizeForAspect } from "./imageinfo.js";
@@ -428,8 +429,13 @@ async function runAndSave(
   prefix: string,
   meta: SaveMeta,
 ): Promise<GenerateOutput> {
-  const provider = getProvider(backend);
-  const requestedModel = resolveImageModel(input.imageModel, provider.name);
+  const backendProvider = getProvider(backend);
+  const requestedModel = resolveImageModel(input.imageModel, backendProvider.name);
+  // Every paid request is reserved and settled in the spend ledger (src/spend.ts); Studio marks the
+  // requests it already reserved as managed.
+  const provider: ImageProvider = backendProvider.name === "apikey" && requestedModel
+    ? { name: backendProvider.name, generate: (i: GenerateInput) => guardPaidRequest(requestedModel, i, () => backendProvider.generate(i)) }
+    : backendProvider;
   validateImageQuality(input.quality, requestedModel);
   validateComplexity(input.complexity, requestedModel);
   validateSize(input.size, provider.name, requestedModel);

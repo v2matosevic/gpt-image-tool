@@ -89,7 +89,11 @@ its cost; a dry run shows the estimate; the run result shows what was actually s
 
 Spend limits (the owner's defaults, 2026-11-28): 2 dollars per run (a resumed run keeps counting against
 the same limit) and 10 dollars per day per project, checked before every API request across every run
-and process; and a hard daily ceiling (default 50 dollars) that no grant lifts, only the owner editing the profile. Inside
+and process; and a hard daily ceiling (default 50 dollars) that no grant lifts, only the owner editing the profile.
+Above every project sits a user-level limit across all projects (default 25 dollars a day, ceiling 100), set only in
+~/.gptimage/config.json; no project can raise it. Direct tool calls on the API (generate_image, edit_image, upscale_image
+and the rest, outside Studio) go through the same ledger: each call is bounded by the run limit, and all of them count
+against the day limits. Inside
 the limits you may run without asking. ${opt("max_run_cost")} and ${opt("max_day_cost")} lower them for one run;
 nothing you pass raises them.
 When a limit stops a run, the result says how much the remaining work needs. Then:
@@ -100,7 +104,9 @@ When a limit stops a run, the result says how much the remaining work needs. The
   A grant ends with the local day and never carries over. Then resume the run.
 - ${tool("budget")} shows limits, today's spend by graph, grants and what is left. It is a guard against
   runaway mistakes, not a security boundary: an agent with a shell could record a grant nobody gave,
-  and the ledger (.gptimage/studio/_budget/ledger.jsonl) is what shows the owner it happened.
+  and the ledgers (.gptimage/studio/_budget/<day>.jsonl, ~/.gptimage/budget/<day>.jsonl) show the owner it happened.
+- If a ledger line cannot be read, every paid request is refused with the file and line named. Do not
+  delete lines to get going again; tell the owner.
 
 The key: OPENAI_API_KEY from the environment, else the project's git-ignored .secrets file
 (OPENAI_API_KEY=sk-... or OPENAI_API_KEY: sk-...), else ~/.gptimage/secrets. Results say which source

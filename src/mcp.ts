@@ -35,6 +35,7 @@ import { brandSchema } from "./branding.js";
 import { logoKitSchema, exportLogoKit } from "./logo.js";
 import { brandBoardSchema, createBrandBoard } from "./brandboard.js";
 import { registerStudioTools } from "./studio/mcp-tools.js";
+import { directCall } from "./spend.js";
 
 const INLINE = process.env.GPT_IMAGE_INLINE === "1";
 
@@ -133,6 +134,13 @@ function fail(e: unknown) {
 }
 
 const server = new McpServer({ name: "gpt-image", version: "0.6.0" });
+// Each tool call is one "direct call" for the spend ledger: every paid request inside it shares one
+// per-call limit (src/spend.ts). Studio runs mark their own reserved work as managed.
+{
+  const register = server.registerTool.bind(server) as (...a: any[]) => any;
+  (server as any).registerTool = (name: string, config: unknown, handler: (...a: any[]) => Promise<any>) =>
+    register(name, config, (...args: any[]) => directCall(name, () => handler(...args)));
+}
 
 const generationSchema = {
       brief: creativeBriefSchema.optional().describe("Structured creative brief; merged with project defaults. Exact lettering still belongs in style.text."),

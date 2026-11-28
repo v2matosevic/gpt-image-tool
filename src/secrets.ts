@@ -32,7 +32,7 @@ export function readSecret(file: string, name = KEY_NAME): string | undefined {
 
 /** Project folders to look in: only the explicit project when one is given (a Studio run), else
  *  GPT_IMAGE_PROJECT_DIR, CLAUDE_PROJECT_DIR, then cwd (a direct tool call in a terminal). */
-function projectDirs(project?: string, env: NodeJS.ProcessEnv = process.env): string[] {
+export function projectDirs(project?: string, env: NodeJS.ProcessEnv = process.env): string[] {
   if (project?.trim()) return [resolve(project.trim())];
   const dirs = [env.GPT_IMAGE_PROJECT_DIR, env.CLAUDE_PROJECT_DIR, process.cwd()].map(d => d?.trim()).filter((d): d is string => Boolean(d)).map(d => resolve(d));
   return [...new Set(dirs)];

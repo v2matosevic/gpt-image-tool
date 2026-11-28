@@ -13,6 +13,7 @@ import { randomBytes } from "node:crypto";
 import { evaluate, slotKey, slotsToRun, type NodeEval, type Slot } from "./evaluate.js";
 import { descendants, fileSha, findNode, importReference, inputsOf, nodeState, topoOrder } from "./graph.js";
 import { workOf, NODE_SPECS } from "./nodes.js";
+import { managedSpend } from "../spend.js";
 import { StudioError, assetRel, atomicWrite, graphDir, mutate, now, paths, pidAlive, readBoth, readJson, sleep, type EventInput } from "./store.js";
 import type { Executors, ExecutorKind, ExecOutput } from "./execute.js";
 import { RUN_SCHEMA, type GraphFile, type RunRecord, type RunScope, type RunStatus, type StateFile, type Take } from "./types.js";
@@ -528,7 +529,14 @@ export async function runJob(project: string, slug: string, job: string, executo
         let held: { id: string; funding: string; estimate: number } | undefined;
         if (slot.render?.renderer === "api") {
           const estimate = slotEstimate(slot);
-          const r = await ledger.reserve({ project, run: job, chain: budget.chain, graph: slug, node: id, slot: slotKey(id, slot), estimate, model: slot.render.model, limits: budget.limits, actor: `worker ${job}` });
+          let r: Awaited<ReturnType<typeof ledger.reserve>>;
+          try {
+            r = await ledger.reserve({ project, run: job, chain: budget.chain, graph: slug, node: id, slot: slotKey(id, slot), estimate, model: slot.render.model, limits: budget.limits, actor: `worker ${job}` });
+          } catch (e) {
+            // A ledger or user config that cannot be read fails closed: nothing is sent.
+            stop ??= { reason: e instanceof Error ? e.message : String(e), fix: e instanceof StudioError && e.fix ? `${e.fix} Then ${cmd("run", { graph: slug, resume: true })}.` : undefined };
+            return;
+          }
           if (!r.ok) {
             stop ??= { reason: r.message, code: r.code };
             return;
@@ -539,7 +547,9 @@ export async function runJob(project: string, slug: string, job: string, executo
         rec.progress.current = { node: id, slot: slot.index, variant: slot.variant };
         save();
         try {
-          const res = await execs[kind]({ project, dir, graph, state, evals, node, slot, takeId, outBase: join(paths(dir).assets, `${id}-${takeId}`) });
+          const work = () => execs[kind]({ project, dir, graph, state, evals, node, slot, takeId, outBase: join(paths(dir).assets, `${id}-${takeId}`) });
+          // A reserved slot's request is already in the ledger; anything else paid inside it is not.
+          const res = held ? await managedSpend(work) : await work();
           let cost: Take["cost"] | undefined;
           if (held) {
             const known = res.usage ? costFromUsage(slot.render!.model, res.usage) : undefined;
@@ -585,7 +595,8 @@ export async function runJob(project: string, slug: string, job: string, executo
       const left = await planRun(project, dir, fresh.graph, fresh.state, rec.scope, rec.newTake, done).catch(() => undefined);
       budget.needed = left?.api.cost ?? 0;
       stop.fix = `The remaining paid work needs about ${dollars(budget.needed)}${left?.api.lowerBound ? " or more" : ""}. Ask the owner once, with that amount; do not work around the limit (no new run, no other renderer). ` +
-        (stop.code === "budget-ceiling" ? "The ceiling can only be raised by the owner editing studio.limits.ceiling in .gptimage.json." : `When the owner approves in chat, record a grant with ${grantCmd(slug)}, then ${cmd("run", { graph: slug, resume: true })}; finished slots are kept.`);
+        (stop.code === "budget-ceiling" ? "The ceiling can only be raised by the owner editing studio.limits.ceiling in .gptimage.json." :
+         stop.code === "budget-user-ceiling" ? "The user-level ceiling (all projects) can only be raised by the owner, in ~/.gptimage/config.json; no grant lifts it." : `When the owner approves in chat, record a grant with ${grantCmd(slug)}, then ${cmd("run", { graph: slug, resume: true })}; finished slots are kept.`);
       // A limit the run lowered for itself is the agent's own caution, not the owner's limit.
       const own = studioProfile(dir).limits;
       const self = stop.code === "budget-run" ? budget.limits.run < own.run - 1e-9 : stop.code === "budget-day" ? budget.limits.day < own.day - 1e-9 : false;
