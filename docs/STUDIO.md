@@ -281,6 +281,13 @@ With `--json`, stdout is one JSON object: `{"ok": true, ...}` or
 `{"ok": false, "error": {"code", "message", "fix", "issues"}}` with exit code 1.
 `--actor` is recorded on every write and in `feedback.jsonl`.
 
+`run` reports a `status` to branch on, with exit code 0: `starting` (a run began;
+`job` is its id), `dry-run` (the plan, nothing spent), `blocked` (nothing in scope
+can run until the nodes in `plan.skipped` are fixed; no run was started),
+`nothing-to-do` (everything in scope is current); with `--stop`, `stopping`, or `none`
+or the last run's status when no run is live.
+A refusal (for example another run in progress) is `ok: false` with exit code 1.
+
 ## Viewer
 
 `gpt-image studio view` serves one self-contained page on 127.0.0.1 (port 4780, or

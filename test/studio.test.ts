@@ -583,7 +583,12 @@ test("review 2 #2: a dry run lists nodes it skips with their fix, and Next says 
   assert.doesNotMatch(c.snapshot, /studio_run \{graph:"broken"\} renders/);
   const r: any = await startRun(p, "broken", { actor: "t", detach: false, dryRun: true });
   assert.match(r.message, /Skipped gen: generate needs a prompt\. Fix: Connect a prompt/);
-  assert.match(r.message, /Nothing in scope can run until the skipped nodes are fixed/);
+  assert.match(r.message, /Nothing in scope "all" can run until the skipped nodes are fixed/);
+  assert.equal(r.status, "blocked", "review 3 #4: a status --json callers can branch on");
+  const real: any = await startRun(p, "broken", { actor: "t", detach: false });
+  assert.equal(real.status, "blocked");
+  assert.match(real.message, /no run was started/);
+  assert.doesNotMatch(real.message, /is current/);
 });
 
 test("review 2 #4: overlays draw on images without a stored reading, and unknown overlays are refused", async () => {

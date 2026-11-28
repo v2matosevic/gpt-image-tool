@@ -16,7 +16,7 @@ import { workOf, NODE_SPECS } from "./nodes.js";
 import { StudioError, assetRel, atomicWrite, graphDir, mutate, now, paths, pidAlive, readBoth, readJson, sleep, type EventInput } from "./store.js";
 import type { Executors, ExecutorKind, ExecOutput } from "./execute.js";
 import { RUN_SCHEMA, type GraphFile, type RunRecord, type RunScope, type RunStatus, type StateFile, type Take } from "./types.js";
-import { cmd } from "./say.js";
+import { cmd, isCli, opt } from "./say.js";
 
 const RUN_STALE_MS = 60_000;
 const HEARTBEAT_MS = 5_000;
@@ -236,9 +236,10 @@ export async function startRun(project: string, slug: string, req: RunRequest): 
   const plan = await planRun(project, dir, graph, state, scope, newTake, done);
   if (req.dryRun) {
     const prompts = await dryRunPrompts(project, dir, graph, state, plan);
-    return { status: "dry-run", plan, prompts, message: [planMessage(plan, true), ...prompts.map(p => `Prompt for ${p.node} (${p.slot}): ${p.prompt}`)].join("\n") };
+    return { status: blockedPlan(plan) ? "blocked" : "dry-run", plan, prompts, message: [planMessage(plan, true), ...prompts.map(p => `Prompt for ${p.node} (${p.slot}): ${p.prompt}`)].join("\n") };
   }
-  if (!plan.slots) return { status: "nothing-to-do", plan, message: `Everything in scope "${plan.scope}" is current; nothing to run.${plan.skipped.length ? " Some nodes were skipped, see plan.skipped." : " Pass new_take:true for another take."}` };
+  if (blockedPlan(plan)) return { status: "blocked", plan, message: planMessage(plan, false) };
+  if (!plan.slots) return { status: "nothing-to-do", plan, message: `Everything in scope "${plan.scope}" is current; nothing to run. Pass ${opt("new_take")}${isCli() ? "" : ":true"} for another take.` };
 
   const job = newJobId();
   await acquireRunLock(dir, job, req.actor);
@@ -300,14 +301,20 @@ async function dryRunPrompts(project: string, dir: string, graph: GraphFile, sta
   return out;
 }
 
+/** Nothing in scope can run, and the reason is nodes that need fixing (not that all is current). */
+const blockedPlan = (plan: Plan) => !plan.slots && plan.skipped.length > 0;
+
 function planMessage(plan: Plan, dry: boolean): string {
+  if (blockedPlan(plan)) {
+    return [`Nothing in scope "${plan.scope}" can run until the skipped nodes are fixed${dry ? "" : "; no run was started"}.`,
+      ...plan.skipped.map(s => `Skipped ${s.node}: ${s.reason}.${s.fix ? ` Fix: ${s.fix}` : ""}`)].join("\n");
+  }
   const gen = `${plan.generations}${plan.generationsEstimate ? "+" : ""} generation${plan.generations === 1 ? "" : "s"}`;
   const local = `${plan.localSteps}${plan.localStepsEstimate ? "+" : ""} local step${plan.localSteps === 1 ? "" : "s"}`;
   const lines = [`${dry ? "Would run" : "Running"} scope "${plan.scope}": ${gen} and ${local}; ${plan.nodes.reduce((a, n) => a + n.cached, 0)} slot(s) reused from cache.`];
   const est = plan.nodes.filter(n => n.estimate);
   if (est.length) lines.push(`"+" means at least: ${est.map(n => `${n.node} (${n.work === "provider" ? "generation" : "local step"})`).join(", ")} wait${est.length === 1 ? "s" : ""} on upstream images this run makes, so ${est.length === 1 ? "its" : "their"} count is known only then.`);
   for (const s of plan.skipped) lines.push(`Skipped ${s.node}: ${s.reason}.${s.fix ? ` Fix: ${s.fix}` : ""}`);
-  if (dry && plan.skipped.length && !plan.slots) lines.push("Nothing in scope can run until the skipped nodes are fixed.");
   return lines.join("\n");
 }
 
