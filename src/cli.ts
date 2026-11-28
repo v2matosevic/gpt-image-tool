@@ -68,6 +68,7 @@ interface CliArgs {
   output?: string;
   backend?: string;
   imageModel?: string;
+  complexity?: string;
   check?: boolean;
   presets?: boolean;
   presetsCategory?: string;
@@ -125,7 +126,9 @@ function printHelp(): void {
       "  --size <size>          auto | 1024x1024 | 1536x1024 | 1024x1536 | 1024x1280 (4:5) | 1280x1024 (5:4) | 2048x2048 | 2048x1152 | 1152x2048",
       "  -q, --quality <q>      auto | low | medium | high | xhigh | max",
       "  -f, --format <fmt>     png | jpeg | webp",
-      "  --image-model <name>   flare (fast) | sunburst (precise) | auto | full ID; requires --backend apikey",
+      "  --size WIDTHxHEIGHT    Custom size (apikey + flare/sunburst): multiples of 16, aspect 1:3-3:1, edges <= 3840",
+      "  --image-model <name>   flare | sunburst (GPT-Image-2.6), flare-2.5 | sunburst-2.5, auto, or a full ID; requires --backend apikey",
+      "  --complexity <c>       low | medium | high (GPT-Image-2.6 planning effort; apikey only)",
       "  -b, --backend <name>   subscription | apikey",
       "      --check            Validate the subscription session (no image quota spent) and exit",
       "  -h, --help             Show this help",
@@ -253,6 +256,10 @@ function parseArgs(argv: string[]): CliArgs {
       case "--image-model":
         args.imageModel = argv[++i];
         if (!args.imageModel || args.imageModel.startsWith("--")) throw new Error("--image-model requires flare, sunburst, auto, or a full model ID.");
+        break;
+      case "--complexity":
+        args.complexity = argv[++i];
+        if (!args.complexity || args.complexity.startsWith("--")) throw new Error("--complexity requires low, medium or high.");
         break;
       case "--check":
         args.check = true;
@@ -388,6 +395,7 @@ try {
       outputPath: args.output,
       backend: args.backend,
       imageModel: args.imageModel,
+      complexity: args.complexity,
     });
   } else if (args.edit) {
     out = await editImage({
@@ -410,6 +418,7 @@ try {
       outputPath: args.output,
       backend: args.backend,
       imageModel: args.imageModel,
+      complexity: args.complexity,
     });
   } else {
     if (!args.prompt && !args.subject && !args.from) {
@@ -438,12 +447,14 @@ try {
       outputPath: args.output,
       backend: args.backend,
       imageModel: args.imageModel,
+      complexity: args.complexity,
     };
     if (args.preview) { console.log(JSON.stringify(await previewImageRequest(generationOptions), null, 2)); process.exit(0); }
     out = await generateImage(generationOptions);
   }
   for (const p of [out.path, ...(out.variants ?? [])]) console.log(p);
   if (out.contactSheet) console.log(out.contactSheet);
+  if (out.cost) console.error(`API cost: ${"$"}${out.cost.dollars.toFixed(4)} for ${out.cost.requests} request(s) (${out.usage?.input_tokens ?? "?"} in / ${out.usage?.output_tokens ?? "?"} out tokens)${out.keySource ? `; key from ${out.keySource}` : ""}`);
   console.error(
     `✓ ${out.backend} · ${out.bytes} bytes · ${out.format}${out.background === "transparent" ? " · transparent" : ""}` +
       (out.variants?.length ? ` · ${out.variants.length + 1} variants` : "") +

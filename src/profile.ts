@@ -47,6 +47,11 @@ export interface BrandProfile {
   outputDir?: string;
   backend?: string;
   imageModel?: string;
+  /** GPT-Image-2.6 planning effort for apikey calls (low | medium | high). */
+  complexity?: string;
+  /** Studio settings: api render defaults and spend limits. Studio never takes its renderer from
+   *  here; the subscription stays the default unless a node or graph chooses the API. */
+  studio?: Record<string, unknown>;
 }
 
 function findUp(filename: string, start: string): string | null {

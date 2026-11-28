@@ -7,7 +7,8 @@ export type ImageSize =
   | "1280x1024" // 5:4 landscape
   | "2048x2048" // 2K square (verified on the subscription endpoint)
   | "2048x1152" // 2K landscape (~16:9)
-  | "1152x2048"; // 2K portrait
+  | "1152x2048" // 2K portrait
+  | `${number}x${number}`; // custom WIDTHxHEIGHT: apikey backend with GPT Image 2.5/2.6 only (validateSize)
 export type ImageFormat = "png" | "jpeg" | "webp";
 export type ImageQuality = "auto" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ImageBackground = "auto" | "transparent" | "opaque";
@@ -25,6 +26,10 @@ export interface GenerateInput {
   inputImages?: InputImage[];
   /** Optional alpha mask for inpainting: transparent areas of the mask are the regions to regenerate. */
   maskImage?: InputImage;
+  /** GPT-Image-2.6 planning effort (low | medium | high). API only; refused elsewhere. */
+  complexity?: string;
+  /** Project folder whose git-ignored .secrets may hold OPENAI_API_KEY (apikey backend only). */
+  keyProject?: string;
 }
 
 export interface InputImage {
@@ -39,6 +44,10 @@ export interface GenerateResult {
   bytes: Buffer;
   format: ImageFormat;
   revisedPrompt?: string;
+  /** Token usage the API reported for this request (apikey backend), numeric fields only. */
+  usage?: import("../pricing.js").ImageUsage;
+  /** Which source supplied the API key (never the key). */
+  keySource?: string;
 }
 
 export interface ImageProvider {

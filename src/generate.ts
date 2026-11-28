@@ -4,7 +4,8 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
-import { resolveImageModel, validateImageQuality } from "./models.js";
+import { resolveImageModel, validateComplexity, validateImageQuality, validateSize } from "./models.js";
+import { PRICING, costFromUsage, estimateCost, type ImageUsage } from "./pricing.js";
 import { getProvider } from "./providers/index.js";
 import type { GenerateInput, ImageBackground, ImageFormat, ImageProvider, ImageQuality, ImageSize, InputImage } from "./providers/types.js";
 import { build, type PromptOverrides } from "./presets/index.js";
@@ -75,6 +76,8 @@ export function overlay(base: StyleInput, top: StyleInput): StyleInput {
     outputPath: top.outputPath ?? base.outputPath,
     backend: top.backend ?? base.backend,
     imageModel: top.imageModel ?? base.imageModel,
+    complexity: top.complexity ?? base.complexity,
+    keyProject: top.keyProject ?? base.keyProject,
     brand: top.brand ?? base.brand,
     brief: top.brief === undefined ? base.brief : { ...base.brief, ...top.brief },
     references: top.references ?? base.references,
@@ -99,6 +102,7 @@ function profileAsBase(p: BrandProfile, baseDir: string): StyleInput {
     background: p.background,
     backend: p.backend,
     imageModel: p.imageModel,
+    complexity: p.complexity,
     brand: p.brand && resolveBrandPaths(p.brand, baseDir),
     brief: p.brief,
     references: p.references?.map(r => ({ ...r, path: rel(r.path) })),
@@ -131,7 +135,11 @@ interface Sidecar {
   background?: ImageBackground;
   backend?: string;
   imageModel?: string;
+  complexity?: string;
   compiledPrompt: string;
+  /** API token usage summed over every request this image took, and its dollar cost (pricing.ts). */
+  usage?: ImageUsage;
+  cost?: { dollars: number; requests: number; rates: string };
   revisedPrompt?: string;
   styleReference?: string[];
   /** Brand colors auto-extracted from styleReference for this generation. */
@@ -179,6 +187,7 @@ function sidecarFromOpts(op: Sidecar["operation"], opts: StyleInput, meta: SaveM
     background: opts.background ?? (opts.transparent ? "transparent" : undefined),
     backend: opts.backend,
     imageModel: opts.imageModel,
+    complexity: opts.complexity,
     compiledPrompt: meta.prompt,
     styleReference: opts.styleReference,
     palette: meta.palette,
@@ -208,6 +217,7 @@ async function sidecarAsBase(imagePath: string): Promise<StyleInput> {
     styleReference: s.styleReference,
     backend: s.backend,
     imageModel: s.imageModel,
+    complexity: s.complexity,
     brand: s.brand,
     brief: s.brief,
     references: s.references,
@@ -229,7 +239,7 @@ async function resolveOpts(opts: StyleInput, applyProfileStyle = true): Promise<
   const loaded = loadProfile(profileStartDir(opts.outputPath));
   if (!loaded) return opts;
   const full = profileAsBase(loaded.profile, dirname(loaded.path));
-  const base: StyleInput = applyProfileStyle ? full : { outputPath: full.outputPath, backend: full.backend, imageModel: full.imageModel };
+  const base: StyleInput = applyProfileStyle ? full : { outputPath: full.outputPath, backend: full.backend, imageModel: full.imageModel, complexity: full.complexity };
   return overlay(base, opts);
 }
 
@@ -268,6 +278,34 @@ export interface StyleInput {
   outputPath?: string;
   backend?: string;
   imageModel?: string;
+  /** GPT-Image-2.6 planning effort: low | medium | high. apikey backend only. */
+  complexity?: string;
+  /** Project folder whose git-ignored .secrets may hold OPENAI_API_KEY. Not stored anywhere. */
+  keyProject?: string;
+}
+
+/** Sum the numeric usage of several API requests (proof-loop regenerations, variants). */
+export function addUsage(a: ImageUsage | undefined, b: ImageUsage | undefined): ImageUsage | undefined {
+  if (!b) return a;
+  if (!a) return JSON.parse(JSON.stringify(b));
+  const sum = (x?: number, y?: number) => (x === undefined && y === undefined ? undefined : (x ?? 0) + (y ?? 0));
+  const out: ImageUsage = { input_tokens: sum(a.input_tokens, b.input_tokens), output_tokens: sum(a.output_tokens, b.output_tokens), total_tokens: sum(a.total_tokens, b.total_tokens) };
+  const inD = { text_tokens: sum(a.input_tokens_details?.text_tokens, b.input_tokens_details?.text_tokens), image_tokens: sum(a.input_tokens_details?.image_tokens, b.input_tokens_details?.image_tokens) };
+  if (inD.text_tokens !== undefined || inD.image_tokens !== undefined) out.input_tokens_details = inD;
+  const outD = { text_tokens: sum(a.output_tokens_details?.text_tokens, b.output_tokens_details?.text_tokens), image_tokens: sum(a.output_tokens_details?.image_tokens, b.output_tokens_details?.image_tokens) };
+  if (outD.text_tokens !== undefined || outD.image_tokens !== undefined) out.output_tokens_details = outD;
+  return JSON.parse(JSON.stringify(out));
+}
+
+/** Usage added between two running totals (one image's share of a multi-image call). */
+function usageSince(before: ImageUsage | undefined, after: ImageUsage | undefined): ImageUsage | undefined {
+  if (!after) return undefined;
+  if (!before) return after;
+  const d = (x?: number, y?: number) => (x === undefined ? undefined : x - (y ?? 0));
+  const out: ImageUsage = { input_tokens: d(after.input_tokens, before.input_tokens), output_tokens: d(after.output_tokens, before.output_tokens), total_tokens: d(after.total_tokens, before.total_tokens) };
+  if (after.input_tokens_details) out.input_tokens_details = { text_tokens: d(after.input_tokens_details.text_tokens, before.input_tokens_details?.text_tokens), image_tokens: d(after.input_tokens_details.image_tokens, before.input_tokens_details?.image_tokens) };
+  if (after.output_tokens_details) out.output_tokens_details = { text_tokens: d(after.output_tokens_details.text_tokens, before.output_tokens_details?.text_tokens), image_tokens: d(after.output_tokens_details.image_tokens, before.output_tokens_details?.image_tokens) };
+  return JSON.parse(JSON.stringify(out));
 }
 
 export interface GenerateOutput {
@@ -296,6 +334,13 @@ export interface GenerateOutput {
   palette?: string[];
   /** Vision proofread verdict for the primary image (when the proof-loop ran). */
   proof?: ProofVerdict;
+  /** apikey backend: token usage summed over every request this call made, and its cost. */
+  usage?: ImageUsage;
+  cost?: { dollars: number; requests: number; rates: string };
+  /** apikey backend: which source supplied the key (never the key). */
+  keySource?: string;
+  /** Provider requests this call sent (proof-loop regenerations and no-image retries included). */
+  requests?: number;
 }
 
 function defaultOutputDir(): string {
@@ -341,7 +386,7 @@ async function readInputImage(path: string): Promise<{ image: InputImage; dim: R
 
 /** Call the provider, retrying once if the model replied with text instead of an image. Validates
  *  the returned bytes are actually an image at the provider boundary (protects every consumer). */
-async function generateWithRetry(provider: ImageProvider, input: GenerateInput) {
+async function generateWithRetry(provider: ImageProvider, input: GenerateInput, onRequest: () => void = () => {}) {
   const ensureImage = (r: Awaited<ReturnType<ImageProvider["generate"]>>) => {
     if (!looksLikeImage(r.bytes)) {
       throw new Error("backend returned data that isn't a valid image — try again or switch --backend apikey.");
@@ -349,6 +394,7 @@ async function generateWithRetry(provider: ImageProvider, input: GenerateInput) 
     return r;
   };
   try {
+    onRequest();
     return ensureImage(await provider.generate(input));
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -359,6 +405,7 @@ async function generateWithRetry(provider: ImageProvider, input: GenerateInput) 
           input.prompt +
           " IMPORTANT: respond ONLY by calling the image_generation tool to produce the image — do not reply with any text.",
       };
+      onRequest();
       return ensureImage(await provider.generate(forced));
     }
     throw e;
@@ -382,6 +429,17 @@ async function runAndSave(
   const provider = getProvider(backend);
   const requestedModel = resolveImageModel(input.imageModel, provider.name);
   validateImageQuality(input.quality, requestedModel);
+  validateComplexity(input.complexity, requestedModel);
+  validateSize(input.size, provider.name, requestedModel);
+  let totalUsage: ImageUsage | undefined;
+  let requests = 0;
+  let keySource: string | undefined;
+  const call = async (inp: GenerateInput) => {
+    const r = await generateWithRetry(provider, inp, () => requests++);
+    totalUsage = addUsage(totalUsage, r.usage);
+    keySource ??= r.keySource;
+    return r;
+  };
   const resolvedBrandHash = meta.opts.brand ? await brandHash(meta.opts.brand) : undefined;
   const count = Math.max(1, Math.min(10, meta.count ?? 1));
   const basePath = resolveOutputPath(outputPath, input.format, prefix);
@@ -389,7 +447,8 @@ async function runAndSave(
 
   const saved: { path: string; result: Awaited<ReturnType<ImageProvider["generate"]>>; verdict?: ProofVerdict; qa: ImageQA }[] = [];
   for (let i = 0; i < count; i++) {
-    let result = await generateWithRetry(provider, input); // validated to be an image
+    const before = totalUsage;
+    let result = await call(input); // validated to be an image
     let verdict: ProofVerdict | undefined;
     if (meta.proof) {
       // Proof-loop: proofread the render; on concrete failures, regenerate with that feedback.
@@ -400,7 +459,7 @@ async function runAndSave(
         console.error(
           `[gpt-image] proofread failed (attempt ${attempt}/${meta.proof.maxAttempts}): ${verdict.issues.join("; ")} — regenerating with feedback.`,
         );
-        result = await generateWithRetry(provider, {
+        result = await call({
           ...input,
           prompt:
             input.prompt +
@@ -448,6 +507,12 @@ async function runAndSave(
       sc.backend = provider.name;
       sc.imageModel = requestedModel ?? "auto";
       sc.reportedImageModel = result.reportedImageModel;
+      sc.complexity = input.complexity;
+      const imageUsage = usageSince(before, totalUsage);
+      if (imageUsage && requestedModel) {
+        sc.usage = imageUsage;
+        sc.cost = { dollars: costFromUsage(requestedModel, imageUsage), requests: 1, rates: `pricing.ts ${PRICING.checked}` };
+      }
       sc.format = result.format;
       sc.qa = qa;
       sc.proof = verdict;
@@ -478,6 +543,10 @@ async function runAndSave(
     base64: primary.result.bytes.toString("base64"),
     variants: saved.length > 1 ? saved.slice(1).map((s) => s.path) : undefined,
     proof: primary.verdict,
+    usage: totalUsage,
+    cost: totalUsage && requestedModel ? { dollars: costFromUsage(requestedModel, totalUsage), requests, rates: `pricing.ts ${PRICING.checked}` } : undefined,
+    keySource,
+    requests,
   };
 }
 
@@ -682,9 +751,13 @@ async function prepareGeneration(rawOpts: StyleInput) {
     format: wantTransparent ? "png" : composed.format, // alpha needs png
     background: nativeTransparent ? "transparent" : "auto",
     inputImages: inputImages.length ? inputImages : undefined,
+    complexity: opts.complexity,
+    keyProject: opts.keyProject,
   };
   const requestedModel = resolveImageModel(opts.imageModel, backendName);
   validateImageQuality(input.quality, requestedModel);
+  validateComplexity(input.complexity, requestedModel);
+  validateSize(input.size, backendName, requestedModel);
   if (!["subscription", "apikey"].includes(backendName)) throw new Error(`Unknown backend: ${backendName}`);
   return { opts, input, composed, chroma, plat, palette, paletteSource, referenceInfo, warnings, backendName, requestedModel };
 }
@@ -698,6 +771,8 @@ export async function previewImageRequest(rawOpts: StyleInput) {
     background: p.composed.background, backend: p.backendName, imageModel: p.requestedModel ?? "auto",
     inputImages: p.referenceInfo, palette: { source: p.paletteSource, colors: p.palette },
     transparency: p.chroma.transform ? "local-chroma-key" : p.composed.background === "transparent" ? "native" : "opaque-or-auto",
+    complexity: p.input.complexity,
+    estimatedCost: p.requestedModel ? (() => { const e = estimateCost({ model: p.requestedModel!, quality: p.input.quality, size: p.input.size, promptChars: p.input.prompt.length, inputImages: p.input.inputImages?.length ?? 0 }); return { dollarsPerImage: e.dollars, dollars: Math.round(e.dollars * images * 1e6) / 1e6, assumed: e.assumed, rates: `pricing.ts ${PRICING.checked}` }; })() : undefined,
     plannedImages: images, maxGenerationAttempts: images * (proof?.maxAttempts ?? 1) * 2,
     proofRequests: proof ? images * proof.maxAttempts : 0,
     warnings: [...p.warnings, "Generation attempt ceiling includes the no-image retry; transient transport retries are additional.", ...(images > 1 && p.opts.series ? ["Later series prompts also reference the first output, which does not exist during preview."] : [])],
@@ -867,6 +942,8 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
     background: nativeTransparent ? "transparent" : "auto",
     inputImages,
     maskImage,
+    complexity: opts.complexity,
+    keyProject: opts.keyProject,
   };
   const out = await runAndSave(input, opts.outputPath, opts.backend, "edit", {
     prompt,
@@ -892,7 +969,7 @@ export async function editImage(rawOpts: EditInput): Promise<GenerateOutput> {
 
 // The cutout instruction is deliberately fidelity-obsessed: use_model REGENERATES the subject
 // (it is not a pixel-preserving keyer), so the prompt pins every attribute it can.
-const CUTOUT_INSTRUCTION =
+export const CUTOUT_INSTRUCTION =
   "Reproduce ONLY the main subject of this image, pixel-faithful — identical shape, colors, " +
   "materials, texture, pose and fine detail; do not restyle or simplify it";
 
@@ -924,6 +1001,8 @@ export interface UpscaleInput {
   outputPath?: string;
   backend?: string;
   imageModel?: string;
+  complexity?: string;
+  keyProject?: string;
 }
 
 const UPSCALE_PROMPT =
@@ -950,13 +1029,15 @@ export async function upscaleImage(opts: UpscaleInput): Promise<GenerateOutput> 
     quality: opts.quality ?? "high",
     format: opts.format ?? "png",
     inputImages: [image],
+    complexity: opts.complexity,
+    keyProject: opts.keyProject,
   };
   const prefix = `${basename(opts.imagePath, extname(opts.imagePath))}-upscaled`;
   return runAndSave(input, outputPath, backend, prefix, {
     prompt,
     modifiers: [],
     operation: "upscale",
-    opts: { size: opts.size, quality: opts.quality, format: opts.format, backend, imageModel: opts.imageModel },
+    opts: { size: opts.size, quality: opts.quality, format: opts.format, backend, imageModel: opts.imageModel, complexity: opts.complexity },
     refs: [opts.imagePath],
   });
 }

@@ -1,9 +1,12 @@
-// The paid fallback backend: standard OpenAI Images API with an OPENAI_API_KEY. Stable and
-// supported, but bills API credits (not the subscription). Only used when explicitly selected.
+// The paid backend: the documented OpenAI Images API with an OPENAI_API_KEY. It bills API credits,
+// not the subscription, and is used only when explicitly selected; there is no fallback to or
+// from it. The key comes from secrets.ts and never appears in an error this throws.
 
 import { MAX_RETRIES, backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "../retry.js";
 import type { GenerateInput, GenerateResult, ImageProvider } from "./types.js";
-import { resolveImageModel, validateImageQuality } from "../models.js";
+import { resolveImageModel, validateComplexity, validateImageQuality, validateSize } from "../models.js";
+import { cleanUsage } from "../pricing.js";
+import { findApiKey, missingKeyMessage, redact } from "../secrets.js";
 
 const GEN_ENDPOINT = "https://api.openai.com/v1/images/generations";
 const EDIT_ENDPOINT = "https://api.openai.com/v1/images/edits";
@@ -18,13 +21,20 @@ export class ApiKeyProvider implements ImageProvider {
   async generate(input: GenerateInput): Promise<GenerateResult> {
     input = { ...input, imageModel: resolveImageModel(input.imageModel, this.name) };
     validateImageQuality(input.quality, input.imageModel);
-    const key = process.env.OPENAI_API_KEY?.trim();
-    if (!key) {
-      throw new Error("apikey backend requires OPENAI_API_KEY in the environment (see .env.example).");
+    validateComplexity(input.complexity, input.imageModel);
+    validateSize(input.size, this.name, input.imageModel);
+    const found = findApiKey(input.keyProject);
+    if (!found) throw new Error(missingKeyMessage(input.keyProject));
+    const { key, source } = found;
+    try {
+      const r = (input.inputImages?.length ?? 0) > 0 ? await this.edit(key, input) : await this.create(key, input);
+      return { ...r, keySource: source };
+    } catch (e) {
+      // Errors travel into run records, node state and logs: scrub every trace of the key first.
+      const msg = e instanceof Error ? e.message : String(e);
+      const clean = new Error(redact(msg, key));
+      throw clean;
     }
-    return (input.inputImages?.length ?? 0) > 0
-      ? this.edit(key, input)
-      : this.create(key, input);
   }
 
   /** fetch with bounded retry on 429 / 5xx / network blips (honors Retry-After). */
@@ -60,6 +70,7 @@ export class ApiKeyProvider implements ImageProvider {
     };
     if (input.size !== "auto") body.size = input.size;
     if (input.quality !== "auto") body.quality = input.quality;
+    if (input.complexity) body.complexity = input.complexity;
     if (input.background && input.background !== "auto" && input.format !== "jpeg") body.background = input.background;
 
     const res = await this.requestWithRetry(GEN_ENDPOINT, {
@@ -79,6 +90,7 @@ export class ApiKeyProvider implements ImageProvider {
     form.set("n", "1");
     if (input.size !== "auto") form.set("size", input.size);
     if (input.quality !== "auto") form.set("quality", input.quality);
+    if (input.complexity) form.set("complexity", input.complexity);
     if (input.background && input.background !== "auto" && input.format !== "jpeg") form.set("background", input.background);
     for (const img of input.inputImages ?? []) {
       // GPT Image supports multiple reference images.
@@ -112,6 +124,7 @@ export class ApiKeyProvider implements ImageProvider {
       bytes: Buffer.from(b64, "base64"),
       format,
       revisedPrompt: typeof j.data[0].revised_prompt === "string" ? j.data[0].revised_prompt : undefined,
+      usage: cleanUsage(j.usage),
     };
   }
 }

@@ -18,6 +18,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { IMAGE_MODEL_CHOICES } from "./models.js";
+import { dollars } from "./pricing.js";
 import { editImage, generateImage, previewImageRequest, modelAssistedCutout, upscaleImage, type GenerateOutput } from "./generate.js";
 import { catalog, MODIFIER_IDS, PRESET_IDS } from "./presets/index.js";
 import { exportWebAssets } from "./webassets.js";
@@ -37,7 +38,7 @@ import { registerStudioTools } from "./studio/mcp-tools.js";
 
 const INLINE = process.env.GPT_IMAGE_INLINE === "1";
 
-const sizeSchema = z.enum([
+const sizeSchema = z.union([z.enum([
   "auto",
   "1024x1024",
   "1536x1024",
@@ -47,7 +48,8 @@ const sizeSchema = z.enum([
   "2048x2048",
   "2048x1152",
   "1152x2048",
-]);
+]), z.string().regex(/^\d{2,5}x\d{2,5}$/, "WIDTHxHEIGHT, e.g. 2560x1440").describe("Custom WIDTHxHEIGHT (apikey + flare/sunburst only): multiples of 16, aspect 1:3 to 3:1, edges up to 3840, 655,360 to 8,294,400 pixels.") as z.ZodType<`${number}x${number}`>]);
+const complexitySchema = z.enum(["low", "medium", "high"]).describe("GPT-Image-2.6 planning effort, separate from quality (API default high). Requires backend apikey with flare or sunburst; refused on the subscription.");
 const qualitySchema = z.enum(["auto", "low", "medium", "high", "xhigh", "max"]);
 const formatSchema = z.enum(["png", "jpeg", "webp"]);
 const imageModelSchema = z.enum(IMAGE_MODEL_CHOICES).describe("API image renderer: flare for speed, sunburst for editing precision. Requires explicit backend apikey (separate billing); subscription only supports auto. Separate from Astra routing.");
@@ -112,6 +114,8 @@ function ok(out: GenerateOutput, verb: string) {
     (out.deliverable ? `\nDeliverable: ${out.deliverable}; this is raster artwork, including vector-like logo concepts.` : "") +
     (out.imageModel ? `\nRequested image model: ${out.imageModel}` : "") +
     (out.reportedImageModel ? `\nProvider-reported image model: ${out.reportedImageModel}` : "") +
+    (out.cost ? `\nAPI cost: ${dollars(out.cost.dollars)} for ${out.cost.requests} request${out.cost.requests === 1 ? "" : "s"} (${out.usage?.input_tokens ?? "?"} input + ${out.usage?.output_tokens ?? "?"} output tokens, rates ${out.cost.rates})` : out.backend === "apikey" && out.requests ? `\nAPI cost: unknown (the API reported no usage for ${out.requests} request${out.requests === 1 ? "" : "s"})` : "") +
+    (out.keySource ? `\nAPI key from: ${out.keySource}` : "") +
     (out.preset ? `\nPreset: ${out.preset}${out.modifiers.length ? ` + [${out.modifiers.join(", ")}]` : ""}` : "") +
     (out.platform ? `\nPlatform: ${out.platform} — ${out.platformNote}` : "") +
     (out.palette?.length ? `\nBrand palette (auto-extracted from style refs): ${out.palette.join(", ")}` : "") +
@@ -178,6 +182,7 @@ const generationSchema = {
       output_path: z.string().optional().describe("Absolute file path (or a directory ending in /) to save to. Defaults to ./generated-images/."),
       backend: backendSchema.optional(),
       image_model: imageModelSchema.optional(),
+      complexity: complexitySchema.optional(),
     };
 
 server.registerTool(
@@ -221,6 +226,7 @@ server.registerTool(
         outputPath: a.output_path,
         backend: a.backend,
         imageModel: a.image_model,
+        complexity: a.complexity,
       });
       return ok(out, "generated");
     } catch (e) {
@@ -238,7 +244,7 @@ server.registerTool("preview_image_request", {
     const plan = await previewImageRequest({ subject: a.subject, prompt: a.prompt, preset: a.preset, modifiers: a.modifiers, style: a.style,
       brief: a.brief, references: a.references, brand: a.brand, styleReference: a.style_reference, transparent: a.transparent,
       background: a.background, count: a.count, series: a.series, contactSheet: a.contact_sheet, fromImage: a.from_image,
-      platform: a.platform, proof: a.proof, size: a.size, quality: a.quality, format: a.format, outputPath: a.output_path, backend: a.backend, imageModel: a.image_model });
+      platform: a.platform, proof: a.proof, size: a.size, quality: a.quality, format: a.format, outputPath: a.output_path, backend: a.backend, imageModel: a.image_model, complexity: a.complexity });
     return { content: [{ type: "text", text: JSON.stringify(plan, null, 2) }] };
   } catch (e) { return fail(e); }
 });
@@ -312,6 +318,7 @@ server.registerTool(
       output_path: z.string().optional(),
       backend: backendSchema.optional(),
       image_model: imageModelSchema.optional(),
+      complexity: complexitySchema.optional(),
     },
   },
   async (a) => {
@@ -336,6 +343,7 @@ server.registerTool(
         outputPath: a.output_path,
         backend: a.backend,
         imageModel: a.image_model,
+        complexity: a.complexity,
       });
       return ok(out, "edited");
     } catch (e) {
@@ -363,6 +371,7 @@ server.registerTool(
       output_path: z.string().optional(),
       backend: backendSchema.optional(),
       image_model: imageModelSchema.optional(),
+      complexity: complexitySchema.optional(),
     },
   },
   async (a) => {
@@ -376,6 +385,7 @@ server.registerTool(
         outputPath: a.output_path,
         backend: a.backend,
         imageModel: a.image_model,
+        complexity: a.complexity,
       });
       return ok(out, "upscaled");
     } catch (e) {

@@ -8,7 +8,7 @@ import type { SubscriptionCreds as Creds } from "../auth.js";
 import { parseSse } from "../sse.js";
 import { MAX_RETRIES, backoffMs, isNetworkError, isRetryableStatus, retryAfterMs, sleep } from "../retry.js";
 import type { GenerateInput, GenerateResult, ImageProvider } from "./types.js";
-import { configuredModels, resolveImageModel, validateImageQuality } from "../models.js";
+import { configuredModels, resolveImageModel, validateComplexity, validateImageQuality, validateSize } from "../models.js";
 
 const TOTAL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_TIMEOUT_MS) || 300_000;
 const STALL_TIMEOUT_MS = Number(process.env.GPT_IMAGE_STALL_MS) || 120_000;
@@ -28,6 +28,8 @@ function buildUserText(input: GenerateInput): string {
 export function buildSubscriptionBody(input: GenerateInput, model = configuredModels().routing) {
   const renderer = resolveImageModel(input.imageModel, "subscription");
   validateImageQuality(input.quality, renderer);
+  validateComplexity(input.complexity, renderer);
+  validateSize(input.size, "subscription", renderer);
   const imageTool: Record<string, unknown> = { type: "image_generation", output_format: input.format };
   if (input.size !== "auto") imageTool.size = input.size;
   if (input.quality !== "auto") imageTool.quality = input.quality; // backend may ignore/downgrade
