@@ -215,6 +215,13 @@ function completedChain(dir: string, rec: RunRecord | undefined): Promise<Set<st
   return walk(rec, 0).then(() => out);
 }
 
+/** Where the run was started from, if the starting process runs inside an ADE terminal. */
+export function runOrigin(env: NodeJS.ProcessEnv = process.env): { origin?: { terminal?: string; workspace?: string } } {
+  const clean = (v: string | undefined) => (v && v.trim() && v.length <= 200 ? v.trim() : undefined);
+  const terminal = clean(env.HEPHAESTUS_TERMINAL_ID), workspace = clean(env.HEPHAESTUS_WORKSPACE);
+  return terminal || workspace ? { origin: { ...(terminal ? { terminal } : {}), ...(workspace ? { workspace } : {}) } } : {};
+}
+
 export async function startRun(project: string, slug: string, req: RunRequest): Promise<StartResult> {
   const dir = graphDir(project, slug);
   const { graph, state } = await readBoth(dir);
@@ -244,7 +251,7 @@ export async function startRun(project: string, slug: string, req: RunRequest): 
   const job = newJobId();
   await acquireRunLock(dir, job, req.actor);
   const rec: RunRecord = {
-    schema: RUN_SCHEMA, id: job, graph: slug, status: "starting", scope, newTake, concurrency, actor: req.actor, created: now(), graphRevision: graph.revision, resumeOf,
+    schema: RUN_SCHEMA, id: job, graph: slug, status: "starting", scope, newTake, concurrency, actor: req.actor, ...runOrigin(), created: now(), graphRevision: graph.revision, resumeOf,
     planned: { generations: plan.generations, slots: plan.slots, estimate: plan.estimate }, progress: { slotsDone: 0, slotsCached: 0, slotsFailed: 0, generations: 0 },
     completed: [], takes: [], skipped: [], errors: [],
   };

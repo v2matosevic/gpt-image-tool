@@ -165,6 +165,9 @@ export interface RunRecord {
   newTake: boolean;
   concurrency: number;
   actor: string;
+  /** The ADE terminal and workspace the run was started from, when the starting process knew them
+   *  (HEPHAESTUS_TERMINAL_ID / HEPHAESTUS_WORKSPACE). ADE delivers a person's comments to it. */
+  origin?: { terminal?: string; workspace?: string };
   pid?: number;
   host?: string;
   created: string;

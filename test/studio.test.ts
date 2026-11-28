@@ -937,3 +937,24 @@ test("perception pack: off by default, install shows sizes and needs --yes, a br
     assert.match(take.warnings.join("\n"), /Perception \(mask\) failed: The perception pack has no BritishWerewolf\/U-2-Netp model/);
   } finally { delete process.env.GPT_IMAGE_STUDIO_HOME; }
 });
+
+test("a run records the ADE terminal it was started from, and nothing when there is none", async () => {
+  const { runOrigin } = await import("../dist/studio/runner.js");
+  assert.deepEqual(runOrigin({}), {});
+  assert.deepEqual(runOrigin({ HEPHAESTUS_TERMINAL_ID: " t-1 ", HEPHAESTUS_WORKSPACE: "ws" }), { origin: { terminal: "t-1", workspace: "ws" } });
+  assert.deepEqual(runOrigin({ HEPHAESTUS_TERMINAL_ID: "x".repeat(201) }), {});
+  const p = project();
+  await createGraph({ name: "Origin", nodes: [{ ref: "p", type: "prompt", settings: { text: "a cup" } }, { ref: "g", type: "generate", settings: {} }], connections: [{ from: "p", to: "g" }] }, { project: p });
+  const saved = { t: process.env.HEPHAESTUS_TERMINAL_ID, w: process.env.HEPHAESTUS_WORKSPACE };
+  process.env.HEPHAESTUS_TERMINAL_ID = "term-42";
+  process.env.HEPHAESTUS_WORKSPACE = "gpt-image-tool";
+  try {
+    const r = await startRun(p, "origin", { actor: "t", detach: false, executors: makeFakes().executors });
+    assert.equal(r.status, "done");
+    const rec = JSON.parse(readFileSync(join(graphDir(p, "origin"), "runs", `${r.job}.json`), "utf8"));
+    assert.deepEqual(rec.origin, { terminal: "term-42", workspace: "gpt-image-tool" }, "the finished record still carries it");
+  } finally {
+    if (saved.t === undefined) delete process.env.HEPHAESTUS_TERMINAL_ID; else process.env.HEPHAESTUS_TERMINAL_ID = saved.t;
+    if (saved.w === undefined) delete process.env.HEPHAESTUS_WORKSPACE; else process.env.HEPHAESTUS_WORKSPACE = saved.w;
+  }
+});

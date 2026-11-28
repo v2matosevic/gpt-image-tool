@@ -207,12 +207,15 @@ interface; schema names carry a version.
 | `state.json` | edits and runs | `gpt-image-studio/state@1`: `revision`, `eventSeq`, `nextTake`, and per node: `takes`, `selected`, gallery `picks`, `error`, and `activity` while a run works on it. |
 | `events.jsonl` | every write | One JSON object per line: `seq`, `ts`, `type`, `actor`, `graphRevision`, details. Rotated to `events.1.jsonl` past 1 MB. |
 | `feedback.jsonl` | edits | Append-only verdicts, picks, predictions and comments, each with the take's settings and reading. Never rotated. |
-| `runs/<job>.json` | the run's worker | `gpt-image-studio/run@1`: status, scope, planned and done counts, generations, completed slot keys, new takes, skips, errors, stop reason and fix. |
+| `runs/<job>.json` | the run's worker | `gpt-image-studio/run@1`: status, scope, planned and done counts, generations, completed slot keys, new takes, skips, errors, stop reason and fix, and `origin: {terminal?, workspace?}` when the run was started from an ADE terminal (`HEPHAESTUS_TERMINAL_ID` / `HEPHAESTUS_WORKSPACE` in the starting process). |
 | `assets/` | runs, reference imports | Image files. Generated ones keep the usual JSON sidecar. |
 | `handoff/<name>/` | handoff runs | The package above. |
 
 Rules:
 
+- Within one schema version, fields are only ever added and optional; readers ignore
+  fields they do not know. Renaming, removing or changing the meaning of a field
+  needs a new version.
 - Every write takes `.lock` (exclusive create, holder pid/host/actor inside; a lock
   older than 30 s or held by a dead local process is taken over), reads, changes,
   writes by temp file plus fsync plus rename, then releases. Readers never see a
