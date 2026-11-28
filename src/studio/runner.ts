@@ -550,15 +550,14 @@ async function saveTake(dir: string, graphRevision: number, nodeId: string, slot
     const anchor = anchorIn ? (await readBoth(dir)).state.nodes[anchorIn.node]?.takes.find(t => t.id === anchorIn.take) : undefined;
     const devs = [...craft.requestDeviations(take.reading, craft.requestText(take)), ...(anchorIn ? await craft.anchorDeviations(take.reading, anchor?.reading, `${anchorIn.node}/${anchorIn.take}`) : [])];
     if (devs.length) take.deviations = devs;
-    // Optional perception pack: similarity to the anchor. Never required; a failure is a warning.
-    if (anchorIn && anchor?.kind === "image") {
-      const perception = await import("./perception.js");
-      if (perception.perceptionInstalled("similarity")) {
-        try {
-          take.perception = { similarity: await perception.similarityReading(res.path, resolve(dir, anchor.asset), `${anchorIn.node}/${anchorIn.take}`) };
-        } catch (e) {
-          take.warnings = [...(take.warnings ?? []), `Perception (similarity) failed: ${e instanceof Error ? e.message : String(e)}`];
-        }
+    // Optional perception pack. Never required; a failure is a warning on the take.
+    const perception = await import("./perception.js");
+    const jobs: Array<[string, () => Promise<Record<string, unknown> & { version: number; source: string }>]> = [];
+    if (anchorIn && anchor?.kind === "image" && perception.perceptionInstalled("similarity")) jobs.push(["similarity", () => perception.similarityReading(res.path, resolve(dir, anchor.asset), `${anchorIn.node}/${anchorIn.take}`)]);
+    if (perception.perceptionInstalled("mask")) jobs.push(["mask", () => perception.maskReading(res.path)]);
+    for (const [cap, run] of jobs) {
+      try { const reading = await run(); (take.perception ??= {})[cap] = reading; } catch (e) {
+        take.warnings = [...(take.warnings ?? []), `Perception (${cap}) failed: ${e instanceof Error ? e.message : String(e)}`];
       }
     }
   }

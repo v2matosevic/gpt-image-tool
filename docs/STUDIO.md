@@ -294,14 +294,16 @@ A refusal (for example another run in progress) is `ok: false` with exit code 1.
 
 Small open models for what arithmetic on pixels cannot measure. Off by default and
 never bundled: `gpt-image studio perception` shows what an install would download
-(about 513 MB) and the licences; `gpt-image studio perception install --yes` runs
+(about 518 MB) and the licences; `gpt-image studio perception install --yes` runs
 `npm install` of `@huggingface/transformers` 4.3.2 (Apache-2.0, pulling
 onnxruntime-node and onnxruntime-web, MIT) into one folder per user,
 `~/.gptimage/perception/` (`GPT_IMAGE_STUDIO_HOME` overrides home), and fetches the
-pinned model once. Run workers load it lazily with remote downloads switched off;
+pinned models once (each checked by revision, the mask file also by sha256). Run workers load it lazily with remote downloads switched off;
 the MCP server never loads it. Without it everything else works unchanged.
 
-Capability so far: similarity. `onnx-community/dinov2-small` at revision
+Two capabilities, each measured on real images before it was kept.
+
+Similarity: `onnx-community/dinov2-small` at revision
 `8b1f705a3a7f` (quantized, 24 MB; licence Apache-2.0 from the
 `facebook/dinov2-small` model card, the ONNX conversion has none of its own). Every
 take with an anchor (an edit's image, a subject reference, a canon image, a sweep
@@ -314,7 +316,37 @@ kept it); bottle against teapots 0.06 to 0.09; a cobalt and a cream teapot 0.919
 Nine pairs do not calibrate a threshold, so no deviation is raised from it yet. If
 the pack is broken, the take gets a warning and the run continues.
 
-Depth, subject mask and text reading from the phase 1c plan are not built.
+Foreground mask: U-2-Netp (`BritishWerewolf/U-2-Netp` at `7112208dbac3`, 4.6 MB,
+Apache-2.0), run directly on onnxruntime-node because transformers.js has no U-2-Net
+model type. Every take gets `perception.mask`: the salient foreground's coverage,
+box, centroid, the frame edges it touches, a count of separate regions, and the
+share of pixels the model is unsure about. It finds salient foreground, not "the
+subject": touching objects are one region (the shelf scene's cups, utensils and
+teapot read as one). Measured 2026-11-28 on eight real images, each mask opened as an
+overlay: tight on the bottle (coverage 0.173, then 0.176 relit), both teapots (0.236,
+0.235), the shelf scene (0.289) and the flat fox mascot (0.372). On the coded page
+screenshot and the branding board it marked large panels touching three edges
+(0.617, 0.632) while its uncertainty stayed low (0.032, 0.009), so uncertainty cannot
+flag that failure; instead any foreground touching two or more edges or covering over
+half the frame is reported as `subject: "unclear"` with no position numbers.
+
+Left out, with the evidence (2026-11-28):
+
+- Depth (Depth Anything V2 small, `onnx-community/depth-anything-v2-small`). On the
+  photos its subject-versus-rest separation (0.49 to 0.62, 0.27 for the busy shelf)
+  restated what the mask already shows. On the flat fox illustration it reported
+  0.60, inside the photo range: it invents depth on flat art, so the number cannot
+  tell a flat graphic from a photographed object.
+- Text reading (tesseract.js 7.0.0, English `4.0.0_best_int`). It read clean
+  rendered cards exactly, including a deliberate misspelling ("FRESH BRAED DIALY")
+  and the Segoe Script, Gabriola, Chiller and Brush Script fonts. On ornate scripts it
+  failed (Edwardian "Dette Neate", Kunstler nothing, Blackadder "BT Notte"). On three
+  low-quality live generations, a chalkboard "FRESH BREAD DAILY", the same sign
+  deliberately misspelled, and copperplate "Bella Notte" (all rendered as asked), it
+  returned noise, even after grayscale, inversion, contrast stretch and sparse-text
+  mode, and three of those passes returned empty text at confidence 95. Generated
+  lettering in a scene is the only case Studio needs it for, so the provider's
+  vision proofread (`proof`, on by default with `style.text`) stays the text check.
 
 ## Viewer
 

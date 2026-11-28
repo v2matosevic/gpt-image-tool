@@ -920,11 +920,12 @@ test("perception pack: off by default, install shows sizes and needs --yes, a br
     const plan = await perception.installPerception({});
     assert.match(plan, /Installing downloads about \d+ MB into .*\.gptimage.perception/);
     assert.match(plan, /onnx-community\/dinov2-small/);
+    assert.match(plan, /U-2-Netp/);
     assert.match(plan, /Install with: gpt-image studio perception install --yes/);
     assert.equal(existsSync(join(home, ".gptimage", "perception")), false, "nothing written without --yes");
     // A manifest that claims the pack but no runtime behind it: the run must still finish.
     mkdirSync(join(home, ".gptimage", "perception"), { recursive: true });
-    writeFileSync(join(home, ".gptimage", "perception", "perception.json"), JSON.stringify({ schema: "gpt-image-studio/perception@1", runtime: `${perception.RUNTIME.name}@${perception.RUNTIME.version}`, models: { similarity: { id: perception.MODELS.similarity.id, revision: perception.MODELS.similarity.revision, installed: "2026-11-28" } } }));
+    writeFileSync(join(home, ".gptimage", "perception", "perception.json"), JSON.stringify({ schema: "gpt-image-studio/perception@1", runtime: `${perception.RUNTIME.name}@${perception.RUNTIME.version}`, models: { similarity: { id: perception.MODELS.similarity.id, revision: perception.MODELS.similarity.revision, installed: "2026-11-28" }, mask: { id: perception.MODELS.mask.id, revision: perception.MODELS.mask.revision, installed: "2026-11-28" } } }));
     assert.equal(perception.perceptionInstalled(), true);
     const p = project();
     await createGraph({ name: "Perc", nodes: [{ ref: "ref", type: "reference", settings: { path: "images/ref.png", role: "subject" } }, { ref: "ed", type: "edit", settings: { instruction: "night" } }], connections: [{ from: "ref", to: "ed", to_handle: "image" }] }, { project: p });
@@ -933,5 +934,6 @@ test("perception pack: off by default, install shows sizes and needs --yes, a br
     const take = (await readBoth(graphDir(p, "perc"))).state.nodes.ed.takes[0];
     assert.equal(take.perception, undefined);
     assert.match(take.warnings.join("\n"), /Perception \(similarity\) failed: The perception pack is not installed/);
+    assert.match(take.warnings.join("\n"), /Perception \(mask\) failed: The perception pack has no BritishWerewolf\/U-2-Netp model/);
   } finally { delete process.env.GPT_IMAGE_STUDIO_HOME; }
 });

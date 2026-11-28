@@ -190,6 +190,8 @@ async function summarize(dir: string, rec: RunRecord) {
       if (x.take?.reading) lines.push(`    reads: ${await summaryOf(x.take.reading)}`);
       const sim = x.take?.perception?.similarity as { cosine?: number; to?: string } | undefined;
       if (sim?.cosine !== undefined) lines.push(`    similarity to ${sim.to}: ${sim.cosine} (DINOv2 embedding cosine: subject and shape, not colour; 1 = same image)`);
+      const fg = x.take?.perception?.mask as any;
+      if (fg?.subject) lines.push(`    foreground (U-2-Netp): ${maskLine(fg)}`);
     }
     const byNode = new Map<string, Array<{ ref: string; list: string }>>();
     for (const x of shown) if (x.take?.checklist?.length) {
@@ -359,4 +361,13 @@ export function createText(r: { slug: string; dir: string; copiedFrom?: string; 
 /** The text result of an edit, for MCP and the CLI alike (notes included in both). */
 export function editText(r: { slug: string; revision: number; stateRevision: number; graphChanged: boolean; applied: string[]; notes: string[]; snapshot: string }): string {
   return `Applied to "${r.slug}". ${revisionLine(r)}\n${r.applied.map(x => `  ${x}`).join("\n")}${notesText(r.notes)}\n\n${r.snapshot}`;
+}
+
+/** One line for the U-2-Netp foreground reading. */
+function maskLine(m: any): string {
+  if (m.subject === "unclear") return `no single subject (${Math.round(m.coverage * 100)}% salient, touching ${m.touches.join(", ")}): a layout or full-bleed scene`;
+  if (m.subject === "none") return "nothing salient found";
+  const where = (v: number) => (v < 0.4 ? "left" : v > 0.6 ? "right" : "centre");
+  const tall = (v: number) => (v < 0.4 ? "top" : v > 0.6 ? "bottom" : "middle");
+  return `${m.subject === "several-regions" ? `${m.parts} regions` : "one region"} covering ${Math.round(m.coverage * 100)}% of the frame, centred ${tall(m.centroid.y)}-${where(m.centroid.x)}, box ${Math.round(m.bbox.w * 100)}x${Math.round(m.bbox.h * 100)}%${m.touches.length ? `, touching ${m.touches.join(", ")}` : ""} (touching objects read as one region)`;
 }

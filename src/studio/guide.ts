@@ -124,7 +124,8 @@ Keeping things the same across images:
   ${tool("list")} shows the project's canon.
 - Identity of a face, character or product is not measured by the local reading; check it with a
   blind pair. With the optional perception pack (${isCli() ? "gpt-image studio perception" : "installed from the command line, see docs/STUDIO.md"}), takes with an anchor
-  also carry a DINOv2 similarity to it (subject and shape, not colour; no threshold calibrated yet).
+  also carry a DINOv2 similarity to it (subject and shape, not colour; no threshold calibrated yet), and
+  every take a U-2-Netp foreground reading (coverage, position, edges touched; "unclear" on layouts).
 
 Learning from an image someone admires: ${cmd("view", { study: "images/admired.png" })} (or a take ref
 with its graph) returns its measurements plus the look in shot language from one vision request, as a ready
