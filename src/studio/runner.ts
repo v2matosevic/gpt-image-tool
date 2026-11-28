@@ -550,6 +550,17 @@ async function saveTake(dir: string, graphRevision: number, nodeId: string, slot
     const anchor = anchorIn ? (await readBoth(dir)).state.nodes[anchorIn.node]?.takes.find(t => t.id === anchorIn.take) : undefined;
     const devs = [...craft.requestDeviations(take.reading, craft.requestText(take)), ...(anchorIn ? await craft.anchorDeviations(take.reading, anchor?.reading, `${anchorIn.node}/${anchorIn.take}`) : [])];
     if (devs.length) take.deviations = devs;
+    // Optional perception pack: similarity to the anchor. Never required; a failure is a warning.
+    if (anchorIn && anchor?.kind === "image") {
+      const perception = await import("./perception.js");
+      if (perception.perceptionInstalled("similarity")) {
+        try {
+          take.perception = { similarity: await perception.similarityReading(res.path, resolve(dir, anchor.asset), `${anchorIn.node}/${anchorIn.take}`) };
+        } catch (e) {
+          take.warnings = [...(take.warnings ?? []), `Perception (similarity) failed: ${e instanceof Error ? e.message : String(e)}`];
+        }
+      }
+    }
   }
   for (const k of Object.keys(take) as (keyof Take)[]) if (take[k] === undefined) delete take[k];
   await mutate(dir, "worker", (_g, s) => {

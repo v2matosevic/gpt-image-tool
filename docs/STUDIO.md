@@ -235,8 +235,9 @@ Rules:
   `import-<hash>`, so no absolute path is ever stored. A cloned or moved project
   keeps working and its fingerprints stay valid.
 - `_canon/` and `_lessons/` sit next to graph folders (slugs cannot start with
-  `_`). `_canon/<name>/canon.json` has schema `gpt-image-studio/canon@1`. `perception` on a take is reserved for an optional model-based
-  reading (`{version, source, ...}` per source); nothing writes it yet.
+  `_`). `_canon/<name>/canon.json` has schema `gpt-image-studio/canon@1`. `perception` on a take holds optional model-based
+  readings keyed by capability (`{version, source, ...}`, source naming the model and its revision);
+  see "Perception pack".
 - Review fields on a take, all optional: `reading` (local measurements,
   `{version: 1, source: "local", palette, luminance, contrast, color, composition,
   sharpness, detail}`), `deviations` (`{source: "anchor"|"request", measure,
@@ -274,6 +275,7 @@ gpt-image studio status <graph> [--job id] [--wait s]
 gpt-image studio sheet <graph> [--nodes a,b] [--all-takes]
 gpt-image studio events <graph> [--after seq] [--limit n]
 gpt-image studio view [graph] [--port n] [--idle-exit minutes]
+gpt-image studio perception [status | install --yes]
 common: --project <dir> --actor <name> --json
 ```
 
@@ -287,6 +289,32 @@ can run until the nodes in `plan.skipped` are fixed; no run was started),
 `nothing-to-do` (everything in scope is current); with `--stop`, `stopping`, or `none`
 or the last run's status when no run is live.
 A refusal (for example another run in progress) is `ok: false` with exit code 1.
+
+## Perception pack (optional)
+
+Small open models for what arithmetic on pixels cannot measure. Off by default and
+never bundled: `gpt-image studio perception` shows what an install would download
+(about 513 MB) and the licences; `gpt-image studio perception install --yes` runs
+`npm install` of `@huggingface/transformers` 4.3.2 (Apache-2.0, pulling
+onnxruntime-node and onnxruntime-web, MIT) into one folder per user,
+`~/.gptimage/perception/` (`GPT_IMAGE_STUDIO_HOME` overrides home), and fetches the
+pinned model once. Run workers load it lazily with remote downloads switched off;
+the MCP server never loads it. Without it everything else works unchanged.
+
+Capability so far: similarity. `onnx-community/dinov2-small` at revision
+`8b1f705a3a7f` (quantized, 24 MB; licence Apache-2.0 from the
+`facebook/dinov2-small` model card, the ONNX conversion has none of its own). Every
+take with an anchor (an edit's image, a subject reference, a canon image, a sweep
+anchor) gets `perception.similarity = {version, source, runtime, to, cosine}`, and the
+run result shows it. It is the cosine of DINOv2 embeddings: it tracks subject and
+shape, not colour (colour drift stays in the local reading). Measured 2026-11-28 on
+real images: identical 1.000; the same bottle relit by an anchored sweep 0.961 and
+0.852; a prompt-only sweep whose bottle changed shape 0.705 (0.921 for the pair that
+kept it); bottle against teapots 0.06 to 0.09; a cobalt and a cream teapot 0.919.
+Nine pairs do not calibrate a threshold, so no deviation is raised from it yet. If
+the pack is broken, the take gets a warning and the run continues.
+
+Depth, subject mask and text reading from the phase 1c plan are not built.
 
 ## Viewer
 

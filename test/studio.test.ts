@@ -910,3 +910,28 @@ test("review 3 #6-8: rename explains node ids, remove names what it leaves witho
   const s = await refusal(createGraph({ name: "Empty slug", slug: "  ", nodes: [], connections: [] }, { project: p }), "BAD_SLUG");
   assert.match(s.fix ?? "", /Omit slug to derive one from the name \("empty-slug"\)/);
 });
+
+test("perception pack: off by default, install shows sizes and needs --yes, a broken pack is a warning not a failure", async () => {
+  const home = mkdtempSync(join(tmpdir(), "studio-home-"));
+  process.env.GPT_IMAGE_STUDIO_HOME = home;
+  try {
+    const perception = await import("../dist/studio/perception.js");
+    assert.equal(perception.perceptionInstalled(), false);
+    const plan = await perception.installPerception({});
+    assert.match(plan, /Installing downloads about \d+ MB into .*\.gptimage.perception/);
+    assert.match(plan, /onnx-community\/dinov2-small/);
+    assert.match(plan, /Install with: gpt-image studio perception install --yes/);
+    assert.equal(existsSync(join(home, ".gptimage", "perception")), false, "nothing written without --yes");
+    // A manifest that claims the pack but no runtime behind it: the run must still finish.
+    mkdirSync(join(home, ".gptimage", "perception"), { recursive: true });
+    writeFileSync(join(home, ".gptimage", "perception", "perception.json"), JSON.stringify({ schema: "gpt-image-studio/perception@1", runtime: `${perception.RUNTIME.name}@${perception.RUNTIME.version}`, models: { similarity: { id: perception.MODELS.similarity.id, revision: perception.MODELS.similarity.revision, installed: "2026-11-28" } } }));
+    assert.equal(perception.perceptionInstalled(), true);
+    const p = project();
+    await createGraph({ name: "Perc", nodes: [{ ref: "ref", type: "reference", settings: { path: "images/ref.png", role: "subject" } }, { ref: "ed", type: "edit", settings: { instruction: "night" } }], connections: [{ from: "ref", to: "ed", to_handle: "image" }] }, { project: p });
+    const r = await startRun(p, "perc", { actor: "t", detach: false, executors: makeFakes().executors });
+    assert.equal(r.status, "done");
+    const take = (await readBoth(graphDir(p, "perc"))).state.nodes.ed.takes[0];
+    assert.equal(take.perception, undefined);
+    assert.match(take.warnings.join("\n"), /Perception \(similarity\) failed: The perception pack is not installed/);
+  } finally { delete process.env.GPT_IMAGE_STUDIO_HOME; }
+});

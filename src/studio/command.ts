@@ -26,6 +26,7 @@ Usage: gpt-image studio <command> [graph] [options]
   study <image|take> [--graph g]              Reading + shot language of an admired image (1 vision request)
   events <graph> [--after seq] [--limit n]    Events after a sequence number (JSON)
   view [graph] [--port n] [--idle-exit minutes]   Read-only local viewer on 127.0.0.1
+  perception [status | install --yes]         Optional model pack (similarity to the anchor); sizes shown first
 
 Options: --project <dir> (default: cwd), --actor <name> (recorded on every write), --json,
          --human (a person is acting, as ADE does; approvals need no recorded look)
@@ -36,7 +37,7 @@ interface Flags { [k: string]: string | boolean | undefined }
 function parse(argv: string[]): { pos: string[]; flags: Flags } {
   const pos: string[] = [];
   const flags: Flags = {};
-  const bools = new Set(["human", "json", "raw", "new-take", "dry-run", "resume", "stop", "foreground", "all-takes", "help"]);
+  const bools = new Set(["human", "json", "raw", "new-take", "dry-run", "resume", "stop", "foreground", "all-takes", "help", "yes"]);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "-h") { flags.help = true; continue; }
@@ -168,13 +169,20 @@ ${memory}` : "");
         await serveViewer({ project: resolveProject(who.project), graph: pos[1], port: num(flags.port), idleExitMinutes: num(flags["idle-exit"]) });
         return 0;
       }
+      case "perception": {
+        const { installPerception, perceptionStatus } = await import("./perception.js");
+        const sub = pos[1] ?? "status";
+        if (sub === "status") { out({}, await perceptionStatus()); return 0; }
+        if (sub === "install") { out({}, await installPerception({ yes: Boolean(flags.yes), log: m => process.stderr.write(`${m}\n`) })); return 0; }
+        throw new StudioError("BAD_ARGS", `Unknown perception command "${sub}".`, "gpt-image studio perception [status | install --yes]");
+      }
       case "worker": {
         const { runJob } = await import("./runner.js");
         await runJob(resolveProject(who.project), need(pos, 1, "graph slug"), String(flags.job));
         return 0;
       }
       default:
-        throw new StudioError("BAD_ARGS", `Unknown studio command "${cmd}".`, "Commands: list, guide, get, create, edit, run, status, sheet, study, events, view.");
+        throw new StudioError("BAD_ARGS", `Unknown studio command "${cmd}".`, "Commands: list, guide, get, create, edit, run, status, sheet, study, events, view, perception.");
     }
   } catch (e) {
     const err = e instanceof StudioError ? { code: e.code, message: e.message, fix: e.fix, issues: e.issues } : { code: "ERROR", message: e instanceof Error ? e.message : String(e) };

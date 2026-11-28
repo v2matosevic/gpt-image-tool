@@ -188,6 +188,8 @@ async function summarize(dir: string, rec: RunRecord) {
     for (const x of shown) {
       lines.push(`  ${x.ref}  ${x.path}`);
       if (x.take?.reading) lines.push(`    reads: ${await summaryOf(x.take.reading)}`);
+      const sim = x.take?.perception?.similarity as { cosine?: number; to?: string } | undefined;
+      if (sim?.cosine !== undefined) lines.push(`    similarity to ${sim.to}: ${sim.cosine} (DINOv2 embedding cosine: subject and shape, not colour; 1 = same image)`);
     }
     const byNode = new Map<string, Array<{ ref: string; list: string }>>();
     for (const x of shown) if (x.take?.checklist?.length) {
