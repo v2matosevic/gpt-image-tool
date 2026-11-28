@@ -40,18 +40,32 @@ const NEGATED = /\b(no|not|without|free of|instead of|rather than|lacks?|missing
  *  ring neighbours under 0.3% of pixels). A warning, never a block: the words may be right about
  *  something the measurement cannot see, and absence of a family is all this checks. */
 export async function colourMismatch(text: string, take: Take, dir: string): Promise<string[]> {
-  let hues = (take.reading as any)?.hues as Record<string, number> | undefined;
-  if (!hues && take.kind === "image") hues = ((await readingOf(resolve(dir, take.asset))) as any)?.hues;
+  let reading = take.reading as any;
+  if (!reading?.hueHistogram && take.kind === "image") reading = (await readingOf(resolve(dir, take.asset))) ?? reading;
+  const hues = reading?.hues as Record<string, number> | undefined;
+  const hist = reading?.hueHistogram as number[] | undefined;
   if (!hues) return [];
+  const { HUE_RANGES } = await import("../imageqa.js");
   const out: string[] = [];
   for (const [family, words] of Object.entries(COLOUR_WORDS)) {
     // The first affirmative mention of this family, as written.
     const m = [...text.matchAll(new RegExp(`\\b(?:${words.join("|")})(?:ish)?\\b`, "gi"))]
       .find(x => !NEGATED.test(text.slice(Math.max(0, x.index! - 40), x.index)));
     if (!m) continue;
-    const k = RING.indexOf(family);
-    const near = [RING[(k + 7) % 8]!, family, RING[(k + 1) % 8]!].reduce((a, f) => a + (hues[f] ?? 0), 0);
-    if (near < 0.003) out.push(`"${m[0]}" names ${family}, but the image has no ${family} pixels (measured ${family} and its neighbours: ${(near * 100).toFixed(1)}%)`);
+    // The family's own hue range plus 10 degrees each side (hue words are fuzzy at the edges); readings
+    // stored before the histogram existed fall back to the family and both neighbouring families.
+    let near: number, what: string;
+    if (hist?.length === 72) {
+      const [from, to] = HUE_RANGES[family as keyof typeof HUE_RANGES];
+      near = 0;
+      for (let d = from - 10; d < to + 10; d += 5) near += hist[(((d % 360) + 360) % 360) / 5]!;
+      what = `${family} hues within 10 degrees`;
+    } else {
+      const k = RING.indexOf(family);
+      near = [RING[(k + 7) % 8]!, family, RING[(k + 1) % 8]!].reduce((a, f) => a + (hues[f] ?? 0), 0);
+      what = `${family} and its neighbours`;
+    }
+    if (near < 0.003) out.push(`"${m[0]}" names ${family}, but the image has no ${family} pixels (measured ${what}: ${(near * 100).toFixed(1)}%)`);
   }
   return out;
 }

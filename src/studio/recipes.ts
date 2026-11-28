@@ -3,6 +3,7 @@
 // ordinary create spec, so the result is a normal graph the agent edits like any other.
 
 import { StudioError } from "./store.js";
+import { cmd } from "./say.js";
 
 export interface RecipeArgs { subject: string; path?: string }
 interface Spec { nodes: unknown[]; connections: unknown[]; groups: unknown[]; next: string }
@@ -53,7 +54,7 @@ export const RECIPES: Record<string, { summary: string; needs?: string; build: (
     summary: "An existing product photo placed in several scenes as edits, so the product stays the product.",
     needs: "path: the product photo",
     build: a => {
-      if (!a.path) throw new StudioError("BAD_INPUT", 'recipe "product-set" needs path: the product photo.', 'studio_create {name:"...", recipe:"product-set", subject:"the bottle", path:"images/bottle.png"}');
+      if (!a.path) throw new StudioError("BAD_INPUT", 'recipe "product-set" needs path: the product photo.', cmd("create", { name: "...", recipe: "product-set", subject: "the bottle", path: "images/bottle.png" }));
       return {
         groups: [G("scenes", "art")],
         nodes: [
@@ -102,7 +103,7 @@ export const RECIPE_NAMES = Object.keys(RECIPES);
 export function recipeSpec(name: string, args: RecipeArgs): Spec {
   const r = RECIPES[name];
   if (!r) throw new StudioError("NO_RECIPE", `No recipe "${name}".`, `Recipes: ${RECIPE_NAMES.join(", ")}.`);
-  if (!args.subject?.trim()) throw new StudioError("BAD_INPUT", `recipe "${name}" needs subject: what the images are of.`, `studio_create {name:"...", recipe:"${name}", subject:"a ceramic teapot"}`);
+  if (!args.subject?.trim()) throw new StudioError("BAD_INPUT", `recipe "${name}" needs subject: what the images are of.`, cmd("create", { name: "...", recipe: name, subject: "a ceramic teapot" }));
   return r.build({ subject: args.subject.trim(), path: args.path });
 }
 
@@ -114,6 +115,6 @@ export function recipesGuide(): string {
     "3. Colour: sweep shot.palette or shot.grade.",
     "4. Final: one image, approved after a recorded look, then handoff or canon.",
     "Variations of a settled image are edits of that anchor, not new generations.", "",
-    "Recipes build a ready graph: studio_create {name, recipe, subject, path?}. Then edit it like any graph.",
+    `Recipes build a ready graph: ${cmd("create", { name: "...", recipe: "lookbook", subject: "..." })} (product-set also needs path). Then edit it like any graph.`,
     ...Object.entries(RECIPES).map(([k, r]) => `- ${k}: ${r.summary}${r.needs ? ` Needs ${r.needs}.` : ""}`)].join("\n");
 }

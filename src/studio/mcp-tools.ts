@@ -3,7 +3,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createGraph, editGraph, getGraph, listGraphs, lookCloser, revisionLine, runGraph, serveDetached, statusReport, studyImage, viewGraph } from "./api.js";
+import { createGraph, createText, editGraph, editText, getGraph, listGraphs, lookCloser, runGraph, serveDetached, statusReport, studyImage, viewGraph } from "./api.js";
 import { guide, GUIDE_TOPICS } from "./guide.js";
 import { StudioError, resolveProject } from "./store.js";
 
@@ -75,7 +75,7 @@ export function registerStudioTools(server: McpServer) {
     },
   }, wrap(async a => {
     const r = await createGraph({ name: a.name, slug: a.slug, nodes: a.nodes, connections: a.connections, groups: a.groups, copy_from: a.copy_from, recipe: a.recipe, subject: a.subject, path: a.path }, { project: a.project });
-    return `Created graph "${r.slug}" at ${r.dir}${r.copiedFrom ? ` (copied from ${r.copiedFrom})` : ""}.${r.notes.length ? `\n${r.notes.join("\n")}` : ""}\n\n${r.snapshot}`;
+    return createText(r);
   }));
 
   server.registerTool("studio_edit", {
@@ -87,7 +87,7 @@ export function registerStudioTools(server: McpServer) {
     },
   }, wrap(async a => {
     const r = await editGraph(a.graph, a.ops, { project: a.project, expectRevision: a.expect_revision });
-    return `Applied to "${r.slug}". ${revisionLine(r)}\n${r.applied.map(x => `  ${x}`).join("\n")}${r.notes.length ? `\n${r.notes.join("\n")}` : ""}\n\n${r.snapshot}`;
+    return editText(r);
   }));
 
   server.registerTool("studio_run", {

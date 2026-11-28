@@ -8,6 +8,7 @@ import { hostname } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 import { GRAPH_SCHEMA, STATE_SCHEMA, type GraphFile, type GraphNode, type Issue, type StateFile, type StudioEvent } from "./types.js";
+import { tool } from "./say.js";
 
 export class StudioError extends Error {
   constructor(public code: string, message: string, public fix?: string, public issues?: Issue[]) {
@@ -233,7 +234,7 @@ export async function readGraph(dir: string): Promise<GraphFile> {
     if (g.schema !== GRAPH_SCHEMA) throw new StudioError("SCHEMA", `Unsupported graph schema ${g.schema} in ${dir}.`, "Upgrade gpt-image-tool.");
     return g;
   } catch (e: any) {
-    if (e?.code === "ENOENT") throw new StudioError("GRAPH_NOT_FOUND", `No graph at ${dir}.`, "List graphs with studio_list, or create one with studio_create.");
+    if (e?.code === "ENOENT") throw new StudioError("GRAPH_NOT_FOUND", `No graph at ${dir}.`, `List graphs with ${tool("list")}, or create one with ${tool("create")}.`);
     throw e;
   }
 }
@@ -264,7 +265,7 @@ export async function createGraphFiles(dir: string, graph: GraphFile, state: Sta
     const h = await open(paths(dir).graph, "wx");
     await h.close();
   } catch (e: any) {
-    if (e?.code === "EEXIST") throw new StudioError("GRAPH_EXISTS", `Graph "${graph.slug}" already exists.`, "Choose another slug, or change the existing graph with studio_edit.");
+    if (e?.code === "EEXIST") throw new StudioError("GRAPH_EXISTS", `Graph "${graph.slug}" already exists.`, `Choose another slug, or change the existing graph with ${tool("edit")}.`);
     throw e;
   }
   await mkdir(paths(dir).assets, { recursive: true });

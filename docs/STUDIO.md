@@ -116,11 +116,20 @@ Known limit: the gate checks that a look was recorded, not that it is true. In t
 2026-11-28 fresh-agent test an agent described a cream teapot as cobalt, was
 allowed to approve it, and saved a canon description contradicting the image.
 One cheap guard exists: when a critique (not a comparison) or a canon description
-names a colour family that the image has no pixels of, counting the neighbouring
-families too (readings carry `hues`, the share of saturated pixels per family),
-the edit result carries a warning. It never blocks, it ignores negations such as
-"no blue", and it checks only colour presence: a wrong shape, count or identity
-passes.
+names a colour family that the image has no pixels of, the edit result carries a
+warning in its notes (text and `--json` alike). Each named colour is checked on its
+own hue range plus 10 degrees each side: readings carry `hues` (share of saturated
+pixels per family) and `hueHistogram` (72 bins of 5 degrees). Readings stored
+before the histogram fall back to the family plus both neighbouring families. It
+never blocks, it ignores negations such as "no blue", and it checks only colour
+presence: a wrong shape, count or identity passes.
+
+Messages name the next command in the caller's terms: MCP calls such as
+`studio_run {graph:"x", resume:true}`, or CLI commands such as
+`gpt-image studio run x --resume`. Every such reference is built in
+`src/studio/say.ts`. The CLI sets its dialect at startup (`--json` output included),
+and a run's worker keeps the dialect of whoever started it, so the fixes stored in
+a run record read the same way as the command that started it.
 
 Study an image someone admires with `studio_view {study: "path"}` (or a take ref
 plus `graph`; CLI `gpt-image studio study`): the local reading, plus shot language

@@ -10,6 +10,7 @@ import { StudioError, createGraphFiles, emptyState, graphDir, listGraphSlugs, mu
 import { listRecords, readRecord, runStatus, startRun, stopRun, type RunRequest } from "./runner.js";
 import { evaluate } from "./evaluate.js";
 import { GRAPH_SCHEMA, type GraphFile, type RunRecord, type Take } from "./types.js";
+import { cmd, opt, tool } from "./say.js";
 
 export interface Who { project?: string; actor?: string; human?: boolean }
 const actorOf = (w: Who) => w.actor?.trim() || process.env.GPT_IMAGE_STUDIO_ACTOR?.trim() || "agent";
@@ -62,10 +63,10 @@ async function copyOps(input: CreateInput["copy_from"]) {
 export async function createGraph(input: CreateInput, w: Who = {}) {
   const project = resolveProject(w.project);
   const actor = actorOf(w);
-  if (!input?.name?.trim()) throw new StudioError("BAD_INPUT", "A graph needs a name.", 'studio_create {name:"Landing hero", nodes:[...]}');
+  if (!input?.name?.trim()) throw new StudioError("BAD_INPUT", "A graph needs a name.", `${cmd("create", { name: "Landing hero", nodes: [] })}, with your nodes and connections`);
   const slug = checkSlug(input.slug?.trim() || slugify(input.name));
   const dir = graphDir(project, slug);
-  if (existsSync(paths(dir).graph)) throw new StudioError("GRAPH_EXISTS", `Graph "${slug}" already exists in ${project}.`, `Change it with studio_edit {graph:"${slug}"}, or pass another slug.`);
+  if (existsSync(paths(dir).graph)) throw new StudioError("GRAPH_EXISTS", `Graph "${slug}" already exists in ${project}.`, `Change it with ${tool("edit")} on "${slug}", or pass another slug.`);
   const ts = now();
   const graph: GraphFile = { schema: GRAPH_SCHEMA, name: input.name.trim().slice(0, 200), slug, revision: 1, created: ts, updated: ts, nodes: [], edges: [], groups: [] };
   const state = emptyState();
@@ -74,7 +75,7 @@ export async function createGraph(input: CreateInput, w: Who = {}) {
   let recipeNext: string | undefined;
   let body: any = input.copy_from ? await copyOps(input.copy_from) : input;
   if (input.recipe) {
-    if (input.copy_from || input.nodes?.length) throw new StudioError("BAD_INPUT", "Pass recipe, copy_from or nodes, not several.", 'studio_create {name:"...", recipe:"lookbook", subject:"a ceramic teapot"}');
+    if (input.copy_from || input.nodes?.length) throw new StudioError("BAD_INPUT", "Pass recipe, copy_from or nodes, not several.", cmd("create", { name: "...", recipe: "lookbook", subject: "a ceramic teapot" }));
     const { recipeSpec } = await import("./recipes.js");
     const spec = recipeSpec(input.recipe, { subject: input.subject ?? "", path: input.path });
     recipeNext = spec.next;
@@ -100,7 +101,7 @@ export async function editGraph(slug: string, ops: unknown[], opts: Who & { expe
   const res = await mutate(dir, actor, async (graph, state) => {
     if (opts.expectRevision !== undefined && graph.revision !== opts.expectRevision) {
       throw new StudioError("STALE_REVISION", `Graph "${slug}" is at revision ${graph.revision}, not ${opts.expectRevision}; someone else changed it.`,
-        "Re-read it with studio_get and resend your ops, or omit expect_revision to apply them to the latest version.");
+        `Re-read it with ${tool("get")} and resend your ops, or omit ${opt("expect_revision")} to apply them to the latest version.`);
     }
     const applied = await applyOps(graph, state, ops, ctx);
     ctx.events.push({ type: "ops.applied", count: applied.length, summary: applied.slice(0, 20) });
@@ -117,8 +118,8 @@ export async function editGraph(slug: string, ops: unknown[], opts: Who & { expe
 }
 
 /** What an edit did to the two revisions, and what each one guards. */
-export function revisionLine(r: { revision: number; stateRevision: number; graphChanged: boolean }, dialect: "mcp" | "cli" = "mcp"): string {
-  const guard = dialect === "cli" ? "--expect-revision" : "expect_revision";
+export function revisionLine(r: { revision: number; stateRevision: number; graphChanged: boolean }): string {
+  const guard = opt("expect_revision");
   return r.graphChanged
     ? `Graph revision ${r.revision} (the definition changed), state revision ${r.stateRevision}.`
     : `Graph revision ${r.revision} (unchanged: these ops recorded state, not the definition), state revision ${r.stateRevision}. ${guard} guards the definition (nodes, settings, connections); verdicts, critiques, answers, picks, canon and takes move the state revision.`;
@@ -156,7 +157,7 @@ export async function statusReport(slug: string, opts: Who & { job?: string; wai
   const project = resolveProject(opts.project);
   const dir = graphDir(project, slug);
   const st = await runStatus(project, slug, opts.job, opts.waitSeconds ?? 0);
-  if (!st.record) return { project, slug, status: st.status, text: "No runs yet. Start one with studio_run." };
+  if (!st.record) return { project, slug, status: st.status, text: `No runs yet. Start one with ${cmd("run", { graph: slug })}.` };
   return { project, slug, job: st.job, status: st.status, waitedMs: st.waitedMs, ...(await summarize(dir, st.record)) };
 }
 
@@ -196,8 +197,8 @@ async function summarize(dir: string, rec: RunRecord) {
       else { lines.push(`Checklists (${how}):`); for (const l of lists) lines.push(`  ${l.ref}: ${l.list}`); }
     }
   }
-  if (["starting", "running"].includes(rec.status)) lines.push(`Still running. Call studio_status {graph:"${rec.graph}", job:"${rec.id}"} again; it waits up to 30s.`);
-  else if (rec.status === "interrupted" || rec.status === "stopped") lines.push(`Resume with studio_run {graph:"${rec.graph}", resume:true}; finished slots are kept.`);
+  if (["starting", "running"].includes(rec.status)) lines.push(`Still running. Call ${cmd("status", { graph: rec.graph, job: rec.id, wait_seconds: 30 })} again.`);
+  else if (rec.status === "interrupted" || rec.status === "stopped") lines.push(`Resume with ${cmd("run", { graph: rec.graph, resume: true })}; finished slots are kept.`);
   return { text: lines.join("\n"), record: rec, takes: rec.takes.map(t => ({ ref: `${t.node}/${t.take}`, path: resolve(dir, t.asset) })) };
 }
 
@@ -241,7 +242,7 @@ export async function viewGraph(slug: string, opts: Who & { nodes?: string[]; al
       items.push({ ref: `${id}/${take.id}`, path, label: `${label}${take.verdict ? ` ${take.verdict.decision}` : ""}`, verdict: take.verdict?.decision, status, take, preview: (await ensurePreview(dir, take.asset)) ?? undefined });
     }
   }
-  if (!items.length) return { project, slug, sheet: undefined, images: [], text: "No images yet. Run the graph first (studio_run)." };
+  if (!items.length) return { project, slug, sheet: undefined, images: [], text: `No images yet. Run the graph first: ${cmd("run", { graph: slug })}.` };
   let sheet: string | undefined;
   const shown = items.slice(-30);
   const notes: string[] = [];
@@ -311,7 +312,7 @@ export async function lookCloser(slug: string, opts: Who & { zoom?: { take: stri
     if (a!.kind !== "image" || b!.kind !== "image" || a!.ref === b!.ref) throw new StudioError("BAD_PAIR", "pair needs two different image takes.", 'Example: {pair:["gen/t3","gen/t5"]}.');
     const p = await craft.blindPair(dir, a!, b!);
     lines.push(`Blind pair ${p.id}: ${p.sheet}`, "A and B are in random order and the sheet does not say which is which. Look, decide for the stated intent, then record it:",
-      `  studio_edit {graph:"${slug}", ops:[{op:"judge_pair", pair:"${p.id}", preferred:"A", reason:"..."}]}`);
+      `  ${cmd("edit", { graph: slug, ops: [{ op: "judge_pair", pair: p.id, preferred: "A", reason: "..." }] })}`);
   }
   if (!lines.length) throw new StudioError("BAD_VIEW", "Nothing to look at.", "Pass zoom or pair.");
   return lines.join("\n");
@@ -341,4 +342,16 @@ export async function serveDetached(slug: string | undefined, w: Who & { idleMin
 export async function readRunRecord(slug: string, job: string, w: Who = {}) {
   const project = resolveProject(w.project);
   return readJson<RunRecord>(join(paths(graphDir(project, slug)).runs, `${job}.json`));
+}
+
+const notesText = (notes: string[]) => (notes.length ? `\nNotes:\n${notes.map(n => `  ${n}`).join("\n")}` : "");
+
+/** The text result of a create, for MCP and the CLI alike (notes included in both). */
+export function createText(r: { slug: string; dir: string; copiedFrom?: string; notes: string[]; snapshot: string }): string {
+  return `Created graph "${r.slug}" at ${r.dir}${r.copiedFrom ? ` (copied from ${r.copiedFrom})` : ""}.${notesText(r.notes)}\n\n${r.snapshot}`;
+}
+
+/** The text result of an edit, for MCP and the CLI alike (notes included in both). */
+export function editText(r: { slug: string; revision: number; stateRevision: number; graphChanged: boolean; applied: string[]; notes: string[]; snapshot: string }): string {
+  return `Applied to "${r.slug}". ${revisionLine(r)}\n${r.applied.map(x => `  ${x}`).join("\n")}${notesText(r.notes)}\n\n${r.snapshot}`;
 }

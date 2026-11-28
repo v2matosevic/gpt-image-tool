@@ -739,9 +739,9 @@ test("review 2 #12: an edit reports the graph and state revisions and says what 
     let out = ""; c.stdout.on("data", d => (out += d)); c.stderr.on("data", d => (out += d)); c.on("exit", code => (code === 0 ? res(out) : rej(new Error(out))));
   });
   const state = await cli(["edit", "revs", "--ops", JSON.stringify([{ op: "critique", take: "gen/t1", summary: "a red cup, centred" }])]);
-  assert.match(state.split("\n")[0]!, /^Graph revision 1 \(unchanged: these ops recorded state, not the definition\), state revision \d+\. --expect-revision guards the definition/);
+  assert.match(state.split("\n")[0]!, /^Applied to "revs"\. Graph revision 1 \(unchanged: these ops recorded state, not the definition\), state revision \d+\. --expect-revision guards the definition/);
   const def = await cli(["edit", "revs", "--ops", JSON.stringify([{ op: "set", node: "gen", settings: { quality: "medium" } }])]);
-  assert.match(def.split("\n")[0]!, /^Graph revision 2 \(the definition changed\), state revision \d+\.$/);
+  assert.match(def.split("\n")[0]!, /^Applied to "revs"\. Graph revision 2 \(the definition changed\), state revision \d+\.$/);
   assert.match(def, /graph revision 2, state \d+ ·/);
 });
 
@@ -779,16 +779,32 @@ test("review 2 limit: a critique or canon description naming a colour the image 
   assert.match(canon.notes.join("\n"), /Check the canon description against gen\/t1: "cobalt" names blue/);
 });
 
-test("review 2 #10: CLI results and refusals use CLI wording, JSON stays raw", async () => {
-  const { cliWording } = await import("../dist/studio/guide.js");
-  assert.equal(cliWording('Still running. Call studio_status {graph:"g", job:"r1"} again; it waits up to 30s.'), "Still running. Call gpt-image studio status g --job r1 --wait 30 again.");
-  assert.equal(cliWording('Make one with studio_view {pair:["a/t1","b/t2"]}.'), "Make one with gpt-image studio sheet <graph> --pair a/t1,b/t2.");
+test("review 3 #2: every CLI output speaks CLI (text and --json), and MCP output keeps MCP wording", async () => {
+  const home = mkdtempSync(join(tmpdir(), "studio-home-"));
   const p = project();
-  const err = await new Promise<string>(res => {
-    const c = spawn(process.execPath, [fixture("../../dist/cli.js"), "studio", "edit", "nope", "--ops", "[]", "--project", p]);
-    let out = ""; c.stderr.on("data", d => (out += d)); c.on("exit", () => res(out));
+  const cli = (args: string[]) => new Promise<string>(res => {
+    const c = spawn(process.execPath, [fixture("../../dist/cli.js"), "studio", ...args, "--project", p], { env: { ...process.env, GPT_IMAGE_STUDIO_HOME: home } });
+    let out = ""; c.stdout.on("data", d => (out += d)); c.stderr.on("data", d => (out += d)); c.on("exit", () => res(out));
   });
-  assert.doesNotMatch(err, /studio_[a-z]+/, err);
+  const spec = JSON.stringify({ name: "Dia", nodes: [{ ref: "gen", type: "generate", settings: { prompt: "a red cup" } }, { ref: "bad", type: "generate" }, { ref: "hand", type: "handoff", settings: { intent: "hero" } }], connections: [{ from: "gen", to: "hand" }] });
+  const outputs = [
+    await cli(["guide"]), await cli(["create", "--spec", spec]), await cli(["create", "--spec", spec]),
+    await cli(["get", "dia"]), await cli(["get", "dia", "--json"]), await cli(["run", "dia", "--dry-run"]), await cli(["run", "dia", "--dry-run", "--json"]),
+    await cli(["status", "dia"]), await cli(["sheet", "dia"]), await cli(["edit", "dia", "--ops", JSON.stringify([{ op: "approve", take: "gen/t9" }])]),
+    await cli(["edit", "dia", "--ops", JSON.stringify([{ op: "approve", take: "gen" }])]), await cli(["edit", "dia", "--expect-revision", "99", "--ops", JSON.stringify([{ op: "set", node: "gen", settings: { quality: "low" } }])]),
+    await cli(["create", "--spec", JSON.stringify({ name: "R", recipe: "product-set", subject: "a bottle" })]),
+  ];
+  const all = outputs.join("\n----\n");
+  for (const bad of [/studio_[a-z]+/, /\{graph:/, /\b(?:dry_run|new_take|resume|stop):true\b/, /\bwait_seconds\b/, /\bexpect_revision\b/]) {
+    const m = bad.exec(all);
+    assert.equal(m, null, `MCP wording in CLI output: ${m?.[0]} … ${m ? all.slice(Math.max(0, m.index - 120), m.index + 80) : ""}`);
+  }
+  assert.match(all, /gpt-image studio run dia renders what is empty or stale/);
+  assert.match(all, /Change it with gpt-image studio edit on "dia"/);
+  // MCP (this process, no dialect set) keeps MCP wording.
+  const e = await refusal(createGraph(JSON.parse(spec), { project: p }), "GRAPH_EXISTS");
+  assert.match(e.fix ?? "", /studio_edit on "dia"/);
+  assert.match((await getGraph("dia", { project: p })).snapshot, /studio_run \{graph:"dia"\} renders/);
 });
 
 test("editing a graph that does not exist names it instead of a raw lock-file error", async () => {
@@ -815,4 +831,28 @@ test("a live run whose lock body cannot be read at that instant is not reported 
   assert.notEqual(s.status, "interrupted");
   assert.equal(JSON.parse(readFileSync(join(dir, "runs", `${job}.json`), "utf8")).status, "running", "stop did not overwrite a live run as interrupted");
   assert.ok(existsSync(join(dir, "runs", `${job}.stop`)), "stop asked the run to stop");
+});
+
+test("review 3 #1: each named colour is checked on its own hues, and notes print in CLI text output", async () => {
+  const { encodePng } = await import("../dist/bgremove.js");
+  const home = mkdtempSync(join(tmpdir(), "studio-home-"));
+  const p = project();
+  await createGraph({ name: "Tan", nodes: [{ ref: "gen", type: "generate", settings: { prompt: "a teapot" } }], connections: [] }, { project: p });
+  const { executors } = makeFakes();
+  executors.generate = async (x: any) => {
+    // Cream with a tan patch (about 6% of pixels at hue 30): orange is present, red and green are not.
+    const data = Buffer.alloc(64 * 64 * 4);
+    for (let i = 0; i < 64 * 64; i++) data.set(i < 250 ? [210, 150, 80, 255] : [240, 230, 205, 255], i * 4);
+    writeFileSync(`${x.outBase}.png`, encodePng({ width: 64, height: 64, data }));
+    return { path: `${x.outBase}.png`, generations: 1 };
+  };
+  await startRun(p, "tan", { actor: "t", detach: false, executors });
+  const out = await new Promise<string>(res => {
+    const c = spawn(process.execPath, [fixture("../../dist/cli.js"), "studio", "edit", "tan", "--project", p, "--ops", JSON.stringify([{ op: "critique", take: "gen/t1", summary: "a bright red teapot with green stripes" }])], { env: { ...process.env, GPT_IMAGE_STUDIO_HOME: home } });
+    let o = ""; c.stdout.on("data", d => (o += d)); c.on("exit", () => res(o));
+  });
+  assert.match(out, /Notes:\n {2}Check critique k1 on gen\/t1: "red" names red/);
+  assert.match(out, /"green" names green/);
+  const fine = await editGraph("tan", [{ op: "critique", take: "gen/t1", summary: "a cream teapot with a tan orange patch" }], { project: p });
+  assert.equal(fine.notes.length, 0, fine.notes.join("\n"));
 });

@@ -117,6 +117,8 @@ export interface LookReading {
   /** Share of opaque pixels per colour family (HSV hue, saturation >= 0.25, value >= 0.15). Optional:
    *  readings stored before 2026-11-28 lack it. */
   hues?: Record<HueFamily, number>;
+  /** Share of opaque pixels per 5-degree hue bin (72 bins from 0), same saturation and value floor. */
+  hueHistogram?: number[];
 }
 
 export const HUE_FAMILIES = ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "pink"] as const;
@@ -124,8 +126,14 @@ export type HueFamily = (typeof HUE_FAMILIES)[number];
 /** Upper hue bound (degrees) of each family, in ring order; red wraps around 345. */
 const HUE_BOUNDS: Array<[number, HueFamily]> = [[15, "red"], [45, "orange"], [70, "yellow"], [170, "green"], [200, "cyan"], [260, "blue"], [290, "purple"], [345, "pink"], [360, "red"]];
 
-export function hueFamilyShares(img: RGBA): Record<HueFamily, number> {
+/** Hue range of each family in degrees, [from, to); red wraps through 0. */
+export const HUE_RANGES: Record<HueFamily, [number, number]> = { red: [345, 375], orange: [15, 45], yellow: [45, 70], green: [70, 170], cyan: [170, 200], blue: [200, 260], purple: [260, 290], pink: [290, 345] };
+
+export function hueFamilyShares(img: RGBA): Record<HueFamily, number> { return hueReading(img).hues; }
+
+export function hueReading(img: RGBA): { hues: Record<HueFamily, number>; hueHistogram: number[] } {
   const counts = Object.fromEntries(HUE_FAMILIES.map(f => [f, 0])) as Record<HueFamily, number>;
+  const bins: number[] = new Array(72).fill(0);
   const { data } = img;
   let opaque = 0;
   for (let i = 0; i < data.length; i += 4) {
@@ -137,9 +145,10 @@ export function hueFamilyShares(img: RGBA): Record<HueFamily, number> {
     let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
     h = (h * 60 + 360) % 360;
     counts[HUE_BOUNDS.find(([hi]) => h < hi)![1]]++;
+    bins[Math.min(71, Math.floor(h / 5))]!++;
   }
   for (const f of HUE_FAMILIES) counts[f] = r3(opaque ? counts[f] / opaque : 0);
-  return counts;
+  return { hues: counts, hueHistogram: bins.map(c => Math.round((opaque ? c / opaque : 0) * 10000) / 10000) };
 }
 
 const CELLS = ["top-left", "top-centre", "top-right", "middle-left", "centre", "middle-right", "bottom-left", "bottom-centre", "bottom-right"];
@@ -244,7 +253,7 @@ export function readLook(src: RGBA): LookReading {
     composition: { thirds, centroid: { x: r3(wsum ? wx / wsum : 0.5), y: r3(wsum ? wy / wsum : 0.5) }, heaviest: CELLS[heaviest]!, negativeSpace: r3(blocks ? quiet / blocks : 0) },
     sharpness: { thirds: sh.map(v => r3(v / shMax)), sharpest: CELLS[sharpest]!, separation: r3(Math.min(9999, shMax / shMin)) },
     detail: { edgeDensity: r3(inner ? edges / inner : 0) },
-    hues: hueFamilyShares(img),
+    ...hueReading(img),
   };
 }
 

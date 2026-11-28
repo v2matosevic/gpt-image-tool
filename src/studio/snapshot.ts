@@ -7,6 +7,7 @@ import { NODE_SPECS, workOf } from "./nodes.js";
 import { readEvents } from "./store.js";
 import { listRecords, liveJob, readRecord } from "./runner.js";
 import type { GraphFile, StateFile, Take } from "./types.js";
+import { cmd } from "./say.js";
 
 const MAX = 7000;
 const clip = (s: string, n = 140) => (s.length > n ? `${s.slice(0, n)}…(+${s.length - n} chars)` : s);
@@ -61,7 +62,7 @@ export async function snapshot(project: string, dir: string, graph: GraphFile, s
   const jobs = await listRecords(dir);
   if (live) {
     const r = await readRecord(dir, live).catch(() => undefined);
-    lines.push(`Run ${live} ${r?.status ?? "running"}: ${r?.progress.slotsDone ?? 0}/${r?.planned.slots ?? "?"} slots${r?.progress.current ? `, now ${r.progress.current.node}` : ""}. Follow with studio_status.`);
+    lines.push(`Run ${live} ${r?.status ?? "running"}: ${r?.progress.slotsDone ?? 0}/${r?.planned.slots ?? "?"} slots${r?.progress.current ? `, now ${r.progress.current.node}` : ""}. Follow with ${cmd("status", { graph: graph.slug })}.`);
   } else if (jobs.length) {
     const r = await readRecord(dir, jobs.at(-1)!).catch(() => undefined);
     if (r) lines.push(`Last run ${r.id}: ${r.status}, ${r.takes.length} take(s), ${r.progress.generations} generation(s)${r.errors.length ? `, ${r.errors.length} error(s)` : ""}.`);
@@ -88,7 +89,7 @@ export async function snapshot(project: string, dir: string, graph: GraphFile, s
   const next = nextSteps(graph, evals);
   if (next.length) { lines.push("Next:"); for (const n of next) lines.push(`  ${n}`); }
   let text = lines.join("\n");
-  if (text.length > MAX) text = `${text.slice(0, MAX)}\n…(snapshot truncated; studio_get with node for full detail)`;
+  if (text.length > MAX) text = `${text.slice(0, MAX)}\n…(snapshot truncated; ${cmd("get", { graph: graph.slug, node: "<id>" })} for full detail)`;
   return { text, evals };
 }
 
@@ -99,9 +100,9 @@ function nextSteps(graph: GraphFile, evals: Map<string, NodeEval>): string[] {
   const brokenIds = new Set(broken.map(e => e.node.id));
   const pending = [...evals.values()].filter(e => workOf(e.node.type, e.node.settings) !== "none" && e.node.type !== "reference" && !e.issues.length
     && (e.status === "empty" || e.status === "stale" || (e.status === "blocked" && !brokenIds.has(e.blockedBy!))));
-  if (pending.length) out.push(`studio_run {graph:"${graph.slug}"} renders what is empty or stale (${pending.map(e => e.node.id).join(", ")}); unchanged slots are reused.`);
+  if (pending.length) out.push(`${cmd("run", { graph: graph.slug })} renders what is empty or stale (${pending.map(e => e.node.id).join(", ")}); unchanged slots are reused.`);
   const handoffs = [...evals.values()].filter(e => e.node.type === "handoff" && e.issues.some(i => /approved/.test(i.message)));
-  if (handoffs.length) out.push(`Look at the results (studio_view), then approve one with studio_edit {op:"approve", take:"node/take"} so ${handoffs.map(h => h.node.id).join(", ")} can package it.`);
+  if (handoffs.length) out.push(`Look at the results (${cmd("view", { graph: graph.slug })}), then record a look and approve one with ${cmd("edit", { graph: graph.slug, ops: [{ op: "approve", take: "node/take" }] })} so ${handoffs.map(h => h.node.id).join(", ")} can package it.`);
   return out.slice(0, 3);
 }
 

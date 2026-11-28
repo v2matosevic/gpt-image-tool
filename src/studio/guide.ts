@@ -1,14 +1,18 @@
-// studio_guide: everything an agent needs to drive Studio, rendered from the node registry so the
+// The Studio guide: everything an agent needs to drive Studio, rendered from the node registry so the
 // documented settings are exactly the validated ones.
 
 import { NODE_SPECS, NODE_TYPES, SHOT_DIMENSIONS } from "./nodes.js";
 import { OP_HELP } from "./graph.js";
 import { recipesGuide } from "./recipes.js";
+import { cmd, isCli, opt, tool, withDialect, type Dialect } from "./say.js";
+
+/** A boolean option as the caller writes it: new_take:true or --new-take. */
+const flag = (name: string) => (isCli() ? opt(name) : `${name}:true`);
 
 export const GUIDE_TOPICS = ["overview", "nodes", "ops", "run", "review", "handoff", "shot", "recipes", "example"] as const;
 export type GuideTopic = (typeof GUIDE_TOPICS)[number] | "all";
 
-const OVERVIEW = `# Studio: image work as a graph
+const overview = () => `# Studio: image work as a graph
 
 A graph lives in <project>/.gptimage/studio/<slug>/. Nodes are prompts, looks, lists, references,
 generators, edits, post-processing, galleries, handoffs and notes. Data flows along typed edges:
@@ -16,16 +20,17 @@ text -> text, style -> style, image -> image, package -> package. Text, style an
 one connection; image inputs take many.
 
 How to work:
-1. studio_create with nodes (your own short ids) and connections. Handles are picked by type.
-2. studio_run starts a background job and returns its id (it waits up to wait_seconds, default 20).
-   studio_status follows it (waits up to 30s per call). Runs survive client timeouts.
+1. ${tool("create")} with nodes (your own short ids) and connections. Handles are picked by type.
+2. ${tool("run")} starts a background job and returns its id (it waits up to ${opt("wait_seconds")}, default 20).
+   ${tool("status")} follows it (waits up to 30s per call). Runs survive client timeouts.
 3. Look: the run result names a review sheet, measured deviations and a checklist per take; open the
-   sheet. studio_view makes more sheets, zooms and blind pairs. Never judge an image you have not
+   sheet. ${tool("view")} makes more sheets, zooms and blind pairs. Never judge an image you have not
    opened. Topic review explains what "better" means here.
-4. Revise with studio_edit ops (set, prompt_edit, connect...). Rerun: only slots whose inputs or
-   settings changed are regenerated; everything else is reused. new_take:true adds another take.
-5. Record what you saw (op answer or critique), approve the image you want (op approve), then run the handoff node to write a build package for
-   the coding agent. When the build exists, attach its screenshot with an implementation node.
+4. Revise with ${tool("edit")} ops (set, prompt_edit, connect...). Rerun: only slots whose inputs or
+   settings changed are regenerated; everything else is reused. ${flag("new_take")} adds another take.
+5. Record what you saw (op answer or critique), approve the image you want (op approve), then run the
+   handoff node to write a build package for the coding agent. When the build exists, attach its
+   screenshot with an implementation node.
 
 Rules that save quota and mistakes:
 - Studio uses the ChatGPT subscription only, never the paid API. The renderer is whatever OpenAI
@@ -37,11 +42,11 @@ Rules that save quota and mistakes:
 - A list node fans out: one slot per item. takes:N gives N images per slot.
 - Images are never inlined: every take is a file in assets/ with a fingerprint and lineage.
 - Every refusal names its fix. Unknown settings are rejected with the valid names.
-- expect_revision on studio_edit refuses an edit if someone changed the graph meanwhile.
-- Other projects: pass project to list, read or copy (copy_from). Writes go only to the project you
-  pass (default: this one).
+- ${opt("expect_revision")} on ${tool("edit")} refuses an edit if someone changed the graph meanwhile.
+- Other projects: pass ${opt("project")} to list, read or copy (copy_from). Writes go only to the project
+  you pass (default: this one).
 - One run per graph at a time; a second is refused with the running job id.
-- Quota or rate limit stops the run cleanly; studio_run {resume:true} continues where it stopped.`;
+- Quota or rate limit stops the run cleanly; ${cmd("run", { graph: "<graph>", resume: true })} continues where it stopped.`;
 
 function nodesSection(): string {
   const lines = ["# Node types", ""];
@@ -58,28 +63,31 @@ function nodesSection(): string {
 }
 
 function opsSection(): string {
-  return ["# studio_edit ops", "", "All ops in one call apply together or not at all.", "", ...Object.values(OP_HELP).map(v => `- ${v}`), "",
-    "Take refs look like \"gen/t4\" (node/take). studio_get {node} lists them with file paths.",
+  return [`# Ops (${isCli() ? "gpt-image studio edit <graph> --ops '[...]'" : "studio_edit {graph, ops:[...]}"})`, "", "All ops in one call apply together or not at all.", "", ...Object.values(OP_HELP).map(v => `- ${v}`), "",
+    `Take refs look like "gen/t4" (node/take). ${cmd("get", { graph: "<graph>", node: "<id>" })} lists them with file paths.`,
     "Verdicts and picks are recorded with the take's settings in feedback.jsonl (the owner's taste record)."].join("\n");
 }
 
-const RUN = `# Running
+const run = () => `# Running
 
-studio_run {graph, scope?, nodes?, new_take?, concurrency?, dry_run?, resume?, stop?, wait_seconds?}
+${isCli()
+  ? "gpt-image studio run <graph> [--scope all|id|id+] [--nodes a,b] [--new-take] [--concurrency 1-3] [--dry-run] [--resume] [--stop] [--wait s]"
+  : "studio_run {graph, scope?, nodes?, new_take?, concurrency?, dry_run?, resume?, stop?, wait_seconds?}"}
 - scope: "all" (default), "<id>" for one node, "<id>+" for a node and everything downstream.
-  nodes: [ids] runs a selection.
-- dry_run:true returns the plan (generations, cached slots, skipped nodes) and spends nothing.
+  nodes: a list of ids runs a selection.
+- ${flag("dry_run")} returns the plan (generations, cached slots, skipped nodes, the compiled prompt of
+  one slot per node) and spends nothing.
 - Unchanged slots are never regenerated. A slot is unchanged when its fingerprint (resolved text,
   look, settings, input image hashes, project profile) matches an existing take.
-- new_take:true renders one more take for each slot in scope; history is kept.
+- ${flag("new_take")} renders one more take for each slot in scope; history is kept.
 - concurrency 1-3 (default 1, sequential; quota and token refresh favour sequential).
 - Running one node uses its upstream outputs as they are. If upstream is out of date the snapshot
   says so; run "<upstream>+" to refresh the chain.
-- stop:true asks the live run to stop after its current image. resume:true continues the last
+- ${flag("stop")} asks the live run to stop after its current image. ${flag("resume")} continues the last
   interrupted or stopped run.
 - Each run records how many generations it made (runs/<job>.json).`;
 
-const REVIEW = `# Looking and judging
+const review = () => `# Looking and judging
 
 There is no absolute better, only better for the stated intent. Evidence, most reliable first:
 1. Checkable defects: warped hands or objects, garbled text, smears, extra limbs. Zoom in to see them.
@@ -88,7 +96,7 @@ There is no absolute better, only better for the stated intent. Evidence, most r
 4. Blind pairwise critique. This is opinion, and model judges lean toward a generic polished look.
 5. Above all of these: the human's choice.
 
-What a run already gives you (studio_status): one review sheet labelled with the setting that differs,
+What a run already gives you (${tool("status")}): one review sheet labelled with the setting that differs,
 measured deviations first, a one-line reading per take, and each take's checklist.
 - Reading: palette with shares, lightness key, contrast, warm/cool, saturation, visual weight by
   thirds, quiet space, where it is sharpest, edge density. Measurements, not a score.
@@ -97,11 +105,13 @@ measured deviations first, a one-line reading per take, and each take's checklis
 - Checklist: yes/no questions from the prompt and shot settings. Answer them after looking:
   {op:"answer", take:"gen/t4", answers:{c1:"yes", c2:"no", c3:{answer:"unsure", note:"hand hidden"}}}
 
-Looking closer (studio_view):
-- overlays:["grid","palette","histogram"]: thirds grid with the visual-weight centre, colour shares, lightness.
-- zoom:{take:"gen/t4", region:"bottom-right"} (a thirds cell, or [x,y,w,h] fractions): full resolution.
-- pair:["gen/t3","gen/t5"]: a blind A/B sheet in random order; record it with
-  {op:"judge_pair", pair:"p...", preferred:"A", reason:"..."}.
+Looking closer:
+- ${cmd("view", { graph: "<graph>", overlays: ["grid", "palette", "histogram"] })}: thirds grid with the
+  visual-weight centre, colour shares, lightness.
+- ${cmd("view", { graph: "<graph>", zoom: { take: "gen/t4", region: "bottom-right" } })} (a thirds cell, or
+  x,y,w,h fractions): full resolution.
+- ${cmd("view", { graph: "<graph>", pair: ["gen/t3", "gen/t5"] })}: a blind A/B sheet in random order;
+  record it with {op:"judge_pair", pair:"p...", preferred:"A", reason:"..."}.
 
 Keeping things the same across images:
 - Anchor: approve one image and make variations as edits of it (edit node, image handle), not
@@ -111,18 +121,18 @@ Keeping things the same across images:
   Any graph (another project too, settings.project) adds {type:"canon", settings:{name:"mira"}} and
   connects it to a generator's references. Its images go in with their role and its description is
   added to the prompt word for word. Write the description once, carefully: rewording is drift.
-  studio_list shows the project's canon.
+  ${tool("list")} shows the project's canon.
 - Identity of a face, character or product is not measured; check it with a blind pair.
 
-Learning from an image someone admires: studio_view {study:"images/admired.png"} (or a take ref with
-graph) returns its measurements plus the look in shot language from one vision request, as a ready
+Learning from an image someone admires: ${cmd("view", { study: "images/admired.png" })} (or a take ref
+with its graph) returns its measurements plus the look in shot language from one vision request, as a ready
 {op:"add", type:"style", ...}. It names the dimensions of a look to learn from; it is not a copy
 function, and the vision part is an opinion to check against the image.
 
 Recording a judgement:
 - {op:"critique", take, summary, criteria?, against?, preferred?}: what you saw, in words.
 - An agent cannot approve a take without a recorded look (a critique or checklist answers). Put the
-  look and the approve in the same studio_edit call. People approve freely.
+  look and the approve in the same ${tool("edit")} call. People approve freely.
 - The gate checks that a look was recorded, not that it is true. A test agent described a cream
   teapot as cobalt, was accepted, and saved a canon description that contradicted the image. Open
   the image before you write about it. One cheap guard: a critique or canon description naming a
@@ -130,13 +140,13 @@ Recording a judgement:
 - Lessons: when a sweep or several takes settle something, record it so later sessions start from
   it: {op:"lesson", claim, dimension, takes:[2+ takes], scope?:"project"|"user", supersedes?}. One
   take is never a lesson. Lessons are superseded, never edited; old ones weigh less because the
-  routed renderer can change. studio_create and studio_guide list the active ones, with the owner's
+  routed renderer can change. ${tool("create")} and ${tool("guide")} list the active ones, with the owner's
   taste in counts (what people kept and dropped) and the prediction agreement rate.
 - Calibration: before the human decides, record your own call with {op:"predict", take,
   decision:"approved"|"rejected"|"picked", reason}. It is compared with the human's decision later;
   a prediction made after the human decided does not count.`;
 
-const HANDOFF = `# Handoff to a coding agent, and back
+const handoff = () => `# Handoff to a coding agent, and back
 
 1. Approve the image(s) to build from, after looking: {op:"critique", take:"gen/t4", summary:"..."},
    then {op:"approve", take:"gen/t4", note:"this one"} (same call is fine).
@@ -164,7 +174,7 @@ function shotSection(): string {
     ...Object.entries(SHOT_DIMENSIONS).map(([k, v]) => `- ${k}: ${v}`)].join("\n");
 }
 
-const EXAMPLE = `# Worked example
+const mcpExample = `# Worked example
 
 studio_create {
   name: "Mug lookbook",
@@ -221,52 +231,18 @@ On Windows PowerShell, prefer @file for ops: inline JSON quoting differs between
 Variations of an approved anchor: connect the approved generator to an edit node (to_handle "image")
 with a list of instructions, so each variation is an edit of the anchor, not a fresh generation.`;
 
-const CLI_PREFACE = `You are using the CLI (gpt-image studio). Other agents reach the same operations as MCP tools
-(studio_*); this copy of the guide is written for the CLI. create --spec, edit --ops and run take JSON
+const CLI_PREFACE = `You are using the CLI (gpt-image studio). Other agents reach the same operations as MCP
+tools; this copy of the guide is written for the CLI. create --spec, edit --ops and run take JSON
 inline, @file or - (stdin), and ops JSON is the same everywhere. Flags: --new-take, --dry-run,
 --wait <s>, --expect-revision <n>, --project <dir>, --json. Topics: gpt-image studio guide <topic>.`;
 
-/** MCP wording to CLI wording. Specific forms first, then the general names. */
-const CLI_TERMS: Array<[RegExp | string, string]> = [
-  ["studio_run {graph, scope?, nodes?, new_take?, concurrency?, dry_run?, resume?, stop?, wait_seconds?}",
-    "gpt-image studio run <graph> [--scope all|id|id+] [--nodes a,b] [--new-take] [--concurrency 1-3] [--dry-run] [--resume] [--stop] [--wait s]"],
-  ["studio_create {name, recipe, subject, path?}", `gpt-image studio create --spec '{"name":"...","recipe":"lookbook","subject":"..."}' (path for product-set)`],
-  ['studio_view {study:"images/admired.png"} (or a take ref with\ngraph)', "gpt-image studio study images/admired.png (or a take ref with\n--graph)"],
-  ["Looking closer (studio_view):", "Looking closer (gpt-image studio sheet <graph>):"],
-  ['- overlays:["grid","palette","histogram"]:', "- --overlays grid,palette,histogram:"],
-  ['- zoom:{take:"gen/t4", region:"bottom-right"} (a thirds cell, or [x,y,w,h] fractions)', "- --zoom gen/t4@bottom-right (a thirds cell, or @x,y,w,h fractions)"],
-  ['- pair:["gen/t3","gen/t5"]:', "- --pair gen/t3,gen/t5:"],
-  ["studio_view pair", "gpt-image studio sheet --pair"],
-  ["studio_get node", "gpt-image studio get <graph> --node <id>"],
-  ["studio_run {resume:true}", "gpt-image studio run <graph> --resume"],
-  [/studio_status \{graph:"([^"]+)", job:"([^"]+)"\} again; it waits up to 30s/g, "gpt-image studio status $1 --job $2 --wait 30 again"],
-  [/studio_status \{job:"([^"]+)"\}/g, "gpt-image studio status <graph> --job $1"],
-  [/studio_run \{stop:true\}/g, "gpt-image studio run <graph> --stop"],
-  [/studio_view \{pair:\["([^"]+)","([^"]+)"\]\}/g, "gpt-image studio sheet <graph> --pair $1,$2"],
-  ["studio_get {node}", "gpt-image studio get <graph> --node <id>"],
-  ["# studio_edit ops", "# Ops (gpt-image studio edit <graph> --ops)"],
-  [/studio_(create|run|status|edit|get|list|guide)\b/g, "gpt-image studio $1"],
-  [/studio_view\b/g, "gpt-image studio sheet"],
-  [/new_take:true/g, "--new-take"],
-  [/\bwait_seconds\b/g, "--wait"],
-  [/\bexpect_revision\b/g, "--expect-revision"],
-  [/\bdry_run\b/g, "--dry-run"],
-  [/\ball_takes\b/g, "--all-takes"],
-];
+export type GuideDialect = Dialect;
 
-export type GuideDialect = "mcp" | "cli";
-
-/** The guide, worded for MCP tools (default) or for the CLI. */
-export function guide(topic: GuideTopic = "all", dialect: GuideDialect = "mcp"): string {
-  const example = dialect === "cli" ? () => CLI_EXAMPLE : () => EXAMPLE;
-  const parts: Record<string, () => string> = { overview: () => OVERVIEW, nodes: nodesSection, ops: opsSection, run: () => RUN, review: () => REVIEW, handoff: () => HANDOFF, shot: shotSection, recipes: recipesGuide, example };
-  let text = topic !== "all" ? parts[topic]!() : GUIDE_TOPICS.map(t => parts[t]!()).join("\n\n");
-  return dialect === "cli" ? `${CLI_PREFACE}\n\n${cliWording(text)}` : text;
-}
-
-/** Rewrite MCP tool wording (studio_view {zoom}, new_take:true) into CLI commands and flags. The CLI
- *  passes everything it prints through this, so results and refusals read in its own terms. */
-export function cliWording(text: string): string {
-  for (const [from, to] of CLI_TERMS) text = typeof from === "string" ? text.split(from).join(to) : text.replace(from, to);
-  return text;
+/** The guide in the caller's dialect (or the one given): MCP tool calls, or CLI commands and flags. */
+export function guide(topic: GuideTopic = "all", d?: GuideDialect): string {
+  return withDialect(d, () => {
+    const parts: Record<string, () => string> = { overview, nodes: nodesSection, ops: opsSection, run, review, handoff, shot: shotSection, recipes: recipesGuide, example: () => (isCli() ? CLI_EXAMPLE : mcpExample) };
+    const text = topic !== "all" ? parts[topic]!() : GUIDE_TOPICS.map(t => parts[t]!()).join("\n\n");
+    return isCli() ? `${CLI_PREFACE}\n\n${text}` : text;
+  });
 }

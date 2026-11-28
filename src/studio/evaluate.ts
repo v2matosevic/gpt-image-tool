@@ -9,6 +9,7 @@ import { NODE_SPECS, MAX_SLOTS, SHOT_DIMENSIONS, type ShotKey } from "./nodes.js
 import { inputsOf, topoOrder } from "./graph.js";
 import { paths } from "./store.js";
 import { ENGINE_VERSION, type GraphFile, type GraphNode, type Issue, type NodeState, type StateFile, type Take, type TakeInput } from "./types.js";
+import { cmd } from "./say.js";
 
 export interface ImageRef { node: string; take: string; asset: string; sha256: string; current: boolean; verdict?: "approved" | "rejected"; role?: string; instruction?: string }
 export interface TextItem { text: string; item?: string; source: string }
@@ -210,7 +211,7 @@ export async function evaluate(graph: GraphFile, state: StateFile, ctx: EvalCont
           const current = entry.references.every(r => takes.some(t => t.sha256 === r.sha256));
           ev.images = takes.map(t => ({ node: id, take: t.id, asset: t.asset, sha256: t.sha256, current, role: (t.settings as any).role }));
           ev.views = takes.map((t, i) => ({ slot: { index: i, variant: 0, fingerprint: t.fingerprint, refs: [], inputs: [], label: `${entry.name} ${(t.settings as any).role}` }, take: t, status: current ? "current" : "stale" }));
-          if (!takes.length) ev.issues.push({ message: `canon "${entry.name}" is not imported yet`, fix: `Run it: studio_run {scope:"${id}"}.` });
+          if (!takes.length) ev.issues.push({ message: `canon "${entry.name}" is not imported yet`, fix: `Run it: ${cmd("run", { scope: id })}.` });
         } catch (err) {
           ev.issues.push({ message: err instanceof Error ? err.message : String(err), fix: (err as any)?.fix });
         }

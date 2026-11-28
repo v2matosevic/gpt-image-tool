@@ -9,6 +9,7 @@ import type { ExecInput, ExecOutput } from "./execute.js";
 import { ancestors } from "./graph.js";
 import { paths, toPosix } from "./store.js";
 import type { GraphFile, StateFile, Take } from "./types.js";
+import { cmd } from "./say.js";
 
 export interface PackageManifest {
   schema: "gpt-image-studio/handoff@1";
@@ -177,9 +178,9 @@ export async function writeHandoff(x: ExecInput): Promise<ExecOutput> {
     "",
     "After building, take a screenshot at the mock's aspect ratio and attach it to the graph. The run writes a side-by-side comparison sheet; look at it yourself, nothing scores it automatically.",
     "",
-    "```json",
-    `studio_edit {"graph":"${x.graph.slug}","ops":[{"op":"add","id":"${implId}","type":"implementation","settings":{"screenshot":"path/to/screenshot.png"}},{"op":"connect","from":"${x.node.id}","to":"${implId}"}]}`,
-    `studio_run {"graph":"${x.graph.slug}","scope":"${implId}"}`,
+    "```text",
+    cmd("edit", { graph: x.graph.slug, ops: [{ op: "add", id: implId, type: "implementation", settings: { screenshot: "path/to/screenshot.png" } }, { op: "connect", from: x.node.id, to: implId }] }),
+    cmd("run", { graph: x.graph.slug, scope: implId }),
     "```",
     "",
     `CLI: \`gpt-image studio edit ${x.graph.slug} --ops '[...]'\` then \`gpt-image studio run ${x.graph.slug} --scope ${implId}\`.`,

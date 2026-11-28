@@ -2,8 +2,9 @@
 // so every command can print machine-readable JSON (--json) and exits non-zero on refusal.
 
 import { readFile } from "node:fs/promises";
-import { createGraph, editGraph, getGraph, listGraphs, lookCloser, revisionLine, runGraph, statusReport, viewGraph } from "./api.js";
-import { cliWording, guide, GUIDE_TOPICS, type GuideTopic } from "./guide.js";
+import { createGraph, editGraph, getGraph, listGraphs, lookCloser, createText, editText, runGraph, statusReport, viewGraph } from "./api.js";
+import { guide, GUIDE_TOPICS, type GuideTopic } from "./guide.js";
+import { setDialect } from "./say.js";
 import { StudioError, graphDir, readEvents, resolveProject } from "./store.js";
 
 const HELP = `gpt-image studio: node-graph image workflows (subscription only)
@@ -82,9 +83,11 @@ export async function studioMain(argv: string[]): Promise<number> {
     const { pos, flags } = parse(argv);
     json = Boolean(flags.json);
     const cmd = pos[0];
+    // Messages name CLI commands. The worker keeps the dialect of whoever started the run.
+    if (cmd !== "worker") setDialect("cli");
     if (!cmd || flags.help) { process.stderr.write(HELP); return flags.help ? 0 : 1; }
     const who = { human: Boolean(flags.human), project: flags.project as string | undefined, actor: (flags.actor as string | undefined) ?? (process.env.GPT_IMAGE_STUDIO_ACTOR || "cli") };
-    const out = (data: unknown, human: string) => { process.stdout.write(json ? JSON.stringify({ ok: true, ...(data as object) }, null, 2) + "\n" : cliWording(human) + "\n"); };
+    const out = (data: unknown, human: string) => { process.stdout.write(json ? JSON.stringify({ ok: true, ...(data as object) }, null, 2) + "\n" : human + "\n"); };
     switch (cmd) {
       case "list": {
         const r = await listGraphs(who);
@@ -97,7 +100,7 @@ export async function studioMain(argv: string[]): Promise<number> {
         if (topic !== "all" && !(GUIDE_TOPICS as readonly string[]).includes(topic)) throw new StudioError("BAD_ARGS", `Unknown guide topic ${topic}.`, `Topics: ${GUIDE_TOPICS.join(", ")}.`);
         const { memoryBrief } = await import("./memory.js");
         const memory = await memoryBrief(resolveProject(who.project)).catch(() => "");
-        const g = guide(topic, "cli") + (memory ? `
+        const g = guide(topic) + (memory ? `
 
 # What this project has learned
 
@@ -113,13 +116,13 @@ ${memory}` : "");
       case "create": {
         const spec = await jsonArg(flags.spec, "spec");
         const r = await createGraph(spec, who);
-        out(r, `Created ${r.slug} at ${r.dir}\n\n${r.snapshot}`);
+        out(r, createText(r));
         return 0;
       }
       case "edit": {
         const ops = await jsonArg(flags.ops, "ops");
         const r = await editGraph(need(pos, 1, "graph slug"), Array.isArray(ops) ? ops : [ops], { ...who, expectRevision: num(flags["expect-revision"]) });
-        out(r, `${revisionLine(r, "cli")}\n${r.applied.join("\n")}\n\n${r.snapshot}`);
+        out(r, editText(r));
         return 0;
       }
       case "run": {
@@ -176,7 +179,7 @@ ${memory}` : "");
   } catch (e) {
     const err = e instanceof StudioError ? { code: e.code, message: e.message, fix: e.fix, issues: e.issues } : { code: "ERROR", message: e instanceof Error ? e.message : String(e) };
     if (json) process.stdout.write(JSON.stringify({ ok: false, error: err }, null, 2) + "\n");
-    process.stderr.write(cliWording(`✗ ${err.message}${"fix" in err && err.fix ? `\n  Fix: ${err.fix}` : ""}`) + "\n");
+    process.stderr.write(`✗ ${err.message}${"fix" in err && err.fix ? `\n  Fix: ${err.fix}` : ""}\n`);
     return 1;
   }
 }

@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, open, readFile, readdir, rename, stat, unlink, utimes, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { evaluate, slotKey, slotsToRun, type NodeEval, type Slot } from "./evaluate.js";
@@ -16,6 +16,7 @@ import { workOf, NODE_SPECS } from "./nodes.js";
 import { StudioError, assetRel, atomicWrite, graphDir, mutate, now, paths, pidAlive, readBoth, readJson, sleep, type EventInput } from "./store.js";
 import type { Executors, ExecutorKind, ExecOutput } from "./execute.js";
 import { RUN_SCHEMA, type GraphFile, type RunRecord, type RunScope, type RunStatus, type StateFile, type Take } from "./types.js";
+import { cmd } from "./say.js";
 
 const RUN_STALE_MS = 60_000;
 const HEARTBEAT_MS = 5_000;
@@ -116,7 +117,7 @@ async function markInterrupted(dir: string, job: string) {
     rec.status = "interrupted";
     rec.finished = now();
     rec.stopReason = "The worker stopped without finishing (killed, crashed, or the machine slept).";
-    rec.stopFix = "Resume with studio_run {resume:true}; finished slots are kept.";
+    rec.stopFix = `Resume with ${cmd("run", { graph: rec.graph, resume: true })}; finished slots are kept.`;
     await writeRecord(dir, rec);
   } catch { /* no record */ }
   await mutate(dir, "studio", (_g, s) => {
@@ -137,7 +138,7 @@ async function acquireRunLock(dir: string, job: string, actor: string): Promise<
       if (!cur) continue;
       if (lockLive(cur)) {
         throw new StudioError("RUN_ACTIVE", `A run is already in progress on this graph: ${cur.lock?.job ?? "(starting)"}.`,
-          `Follow it with studio_status {job:"${cur.lock?.job}"}, or stop it with studio_run {stop:true}. One run per graph at a time.`);
+          `Follow it with ${cmd("status", { graph: basename(dir), job: cur.lock?.job })}, or stop it with ${cmd("run", { graph: basename(dir), stop: true })}. One run per graph at a time.`);
       }
       if (cur.lock?.job) await markInterrupted(dir, cur.lock.job);
       const aside = `${paths(dir).runLock}.stale-${randomBytes(4).toString("hex")}`;
@@ -171,16 +172,16 @@ export function workerScript(): string {
 
 // ---------------------------------------------------------------- errors
 
-export function classifyError(e: unknown): { kind: "quota" | "auth" | "node"; message: string; fix: string } {
+export function classifyError(e: unknown, slug = "<graph>"): { kind: "quota" | "auth" | "node"; message: string; fix: string } {
   const message = e instanceof Error ? e.message : String(e);
   if (/\b429\b|rate.?limit|quota|usage limit|too many requests|throttl/i.test(message)) {
     const reset = /resets at (\S+) \(in ([^)]+)\)/.exec(message);
     return { kind: "quota", message, fix: reset
-      ? `The subscription image cap was reached; it resets at ${reset[1]} (in ${reset[2]}). Resume after that with studio_run {resume:true}; finished slots are kept.`
-      : "The subscription quota or rate limit was reached. Wait, then resume with studio_run {resume:true}; finished slots are kept." };
+      ? `The subscription image cap was reached; it resets at ${reset[1]} (in ${reset[2]}). Resume after that with ${cmd("run", { graph: slug, resume: true })}; finished slots are kept.`
+      : `The subscription quota or rate limit was reached. Wait, then resume with ${cmd("run", { graph: slug, resume: true })}; finished slots are kept.` };
   }
   if (/codex login|session (?:has )?ended|re-?log ?in|unauthori[sz]ed|\b401\b/i.test(message)) {
-    return { kind: "auth", message, fix: "The ChatGPT session needs `codex login` (run it once), then studio_run {resume:true}." };
+    return { kind: "auth", message, fix: `The ChatGPT session needs \`codex login\` (run it once), then ${cmd("run", { graph: slug, resume: true })}.` };
   }
   return { kind: "node", message, fix: "Fix this node's settings or inputs and run it again. Other branches continued." };
 }
@@ -220,10 +221,10 @@ export async function startRun(project: string, slug: string, req: RunRequest): 
   if (req.resume) {
     const jobs = await listRecords(dir);
     const last = jobs.length ? await readRecord(dir, jobs.at(-1)!) : undefined;
-    if (!last) throw new StudioError("NO_RESUME", "There is no earlier run to resume.", "Start one with studio_run.");
+    if (!last) throw new StudioError("NO_RESUME", "There is no earlier run to resume.", `Start one with ${cmd("run", { graph: slug })}.`);
     const status = await derivedStatus(dir, last);
     if (!["interrupted", "stopped"].includes(status)) {
-      throw new StudioError("NO_RESUME", `The last run ${last.id} is ${status}; only an interrupted or stopped run can be resumed.`, status === "running" || status === "starting" ? `Follow it with studio_status {job:"${last.id}"}.` : "Start a new run; unchanged nodes are reused from cache anyway.");
+      throw new StudioError("NO_RESUME", `The last run ${last.id} is ${status}; only an interrupted or stopped run can be resumed.`, status === "running" || status === "starting" ? `Follow it with ${cmd("status", { graph: slug, job: last.id })}.` : "Start a new run; unchanged nodes are reused from cache anyway.");
     }
     if (status === "interrupted" && last.status !== "interrupted") await markInterrupted(dir, last.id);
     scope = last.scope; newTake = last.newTake; concurrency = last.concurrency; resumeOf = last.id;
@@ -359,14 +360,14 @@ export async function runJob(project: string, slug: string, job: string, executo
   const beat = setInterval(() => {
     const t = new Date();
     utimes(paths(dir).runLock, t, t).catch(() => {});
-    if (existsSync(stopFile)) stop ??= { reason: "Stopped on request.", fix: "Resume with studio_run {resume:true}." };
+    if (existsSync(stopFile)) stop ??= { reason: "Stopped on request.", fix: `Resume with ${cmd("run", { graph: slug, resume: true })}.` };
   }, HEARTBEAT_MS);
   const done = await completedChain(dir, rec);
   const actor = "worker";
   try {
     const initial = (await readBoth(dir)).graph;
     for (const id of topoOrder(initial)) {
-      if (existsSync(stopFile)) stop ??= { reason: "Stopped on request.", fix: "Resume with studio_run {resume:true}." };
+      if (existsSync(stopFile)) stop ??= { reason: "Stopped on request.", fix: `Resume with ${cmd("run", { graph: slug, resume: true })}.` };
       if (stop) break;
       const { graph, state } = await readBoth(dir);
       if (!scopeSet(graph, rec.scope).has(id)) continue;
@@ -405,7 +406,7 @@ export async function runJob(project: string, slug: string, job: string, executo
           rec.progress.slotsDone++;
           rec.progress.generations += res.generations;
         } catch (e) {
-          const c = classifyError(e);
+          const c = classifyError(e, slug);
           if (c.kind !== "node") stop ??= { reason: c.message, fix: c.fix };
           else {
             rec.progress.slotsFailed++;
@@ -421,7 +422,7 @@ export async function runJob(project: string, slug: string, job: string, executo
       });
       await clearActivity(dir, job, id, stop ? "stopped" : "finished");
     }
-    await writeRunSheet(dir, rec).catch(e => rec.errors.push({ node: "(sheet)", message: `Review sheet failed: ${e instanceof Error ? e.message : e}`, fix: "Use studio_view instead." }));
+    await writeRunSheet(dir, rec).catch(e => rec.errors.push({ node: "(sheet)", message: `Review sheet failed: ${e instanceof Error ? e.message : e}`, fix: `Use ${cmd("view", { graph: slug })} instead.` }));
     rec.status = stop ? "stopped" : rec.errors.length ? "done_with_errors" : "done";
     if (stop) { rec.stopReason = stop.reason; rec.stopFix = stop.fix; }
   } catch (e) {

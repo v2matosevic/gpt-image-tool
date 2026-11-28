@@ -9,6 +9,7 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { NODE_SPECS, NODE_TYPES, ROLES, STAGES, closest, typeIssue, validateSettings, type HandleSpec } from "./nodes.js";
 import { StudioError, assetRel, now, paths, toPosix, type EventInput } from "./store.js";
 import type { GraphEdge, GraphFile, GraphNode, Issue, NodeState, NodeType, StateFile, Take } from "./types.js";
+import { cmd, tool } from "./say.js";
 
 const ID_RE = /^[a-z][a-z0-9_-]{0,39}$/i;
 export const NODE_W = 240;
@@ -43,12 +44,12 @@ export function findNode(graph: GraphFile, id: string, path = "node"): GraphNode
 }
 
 export function parseTakeRef(graph: GraphFile, state: StateFile, ref: unknown, path = "take"): { node: GraphNode; take: Take } {
-  if (typeof ref !== "string" || !ref.includes("/")) throw new StudioError("BAD_TAKE", `${path}: expected "node/take", e.g. "gen/t3"; got ${JSON.stringify(ref)}.`, "Take refs are listed by studio_get.");
+  if (typeof ref !== "string" || !ref.includes("/")) throw new StudioError("BAD_TAKE", `${path}: expected "node/take", e.g. "gen/t3"; got ${JSON.stringify(ref)}.`, `Take refs are listed by ${tool("get")}.`);
   const [nid, tid] = ref.split("/") as [string, string];
   const node = findNode(graph, nid, path);
   const takes = state.nodes[nid]?.takes ?? [];
   const take = takes.find(t => t.id === tid);
-  if (!take) throw new StudioError("NO_TAKE", `${path}: node "${nid}" has no take "${tid}".`, takes.length ? `Takes of ${nid}: ${takes.map(t => t.id).join(", ")}.` : `${nid} has no takes yet; run it with studio_run.`);
+  if (!take) throw new StudioError("NO_TAKE", `${path}: node "${nid}" has no take "${tid}".`, takes.length ? `Takes of ${nid}: ${takes.map(t => t.id).join(", ")}.` : `${nid} has no takes yet; run it with ${cmd("run", { graph: graph.slug, scope: nid })}.`);
   return { node, take };
 }
 
@@ -218,9 +219,9 @@ export const OP_HELP: Record<string, string> = {
   clear_verdict: '{op:"clear_verdict", take:"gen/t4"}',
   predict: '{op:"predict", take:"gen/t4", decision:"approved"|"rejected"|"picked", reason:"..."} (an agent\'s call before the human decides)',
   note: '{op:"note", on:"gen", text:"warmer light", author?, take?:"gen/t4"}',
-  answer: '{op:"answer", take:"gen/t4", answers:{c1:"yes", c2:"no", c3:{answer:"unsure", note:"hand hidden"}}} (the checklist of the take, from studio_get node)',
+  answer: '{op:"answer", take:"gen/t4", answers:{c1:"yes", c2:"no", c3:{answer:"unsure", note:"hand hidden"}}} (the checklist of the take, shown when you read the node)',
   critique: '{op:"critique", take:"gen/t4", summary:"...", criteria?:{composition:"...", lighting:"...", artefacts:"..."}, against?:"gen/t2", preferred?:"gen/t4", judge?}',
-  judge_pair: '{op:"judge_pair", pair:"p...", preferred:"A"|"B", reason:"...", criteria?} (a blind pair from studio_view pair)',
+  judge_pair: '{op:"judge_pair", pair:"p...", preferred:"A"|"B", reason:"...", criteria?} (the id of a blind pair sheet)',
   lesson: '{op:"lesson", claim:"backlight reads as premium for glass", dimension:"shot.key_light", takes:["gen/t2","gen/t5"], scope?:"project"|"user", supersedes?:"l..."} (2+ takes as evidence)',
   canon_save: '{op:"canon_save", name:"teapot", takes:["variant/t5"], description:"a small round ceramic teapot, deep cobalt glaze, ...", kind?:"character"|"place"|"product"|"look", role?:"subject", replace?:true} (approved takes only)',
 };
@@ -643,7 +644,7 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
       const id = str(op, "pair", path)!;
       const { readPair } = await import("./craft.js");
       const pair = await readPair(ctx.dir, id);
-      if (!pair) throw new StudioError("NO_PAIR", `${path}: no blind pair "${id}".`, 'Make one with studio_view {pair:["a/t1","b/t2"]}.');
+      if (!pair) throw new StudioError("NO_PAIR", `${path}: no blind pair "${id}".`, `Make one with ${cmd("view", { pair: ["a/t1", "b/t2"] })}.`);
       const choice = str(op, "preferred", path)!;
       if (choice !== "A" && choice !== "B") throw new StudioError("BAD_OP", `${path}.preferred must be "A" or "B".`, OP_HELP.judge_pair);
       const win = parseTakeRef(graph, state, choice === "A" ? pair.A : pair.B, `${path}`), lose = choice === "A" ? pair.B : pair.A;
