@@ -167,3 +167,13 @@ test("a direct API generation records usage and cost in its result and sidecar, 
   assert.match(sidecar, /"output_tokens": 823/);
   assert.ok(!sidecar.includes(key) && !sidecar.includes("SIDECARCANARY"));
 });
+
+test("a profile's complexity applies only to API calls; a subscription call in that project is not refused", async () => {
+  const { overlay } = await import("../dist/generate.js");
+  const profile = { complexity: "low" };
+  assert.equal(overlay(profile as any, { subject: "a cup" } as any).complexity, undefined);
+  assert.equal(overlay(profile as any, { subject: "a cup", backend: "subscription" } as any).complexity, undefined);
+  assert.equal(overlay(profile as any, { subject: "a cup", backend: "apikey" } as any).complexity, "low");
+  assert.equal(overlay({ ...profile, backend: "apikey" } as any, { subject: "a cup" } as any).complexity, "low");
+  assert.equal(overlay(profile as any, { subject: "a cup", backend: "apikey", complexity: "high" } as any).complexity, "high");
+});

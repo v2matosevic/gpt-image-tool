@@ -76,7 +76,9 @@ export function overlay(base: StyleInput, top: StyleInput): StyleInput {
     outputPath: top.outputPath ?? base.outputPath,
     backend: top.backend ?? base.backend,
     imageModel: top.imageModel ?? base.imageModel,
-    complexity: top.complexity ?? base.complexity,
+    // complexity is an API-only field: a profile's value applies only to calls that end up on the
+    // apikey backend, so a subscription call in that project is not refused for it.
+    complexity: top.complexity ?? ((top.backend ?? base.backend ?? process.env.GPT_IMAGE_BACKEND ?? "subscription").toLowerCase() === "apikey" ? base.complexity : undefined),
     keyProject: top.keyProject ?? base.keyProject,
     brand: top.brand ?? base.brand,
     brief: top.brief === undefined ? base.brief : { ...base.brief, ...top.brief },
