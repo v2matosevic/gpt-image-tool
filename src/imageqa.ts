@@ -114,6 +114,32 @@ export interface LookReading {
   sharpness: { thirds: number[]; sharpest: string; separation: number };
   /** Share of pixels on a strong edge: a proxy for detail density. */
   detail: { edgeDensity: number };
+  /** Share of opaque pixels per colour family (HSV hue, saturation >= 0.25, value >= 0.15). Optional:
+   *  readings stored before 2026-11-28 lack it. */
+  hues?: Record<HueFamily, number>;
+}
+
+export const HUE_FAMILIES = ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "pink"] as const;
+export type HueFamily = (typeof HUE_FAMILIES)[number];
+/** Upper hue bound (degrees) of each family, in ring order; red wraps around 345. */
+const HUE_BOUNDS: Array<[number, HueFamily]> = [[15, "red"], [45, "orange"], [70, "yellow"], [170, "green"], [200, "cyan"], [260, "blue"], [290, "purple"], [345, "pink"], [360, "red"]];
+
+export function hueFamilyShares(img: RGBA): Record<HueFamily, number> {
+  const counts = Object.fromEntries(HUE_FAMILIES.map(f => [f, 0])) as Record<HueFamily, number>;
+  const { data } = img;
+  let opaque = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3]! < 128) continue;
+    opaque++;
+    const r = data[i]! / 255, g = data[i + 1]! / 255, b = data[i + 2]! / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    if (max < 0.15 || d / max < 0.25) continue;
+    let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    h = (h * 60 + 360) % 360;
+    counts[HUE_BOUNDS.find(([hi]) => h < hi)![1]]++;
+  }
+  for (const f of HUE_FAMILIES) counts[f] = r3(opaque ? counts[f] / opaque : 0);
+  return counts;
 }
 
 const CELLS = ["top-left", "top-centre", "top-right", "middle-left", "centre", "middle-right", "bottom-left", "bottom-centre", "bottom-right"];
@@ -218,6 +244,7 @@ export function readLook(src: RGBA): LookReading {
     composition: { thirds, centroid: { x: r3(wsum ? wx / wsum : 0.5), y: r3(wsum ? wy / wsum : 0.5) }, heaviest: CELLS[heaviest]!, negativeSpace: r3(blocks ? quiet / blocks : 0) },
     sharpness: { thirds: sh.map(v => r3(v / shMax)), sharpest: CELLS[sharpest]!, separation: r3(Math.min(9999, shMax / shMin)) },
     detail: { edgeDensity: r3(inner ? edges / inner : 0) },
+    hues: hueFamilyShares(img),
   };
 }
 

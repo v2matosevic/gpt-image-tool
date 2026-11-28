@@ -605,6 +605,7 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
       (take.critiques ??= []).push(c);
       ctx.events.push({ type: "take.critiqued", node: node.id, take: take.id, judge: c.judge });
       ctx.feedback.push(takeFeedback(graph, node, take, "critique", { judge: c.judge, summary, against, preferred }));
+      if (!against) for (const w of await (await import("./craft.js")).colourMismatch(summary, take, ctx.dir)) ctx.notes.push(`Check critique ${c.id} on ${node.id}/${take.id}: ${w}. Look again before relying on it.`);
       return `critique ${c.id} on ${node.id}/${take.id} by ${c.judge}`;
     }
     case "lesson": {
@@ -631,6 +632,8 @@ async function applyOne(graph: GraphFile, state: StateFile, op: Op, path: string
         if (x.take.verdict?.decision !== "approved") throw new StudioError("NOT_APPROVED", `${path}.takes[${i}]: ${x.node.id}/${x.take.id} is not approved.`, `Canon is for settled images. Approve it first (after a recorded look): {op:"approve", take:"${x.node.id}/${x.take.id}"}.`);
         return { ref: `${x.node.id}/${x.take.id}`, take: x.take, role };
       });
+      const { colourMismatch } = await import("./craft.js");
+      for (const t of takes) for (const w of await colourMismatch(description, t.take, ctx.dir)) ctx.notes.push(`Check the canon description against ${t.ref}: ${w}. Generators get this description word for word; replace it (replace:true) if it is wrong.`);
       const { saveCanon } = await import("./canon.js");
       const entry = await saveCanon(ctx.project, ctx.dir, { name, kind: typeof op.kind === "string" ? op.kind : undefined, description, takes, by: ctx.actor, replace: op.replace === true });
       ctx.events.push({ type: "canon.saved", name, takes: takes.map(t => t.ref) });

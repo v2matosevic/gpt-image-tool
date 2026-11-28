@@ -112,6 +112,16 @@ An agent cannot approve a take until it has recorded a look (checklist answers o
 a critique); the refusal names the op to send. People approve freely: ADE and the
 CLI pass `--human`. Readings measure; they do not prove an image is better.
 
+Known limit: the gate checks that a look was recorded, not that it is true. In the
+2026-11-28 fresh-agent test an agent described a cream teapot as cobalt, was
+allowed to approve it, and saved a canon description contradicting the image.
+One cheap guard exists: when a critique (not a comparison) or a canon description
+names a colour family that the image has no pixels of, counting the neighbouring
+families too (readings carry `hues`, the share of saturated pixels per family),
+the edit result carries a warning. It never blocks, it ignores negations such as
+"no blue", and it checks only colour presence: a wrong shape, count or identity
+passes.
+
 Study an image someone admires with `studio_view {study: "path"}` (or a take ref
 plus `graph`; CLI `gpt-image studio study`): the local reading, plus shot language
 from one subscription vision request, returned as a ready style node. If the

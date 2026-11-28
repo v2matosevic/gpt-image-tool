@@ -754,3 +754,26 @@ test("review 2 #13: the header counts notes apart from nodes, null removal says 
   assert.match(dry.message, /2\+ generations/);
   assert.match(dry.message, /"\+" means at least: ed waits on upstream images this run makes/);
 });
+
+test("review 2 limit: a critique or canon description naming a colour the image lacks gets a warning, never a refusal", async () => {
+  const { encodePng } = await import("../dist/bgremove.js");
+  const p = project();
+  await createGraph({ name: "Cream", nodes: [{ ref: "gen", type: "generate", settings: { prompt: "a teapot" } }], connections: [] }, { project: p });
+  const { executors } = makeFakes();
+  executors.generate = async (x: any) => {
+    const data = Buffer.alloc(64 * 64 * 4);
+    for (let i = 0; i < 64 * 64; i++) data.set(i % 64 < 40 ? [240, 230, 205, 255] : [250, 250, 248, 255], i * 4);
+    writeFileSync(`${x.outBase}.png`, encodePng({ width: 64, height: 64, data }));
+    return { path: `${x.outBase}.png`, generations: 1 };
+  };
+  await startRun(p, "cream", { actor: "t", detach: false, executors });
+  const take = (await readBoth(graphDir(p, "cream"))).state.nodes.gen.takes[0];
+  assert.equal(take.reading.hues.blue, 0);
+  const wrong = await editGraph("cream", [{ op: "critique", take: "gen/t1", summary: "A cobalt glazed teapot on white." }, { op: "approve", take: "gen/t1" }], { project: p });
+  assert.equal(wrong.applied.length, 2, "recorded and approved: the guard warns, it does not block");
+  assert.match(wrong.notes.join("\n"), /"cobalt" names blue, but the image has no blue pixels/);
+  const fine = await editGraph("cream", [{ op: "critique", take: "gen/t1", summary: "A cream teapot, no blue anywhere." }], { project: p });
+  assert.equal(fine.notes.length, 0);
+  const canon = await editGraph("cream", [{ op: "canon_save", name: "pot", takes: ["gen/t1"], description: "A cobalt blue teapot with a cream knob." }], { project: p });
+  assert.match(canon.notes.join("\n"), /Check the canon description against gen\/t1: "cobalt" names blue/);
+});

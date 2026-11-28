@@ -123,6 +123,10 @@ Recording a judgement:
 - {op:"critique", take, summary, criteria?, against?, preferred?}: what you saw, in words.
 - An agent cannot approve a take without a recorded look (a critique or checklist answers). Put the
   look and the approve in the same studio_edit call. People approve freely.
+- The gate checks that a look was recorded, not that it is true. A test agent described a cream
+  teapot as cobalt, was accepted, and saved a canon description that contradicted the image. Open
+  the image before you write about it. One cheap guard: a critique or canon description naming a
+  colour family the image has no pixels of gets a warning in the result notes (never a refusal).
 - Lessons: when a sweep or several takes settle something, record it so later sessions start from
   it: {op:"lesson", claim, dimension, takes:[2+ takes], scope?:"project"|"user", supersedes?}. One
   take is never a lesson. Lessons are superseded, never edited; old ones weigh less because the
