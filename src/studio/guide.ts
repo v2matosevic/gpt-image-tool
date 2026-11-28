@@ -188,8 +188,74 @@ studio_run {graph:"mug-lookbook", scope:"hand"}    -> writes handoff/hand/handof
 Variations of an approved anchor: connect the approved generator to an edit node (to_handle "image")
 with a list of instructions, so each variation is an edit of the anchor, not a fresh generation.`;
 
-export function guide(topic: GuideTopic = "all"): string {
-  const parts: Record<string, () => string> = { overview: () => OVERVIEW, nodes: nodesSection, ops: opsSection, run: () => RUN, review: () => REVIEW, handoff: () => HANDOFF, shot: shotSection, recipes: recipesGuide, example: () => EXAMPLE };
-  if (topic !== "all") return parts[topic]!();
-  return GUIDE_TOPICS.map(t => parts[t]!()).join("\n\n");
+const CLI_EXAMPLE = `# Worked example (CLI)
+
+Write the spec to a file and pass it with @ (or - for stdin); JSON on the command line works too.
+
+mug.json: {"name":"Mug lookbook","nodes":[
+  {"ref":"subject","type":"prompt","settings":{"text":"a matte sage ceramic mug on a {{item}} tabletop"}},
+  {"ref":"surfaces","type":"list","settings":{"items":["white marble","oiled oak","raw linen"]}},
+  {"ref":"look","type":"style","settings":{"preset":"product-studio","shot":{"lens":"85mm","key_light":"soft window light from camera left"}}},
+  {"ref":"draft","type":"generate","settings":{"quality":"low","size":"1024x1024"}},
+  {"ref":"pick","type":"gallery"},
+  {"ref":"hand","type":"handoff","settings":{"intent":"Product hero for the shop landing page","target":"Next.js hero, 1440px"}}],
+ "connections":[{"from":"subject","to":"surfaces"},{"from":"surfaces","to":"draft"},{"from":"look","to":"draft"},
+  {"from":"draft","to":"pick"},{"from":"pick","to":"hand"}]}
+
+gpt-image studio create --spec @mug.json
+gpt-image studio run mug-lookbook --dry-run          -> plan plus the compiled prompt of one slot
+gpt-image studio run mug-lookbook --wait 120         -> 3 low-quality drafts (one per surface)
+gpt-image studio sheet mug-lookbook                  -> open the review sheet it prints
+gpt-image studio sheet mug-lookbook --zoom draft/t2@centre
+gpt-image studio edit mug-lookbook --ops '[{"op":"prompt_edit","node":"subject","find":"matte sage","replace":"glossy sage"}]'
+gpt-image studio run mug-lookbook --wait 120         -> all three rerender (the shared text changed)
+gpt-image studio edit mug-lookbook --ops @verdict.json   (answer, approve and pick in one call)
+gpt-image studio run mug-lookbook --scope hand       -> writes handoff/hand/handoff.md
+
+On Windows PowerShell, prefer @file for ops: inline JSON quoting differs between shells.
+
+Variations of an approved anchor: connect the approved generator to an edit node (to_handle "image")
+with a list of instructions, so each variation is an edit of the anchor, not a fresh generation.`;
+
+const CLI_PREFACE = `You are using the CLI (gpt-image studio). Other agents reach the same operations as MCP tools
+(studio_*); this copy of the guide is written for the CLI. create --spec, edit --ops and run take JSON
+inline, @file or - (stdin), and ops JSON is the same everywhere. Flags: --new-take, --dry-run,
+--wait <s>, --expect-revision <n>, --project <dir>, --json. Topics: gpt-image studio guide <topic>.`;
+
+/** MCP wording to CLI wording. Specific forms first, then the general names. */
+const CLI_TERMS: Array<[RegExp | string, string]> = [
+  ["studio_run {graph, scope?, nodes?, new_take?, concurrency?, dry_run?, resume?, stop?, wait_seconds?}",
+    "gpt-image studio run <graph> [--scope all|id|id+] [--nodes a,b] [--new-take] [--concurrency 1-3] [--dry-run] [--resume] [--stop] [--wait s]"],
+  ["studio_create {name, recipe, subject, path?}", `gpt-image studio create --spec '{"name":"...","recipe":"lookbook","subject":"..."}' (path for product-set)`],
+  ['studio_view {study:"images/admired.png"} (or a take ref with\ngraph)', "gpt-image studio study images/admired.png (or a take ref with\n--graph)"],
+  ["Looking closer (studio_view):", "Looking closer (gpt-image studio sheet <graph>):"],
+  ['- overlays:["grid","palette","histogram"]:', "- --overlays grid,palette,histogram:"],
+  ['- zoom:{take:"gen/t4", region:"bottom-right"} (a thirds cell, or [x,y,w,h] fractions)', "- --zoom gen/t4@bottom-right (a thirds cell, or @x,y,w,h fractions)"],
+  ['- pair:["gen/t3","gen/t5"]:', "- --pair gen/t3,gen/t5:"],
+  ["studio_view pair", "gpt-image studio sheet --pair"],
+  ["studio_get node", "gpt-image studio get <graph> --node <id>"],
+  ["studio_run {resume:true}", "gpt-image studio run <graph> --resume"],
+  ["studio_get {node}", "gpt-image studio get <graph> --node <id>"],
+  ["# studio_edit ops", "# Ops (gpt-image studio edit <graph> --ops)"],
+  [/studio_(create|run|status|edit|get|list|guide)\b/g, "gpt-image studio $1"],
+  [/studio_view\b/g, "gpt-image studio sheet"],
+  [/new_take:true/g, "--new-take"],
+  [/\bwait_seconds\b/g, "--wait"],
+  [/\bexpect_revision\b/g, "--expect-revision"],
+  [/\bdry_run\b/g, "--dry-run"],
+  [/\ball_takes\b/g, "--all-takes"],
+];
+
+export type GuideDialect = "mcp" | "cli";
+
+/** The guide, worded for MCP tools (default) or for the CLI. */
+export function guide(topic: GuideTopic = "all", dialect: GuideDialect = "mcp"): string {
+  const example = dialect === "cli" ? () => CLI_EXAMPLE : () => EXAMPLE;
+  const parts: Record<string, () => string> = { overview: () => OVERVIEW, nodes: nodesSection, ops: opsSection, run: () => RUN, review: () => REVIEW, handoff: () => HANDOFF, shot: shotSection, recipes: recipesGuide, example };
+  let text = topic !== "all" ? parts[topic]!() : GUIDE_TOPICS.map(t => parts[t]!()).join("\n\n");
+  if (dialect === "cli") {
+    for (const [from, to] of CLI_TERMS) text = typeof from === "string" ? text.split(from).join(to) : text.replace(from, to);
+    text = `${CLI_PREFACE}\n\n${text}`;
+  }
+  return text;
 }

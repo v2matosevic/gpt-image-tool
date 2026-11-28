@@ -700,3 +700,16 @@ test("review 2 #9: a dry run shows the compiled prompt of one slot per provider 
   assert.match(sw.prompt, /Change only the lens to: 35mm/);
   assert.match(r.message, /^Prompt for gen \(slot 1\): A cobalt teapot/m);
 });
+
+test("review 2 #10: the CLI guide speaks CLI, with a CLI worked example and --spec @file; MCP wording is unchanged", () => {
+  const cli = guide("all", "cli");
+  const body = cli.split("\n").slice(4).join("\n");
+  assert.doesNotMatch(body, /studio_[a-z]/, "no MCP tool names after the preface");
+  assert.doesNotMatch(body, /\{study:|zoom:\{|new_take:true|\{graph:"/);
+  assert.match(cli, /gpt-image studio create --spec @mug\.json/);
+  assert.match(cli, /--zoom gen\/t4@bottom-right/);
+  assert.match(cli, /gpt-image studio run <graph> --resume/);
+  const mcp = guide("all");
+  assert.match(mcp, /studio_view \{study:"images\/admired\.png"\}/);
+  assert.doesNotMatch(mcp, /gpt-image studio /);
+});

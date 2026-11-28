@@ -97,7 +97,7 @@ export async function studioMain(argv: string[]): Promise<number> {
         if (topic !== "all" && !(GUIDE_TOPICS as readonly string[]).includes(topic)) throw new StudioError("BAD_ARGS", `Unknown guide topic ${topic}.`, `Topics: ${GUIDE_TOPICS.join(", ")}.`);
         const { memoryBrief } = await import("./memory.js");
         const memory = await memoryBrief(resolveProject(who.project)).catch(() => "");
-        const g = guide(topic) + (memory ? `
+        const g = guide(topic, "cli") + (memory ? `
 
 # What this project has learned
 
