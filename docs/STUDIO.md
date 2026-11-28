@@ -342,7 +342,7 @@ interface; schema names carry a version.
 | `state.json` | edits and runs | `gpt-image-studio/state@1`: `revision`, `eventSeq`, `nextTake`, and per node: `takes`, `selected`, gallery `picks`, `error`, and `activity` while a run works on it. |
 | `events.jsonl` | every write | One JSON object per line: `seq`, `ts`, `type`, `actor`, `graphRevision`, details. Rotated to `events.1.jsonl` past 1 MB. |
 | `feedback.jsonl` | edits | Append-only verdicts, picks, predictions and comments, each with the take's settings and reading. Never rotated. |
-| `runs/<job>.json` | the run's worker | `gpt-image-studio/run@1`: status, scope, planned and done counts, generations, completed slot keys, new takes, skips, errors, stop reason and fix, and `origin: {terminal?, workspace?}` when the run was started from an ADE terminal (`HEPHAESTUS_TERMINAL_ID` / `HEPHAESTUS_WORKSPACE` in the starting process). Phase 1d adds `stopCode?` (`budget-run`, `budget-day`, `budget-ceiling`, `budget-user-day`, `budget-user-ceiling`) and `budget?: {chain, limits: {run, day, ceiling}, estimate, spent, chainSpent?, needed?}` in dollars. |
+| `runs/<job>.json` | the run's worker | `gpt-image-studio/run@1`: status, scope, planned and done counts, generations, completed slot keys, new takes, skips, errors, stop reason and fix, and `origin: {terminal?, workspace?}` when the run was started from an ADE terminal (`HEPHAESTUS_TERMINAL_ID` / `HEPHAESTUS_WORKSPACE` in the starting process). Phase 1d adds `stopCode?` (`budget-run`, `budget-day`, `budget-ceiling`, `budget-user-day`, `budget-user-ceiling`, and since 2026-11-28 `subscription-cap`, with `resetAt?`: the ISO time the image cap resets, from the provider's `resets_at`; resuming earlier fails the same way) and `budget?: {chain, limits: {run, day, ceiling}, estimate, spent, chainSpent?, needed?}` in dollars. |
 | `../_budget/<YYYY-MM-DD>.jsonl` | runs, direct API calls, `budget --grant` | Per project, next to the graph folders, one file per local day. One JSON object per line with `schema: "gpt-image-studio/budget@1"` and `t`: `reserve` `{id, ts, day, run, chain, graph, node, slot, estimate, model, funding: "limit"\|"grant:<id>", by}` (`graph` is `_direct` for tool calls outside Studio), `settle` `{id, ts, cost, uncertain?, take?, note?}` (in the reservation's day file; ids `s<YYYYMMDD>-...` name it), `grant` `{id, ts, day, amount, graph?, approvedBy, words, expires, source: "agent"\|"app", by}`. Append-only, under `_budget/.lock`. A reservation without a settlement counts at its estimate. `_budget/ledger.jsonl` (2026-11-28 only, before per-day files) is still read, never written. |
 | `~/.gptimage/budget/<YYYY-MM-DD>.jsonl` | the same writers | User level, across projects: `reserve` `{id, ts, day, project, graph, estimate, funding, by}` and `settle` `{id, ts, cost}`, same schema and ids. User limits: `~/.gptimage/config.json`. |
 | `assets/` | runs, reference imports | Image files. Generated ones keep the usual JSON sidecar. |
@@ -369,6 +369,9 @@ Rules:
   A run is live while that file's mtime is under 60 s old and its process exists.
   A `starting`/`running` record without a live lock is interrupted.
 - `node.activity` is meaningful only while its job is live.
+- Node positions: `move` pins a node (`position.pinned`), and `layout` leaves pinned nodes alone.
+  `{op:"unpin", node}` (added 2026-11-28, event `node.unpinned`) drops the pin and places the
+  node automatically again, so undoing a move returns it to the engine's layout.
 - Paths: settings paths (`reference.path`, `implementation.screenshot`) are
   project-relative; takes' `asset` and `files` are relative to the graph folder;
   all use forward slashes. Files outside the project are copied into `assets/` as
@@ -380,7 +383,8 @@ Rules:
   see "Perception pack".
 - Review fields on a take, all optional: `reading` (local measurements,
   `{version: 1, source: "local", palette, luminance, contrast, color, composition,
-  sharpness, detail, frame?}`; `frame` is added 2026-11-28 and present only when bars
+  sharpness, detail, frame?}`; `sharpness.softShare?` (the share of textured patches that are
+  soft; shallow depth of field reads from about 0.4) and `frame` are added 2026-11-28; `frame` is present only when bars
   were measured: `{kind: "letterbox"|"pillarbox", top, bottom, left, right, colour,
   picture: {width, height}}`), `deviations` (`{source: "anchor"|"request", measure,
   expected, measured, note}`), `checklist` (`{id, question, from, answer?, by?,
