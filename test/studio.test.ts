@@ -648,7 +648,7 @@ test("review 2 #6: the CLI guide and create say what memory holds, including not
 
 test("review 2 #7: a sweep with a subject anchor renders as edits of it; without one the result says the subject may vary", async () => {
   const { sweepInstruction } = await import("../dist/studio/execute.js");
-  assert.equal(sweepInstruction("shot.key_light", "backlight"), "Keep the subject, its shape, materials and position, and the composition exactly as in the image. Change only the key light to: backlight.");
+  assert.equal(sweepInstruction("shot.key_light", "backlight"), "Keep the subject, its shape, materials and position, and the composition exactly as in the image. Change only the key light to: backlight");
   const p = project();
   const values = ["from camera left", "backlight"];
   await createGraph({ name: "Anch", nodes: [
@@ -776,6 +776,18 @@ test("review 2 limit: a critique or canon description naming a colour the image 
   assert.equal(fine.notes.length, 0);
   const canon = await editGraph("cream", [{ op: "canon_save", name: "pot", takes: ["gen/t1"], description: "A cobalt blue teapot with a cream knob." }], { project: p });
   assert.match(canon.notes.join("\n"), /Check the canon description against gen\/t1: "cobalt" names blue/);
+});
+
+test("review 2 #10: CLI results and refusals use CLI wording, JSON stays raw", async () => {
+  const { cliWording } = await import("../dist/studio/guide.js");
+  assert.equal(cliWording('Still running. Call studio_status {graph:"g", job:"r1"} again; it waits up to 30s.'), "Still running. Call gpt-image studio status g --job r1 --wait 30 again.");
+  assert.equal(cliWording('Make one with studio_view {pair:["a/t1","b/t2"]}.'), "Make one with gpt-image studio sheet <graph> --pair a/t1,b/t2.");
+  const p = project();
+  const err = await new Promise<string>(res => {
+    const c = spawn(process.execPath, [fixture("../../dist/cli.js"), "studio", "edit", "nope", "--ops", "[]", "--project", p]);
+    let out = ""; c.stderr.on("data", d => (out += d)); c.on("exit", () => res(out));
+  });
+  assert.doesNotMatch(err, /studio_[a-z]+/, err);
 });
 
 test("editing a graph that does not exist names it instead of a raw lock-file error", async () => {

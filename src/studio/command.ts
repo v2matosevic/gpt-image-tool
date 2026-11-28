@@ -3,7 +3,7 @@
 
 import { readFile } from "node:fs/promises";
 import { createGraph, editGraph, getGraph, listGraphs, lookCloser, revisionLine, runGraph, statusReport, viewGraph } from "./api.js";
-import { guide, GUIDE_TOPICS, type GuideTopic } from "./guide.js";
+import { cliWording, guide, GUIDE_TOPICS, type GuideTopic } from "./guide.js";
 import { StudioError, graphDir, readEvents, resolveProject } from "./store.js";
 
 const HELP = `gpt-image studio: node-graph image workflows (subscription only)
@@ -84,7 +84,7 @@ export async function studioMain(argv: string[]): Promise<number> {
     const cmd = pos[0];
     if (!cmd || flags.help) { process.stderr.write(HELP); return flags.help ? 0 : 1; }
     const who = { human: Boolean(flags.human), project: flags.project as string | undefined, actor: (flags.actor as string | undefined) ?? (process.env.GPT_IMAGE_STUDIO_ACTOR || "cli") };
-    const out = (data: unknown, human: string) => { process.stdout.write(json ? JSON.stringify({ ok: true, ...(data as object) }, null, 2) + "\n" : human + "\n"); };
+    const out = (data: unknown, human: string) => { process.stdout.write(json ? JSON.stringify({ ok: true, ...(data as object) }, null, 2) + "\n" : cliWording(human) + "\n"); };
     switch (cmd) {
       case "list": {
         const r = await listGraphs(who);
@@ -176,7 +176,7 @@ ${memory}` : "");
   } catch (e) {
     const err = e instanceof StudioError ? { code: e.code, message: e.message, fix: e.fix, issues: e.issues } : { code: "ERROR", message: e instanceof Error ? e.message : String(e) };
     if (json) process.stdout.write(JSON.stringify({ ok: false, error: err }, null, 2) + "\n");
-    process.stderr.write(`✗ ${err.message}${"fix" in err && err.fix ? `\n  Fix: ${err.fix}` : ""}\n`);
+    process.stderr.write(cliWording(`✗ ${err.message}${"fix" in err && err.fix ? `\n  Fix: ${err.fix}` : ""}`) + "\n");
     return 1;
   }
 }

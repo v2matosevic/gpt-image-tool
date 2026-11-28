@@ -53,7 +53,7 @@ const refArgs = (x: Pick<ExecInput, "dir" | "slot">) => x.slot.refs.map(r => ({ 
 /** "Change only the key light to: backlight", so a sweep varies one thing and holds the subject. */
 export function sweepInstruction(dim: string, value: string): string {
   const name = dim === "preset" ? "overall style" : dim.split(".")[1]!.replace(/_/g, " ").replace(/^color/, "colour");
-  return `Keep the subject, its shape, materials and position, and the composition exactly as in the image. Change only the ${name} to: ${value}.`;
+  return `Keep the subject, its shape, materials and position, and the composition exactly as in the image. Change only the ${name} to: ${value}`;
 }
 
 type PromptInput = Pick<ExecInput, "dir" | "node" | "slot">;

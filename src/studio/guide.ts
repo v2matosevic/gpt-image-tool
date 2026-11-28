@@ -239,6 +239,10 @@ const CLI_TERMS: Array<[RegExp | string, string]> = [
   ["studio_view pair", "gpt-image studio sheet --pair"],
   ["studio_get node", "gpt-image studio get <graph> --node <id>"],
   ["studio_run {resume:true}", "gpt-image studio run <graph> --resume"],
+  [/studio_status \{graph:"([^"]+)", job:"([^"]+)"\} again; it waits up to 30s/g, "gpt-image studio status $1 --job $2 --wait 30 again"],
+  [/studio_status \{job:"([^"]+)"\}/g, "gpt-image studio status <graph> --job $1"],
+  [/studio_run \{stop:true\}/g, "gpt-image studio run <graph> --stop"],
+  [/studio_view \{pair:\["([^"]+)","([^"]+)"\]\}/g, "gpt-image studio sheet <graph> --pair $1,$2"],
   ["studio_get {node}", "gpt-image studio get <graph> --node <id>"],
   ["# studio_edit ops", "# Ops (gpt-image studio edit <graph> --ops)"],
   [/studio_(create|run|status|edit|get|list|guide)\b/g, "gpt-image studio $1"],
@@ -257,9 +261,12 @@ export function guide(topic: GuideTopic = "all", dialect: GuideDialect = "mcp"):
   const example = dialect === "cli" ? () => CLI_EXAMPLE : () => EXAMPLE;
   const parts: Record<string, () => string> = { overview: () => OVERVIEW, nodes: nodesSection, ops: opsSection, run: () => RUN, review: () => REVIEW, handoff: () => HANDOFF, shot: shotSection, recipes: recipesGuide, example };
   let text = topic !== "all" ? parts[topic]!() : GUIDE_TOPICS.map(t => parts[t]!()).join("\n\n");
-  if (dialect === "cli") {
-    for (const [from, to] of CLI_TERMS) text = typeof from === "string" ? text.split(from).join(to) : text.replace(from, to);
-    text = `${CLI_PREFACE}\n\n${text}`;
-  }
+  return dialect === "cli" ? `${CLI_PREFACE}\n\n${cliWording(text)}` : text;
+}
+
+/** Rewrite MCP tool wording (studio_view {zoom}, new_take:true) into CLI commands and flags. The CLI
+ *  passes everything it prints through this, so results and refusals read in its own terms. */
+export function cliWording(text: string): string {
+  for (const [from, to] of CLI_TERMS) text = typeof from === "string" ? text.split(from).join(to) : text.replace(from, to);
   return text;
 }
